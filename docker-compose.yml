@@ -78,6 +78,9 @@ services:
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       mockvendor: {condition: service_started}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
   # Headless Chrome for JavaScript-only docs pages (CB_DOC_RENDERER=http://renderer:9222).
   # Own network: it can reach the internet and the API, not postgres or other
   # services; the API also checks every request the browser makes.
@@ -89,9 +92,6 @@ services:
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
     profiles: [render]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ['no-new-privileges:true']
   mockvendor:
     build:
       context: .
