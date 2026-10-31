@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000" width="1400" height="1000" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .t{font-size:14px;font-weight:600;fill:#0f172a}
+      .s{font-size:12px;fill:#334155}
+      .l{font-size:12px;fill:#475569;font-style:italic}
+      .g{font-size:13px;font-weight:700;fill:#1e293b;letter-spacing:.5px}
+      .box{fill:#eff6ff;stroke:#3b82f6;stroke-width:1.5}
+      .sec{fill:#fef2f2;stroke:#dc2626;stroke-width:2}
+      .db{fill:#ecfdf5;stroke:#059669;stroke-width:1.5}
+      .ext{fill:#f8fafc;stroke:#64748b;stroke-width:1.5}
+      .ln{stroke:#475569;stroke-width:1.6;fill:none}
+      .dash{stroke-dasharray:6 4}
+    </style>
+  </defs>
+
+  <rect width="1400" height="1000" fill="#ffffff"/>
+
+  <text x="40" y="38" font-size="22" font-weight="700" fill="#0f172a">ConfigBridge — single-tenant product architecture</text>
+  <text x="40" y="60" class="s">One isolated deployment per customer · engineers manage configs in a UI · secrets can only ever reach their bound vendor host</text>
+
+  <!-- ===== Release pipeline (vendor side) ===== -->
+  <rect x="40" y="85" width="150" height="75" rx="8" class="ext"/>
+  <text x="115" y="117" text-anchor="middle" class="t">Developers</text>
+  <text x="115" y="137" text-anchor="middle" class="s">engine code (Go)</text>
+
+  <rect x="230" y="85" width="180" height="75" rx="8" class="ext"/>
+  <text x="320" y="117" text-anchor="middle" class="t">GitHub repo</text>
+  <text x="320" y="137" text-anchor="middle" class="s">PR review · CODEOWNERS</text>
+
+  <rect x="450" y="85" width="270" height="75" rx="8" class="sec"/>
+  <text x="585" y="108" text-anchor="middle" class="t">CI pipeline</text>
+  <text x="585" y="127" text-anchor="middle" class="s">go test · govulncheck · SBOM</text>
+  <text x="585" y="145" text-anchor="middle" class="s">Trivy image scan · cosign sign</text>
+
+  <rect x="760" y="85" width="200" height="75" rx="8" class="box"/>
+  <text x="860" y="117" text-anchor="middle" class="t">Container registry</text>
+  <text x="860" y="137" text-anchor="middle" class="s">signed image, no secrets</text>
+
+  <rect x="1000" y="85" width="260" height="75" rx="8" class="box"/>
+  <text x="1130" y="108" text-anchor="middle" class="t">Deploy template (Terraform)</text>
+  <text x="1130" y="127" text-anchor="middle" class="s">one apply per customer</text>
+  <text x="1130" y="145" text-anchor="middle" class="s">same image to every customer</text>
+
+  <path class="ln" d="M190,122 H228" marker-end="url(#a)"/>
+  <path class="ln" d="M410,122 H448" marker-end="url(#a)"/>
+  <path class="ln" d="M720,122 H758" marker-end="url(#a)"/>
+  <path class="ln" d="M960,122 H998" marker-end="url(#a)"/>
+  <path class="ln" d="M1130,160 V208" marker-end="url(#a)"/>
+  <text x="1140" y="190" class="l">provision / upgrade (verify signature)</text>
+
+  <!-- ===== People & IdP (customer side, outside deployment) ===== -->
+  <rect x="40" y="290" width="190" height="110" rx="8" class="ext"/>
+  <text x="135" y="318" text-anchor="middle" class="t">Customer staff</text>
+  <text x="135" y="340" text-anchor="middle" class="s">Viewer · Engineer</text>
+  <text x="135" y="358" text-anchor="middle" class="s">Approver · Secrets admin</text>
+  <text x="135" y="380" text-anchor="middle" class="s">(browser)</text>
+
+  <rect x="40" y="450" width="190" height="85" rx="8" class="sec"/>
+  <text x="135" y="477" text-anchor="middle" class="t">Customer SSO</text>
+  <text x="135" y="497" text-anchor="middle" class="s">Okta / Entra ID (OIDC)</text>
+  <text x="135" y="515" text-anchor="middle" class="s">MFA enforced</text>
+
+  <!-- ===== Customer A deployment ===== -->
+  <rect x="260" y="210" width="900" height="670" rx="14" fill="#f8fafc" stroke="#0f172a" stroke-width="2" class="dash"/>
+  <text x="280" y="234" class="g">CUSTOMER A DEPLOYMENT · own cloud account / VPC</text>
+
+  <!-- Ingress -->
+  <rect x="285" y="285" width="160" height="80" rx="8" class="sec"/>
+  <text x="365" y="310" text-anchor="middle" class="t">HTTPS ingress</text>
+  <text x="365" y="330" text-anchor="middle" class="s">TLS · WAF</text>
+  <text x="365" y="348" text-anchor="middle" class="s">rate limiting</text>
+
+  <path class="ln" d="M230,330 H283" marker-end="url(#a)"/>
+  <path class="ln dash" d="M230,492 H262 V340" />
+  <text x="268" y="430" class="l" transform="rotate(-90 268 430)">OIDC login</text>
+
+  <!-- App container -->
+  <rect x="475" y="248" width="425" height="470" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="490" y="268" class="g" fill="#1d4ed8">APP CONTAINER · Go · distroless · non-root · read-only FS</text>
+
+  <rect x="495" y="282" width="190" height="72" rx="8" class="box"/>
+  <text x="590" y="305" text-anchor="middle" class="t">Web UI + API</text>
+  <text x="590" y="324" text-anchor="middle" class="s">RBAC · CSRF · CSP</text>
+  <text x="590" y="341" text-anchor="middle" class="s">re-auth for sensitive ops</text>
+
+  <rect x="700" y="282" width="185" height="72" rx="8" class="sec"/>
+  <text x="792" y="305" text-anchor="middle" class="t">Config workflow</text>
+  <text x="792" y="324" text-anchor="middle" class="s">draft → 2nd-person approve</text>
+  <text x="792" y="341" text-anchor="middle" class="s">→ live · versioned · rollback</text>
+
+  <rect x="495" y="366" width="190" height="72" rx="8" class="box"/>
+  <text x="590" y="389" text-anchor="middle" class="t">Scheduler</text>
+  <text x="590" y="408" text-anchor="middle" class="s">per-config interval</text>
+  <text x="590" y="425" text-anchor="middle" class="s">Postgres job locks</text>
+
+  <rect x="700" y="366" width="185" height="72" rx="8" class="sec"/>
+  <text x="792" y="389" text-anchor="middle" class="t">Secrets service</text>
+  <text x="792" y="408" text-anchor="middle" class="s">write-only · never shown</text>
+  <text x="792" y="425" text-anchor="middle" class="s">bound to one vendor host</text>
+
+  <rect x="495" y="452" width="390" height="70" rx="8" class="sec"/>
+  <text x="690" y="474" text-anchor="middle" class="t">Egress guard (checked on every request)</text>
+  <text x="690" y="493" text-anchor="middle" class="s">secret only to its bound host · HTTPS only · no redirects</text>
+  <text x="690" y="510" text-anchor="middle" class="s">block localhost / private IPs / 169.254.169.254 (after DNS)</text>
+
+  <rect x="495" y="532" width="390" height="92" rx="8" class="box"/>
+  <text x="690" y="554" text-anchor="middle" class="t">Connector engine</text>
+  <text x="690" y="573" text-anchor="middle" class="s">auth: api_key · basic · bearer · oauth2 (token in memory)</text>
+  <text x="690" y="591" text-anchor="middle" class="s">paging · retry 1s→2s→4s · 429 Retry-After · streamed size cap</text>
+  <text x="690" y="609" text-anchor="middle" class="s">mapper → User / Device / Event · bad rows → quarantine</text>
+
+  <rect x="495" y="634" width="190" height="70" rx="8" class="sec"/>
+  <text x="590" y="657" text-anchor="middle" class="t">Audit logger</text>
+  <text x="590" y="676" text-anchor="middle" class="s">who · what · when</text>
+  <text x="590" y="693" text-anchor="middle" class="s">append-only, redacted</text>
+
+  <rect x="700" y="634" width="185" height="70" rx="8" class="box"/>
+  <text x="792" y="657" text-anchor="middle" class="t">Alerting + health</text>
+  <text x="792" y="676" text-anchor="middle" class="s">status · last run · errors</text>
+  <text x="792" y="693" text-anchor="middle" class="s">repeated-failure alerts</text>
+
+  <path class="ln" d="M445,318 H493" marker-end="url(#a)"/>
+
+  <!-- Right column inside deployment -->
+  <rect x="930" y="270" width="210" height="110" rx="8" class="sec"/>
+  <text x="1035" y="295" text-anchor="middle" class="t">Secrets manager</text>
+  <text x="1035" y="315" text-anchor="middle" class="s">vendor tokens</text>
+  <text x="1035" y="333" text-anchor="middle" class="s">+ allowed host per secret</text>
+  <text x="1035" y="351" text-anchor="middle" class="s">KMS-encrypted</text>
+  <text x="1035" y="369" text-anchor="middle" class="s">app role: read-only</text>
+  <path class="ln" d="M885,402 H912 V325 H928" marker-end="url(#a)" marker-start="url(#a)"/>
+
+  <rect x="930" y="410" width="210" height="250" rx="8" class="db"/>
+  <text x="1035" y="434" text-anchor="middle" class="t">Postgres (managed)</text>
+  <text x="1035" y="452" text-anchor="middle" class="s">encrypted at rest · TLS · backups</text>
+  <text x="1035" y="478" text-anchor="middle" class="s">configs (versioned)</text>
+  <text x="1035" y="497" text-anchor="middle" class="s">credential metadata (no values)</text>
+  <text x="1035" y="516" text-anchor="middle" class="s">users · devices · events</text>
+  <text x="1035" y="535" text-anchor="middle" class="s">quarantine</text>
+  <text x="1035" y="554" text-anchor="middle" class="s">runs (health)</text>
+  <text x="1035" y="573" text-anchor="middle" class="s">sync_state</text>
+  <text x="1035" y="592" text-anchor="middle" class="s">audit_log (append-only)</text>
+  <text x="1035" y="620" text-anchor="middle" class="l">retention policy applies</text>
+  <path class="ln" d="M900,560 H928" marker-end="url(#a)" marker-start="url(#a)"/>
+
+  <rect x="930" y="690" width="210" height="75" rx="8" class="sec"/>
+  <text x="1035" y="715" text-anchor="middle" class="t">Egress firewall / NAT</text>
+  <text x="1035" y="734" text-anchor="middle" class="s">allowlist: vendor hosts only</text>
+  <text x="1035" y="752" text-anchor="middle" class="s">2nd layer behind egress guard</text>
+  <path class="ln" d="M885,590 H912 V727 H928" marker-end="url(#a)"/>
+
+  <text x="285" y="800" class="s" font-weight="600">Nothing here is shared with any other customer:</text>
+  <text x="285" y="820" class="s">own database · own secrets · own SSO · own network · own encryption keys. A bug cannot leak A's data to B.</text>
+  <text x="285" y="845" class="l">Scale-up path: still one customer per deployment; add app replicas behind ingress, Postgres locks prevent double runs.</text>
+
+  <!-- ===== External: vendors & Slack ===== -->
+  <rect x="1200" y="420" width="170" height="70" rx="8" class="ext"/>
+  <text x="1285" y="448" text-anchor="middle" class="t">Slack / email</text>
+  <text x="1285" y="468" text-anchor="middle" class="s">failure alerts</text>
+
+  <rect x="1200" y="560" width="170" height="240" rx="8" class="ext"/>
+  <text x="1285" y="585" text-anchor="middle" class="t">Vendor APIs</text>
+  <text x="1285" y="612" text-anchor="middle" class="s" font-weight="600">GitHub</text>
+  <text x="1285" y="629" text-anchor="middle" class="s">Bearer · Link header</text>
+  <text x="1285" y="656" text-anchor="middle" class="s" font-weight="600">Jira Cloud</text>
+  <text x="1285" y="673" text-anchor="middle" class="s">Basic · offset</text>
+  <text x="1285" y="700" text-anchor="middle" class="s" font-weight="600">NVD CVE</text>
+  <text x="1285" y="717" text-anchor="middle" class="s">API key · offset</text>
+  <text x="1285" y="744" text-anchor="middle" class="s" font-weight="600">Okta</text>
+  <text x="1285" y="761" text-anchor="middle" class="s">OAuth2 · cursor</text>
+  <text x="1285" y="786" text-anchor="middle" class="l">read-only scoped tokens</text>
+
+  <path class="ln" d="M1140,740 H1198" marker-end="url(#a)"/>
+  <text x="1170" y="756" text-anchor="middle" class="l">HTTPS</text>
+  <path class="ln" d="M1140,710 H1172 V455 H1198" marker-end="url(#a)"/>
+
+  <!-- ===== Customer B ghost ===== -->
+  <rect x="260" y="905" width="900" height="60" rx="12" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5" class="dash"/>
+  <text x="710" y="932" text-anchor="middle" class="t" fill="#64748b">Customer B deployment — identical copy, separate account, zero shared data</text>
+  <text x="710" y="952" text-anchor="middle" class="s">created by the same Terraform template · upgraded by the same signed image</text>
+  <path class="ln dash" d="M1260,160 Q1300,600 1160,935" marker-end="url(#a)"/>
+
+  <!-- Legend -->
+  <text x="40" y="620" class="g">LEGEND</text>
+  <rect x="40" y="635" width="22" height="16" rx="3" class="sec"/>
+  <text x="72" y="648" class="s">security-critical control</text>
+  <rect x="40" y="660" width="22" height="16" rx="3" class="box"/>
+  <text x="72" y="673" class="s">application component</text>
+  <rect x="40" y="685" width="22" height="16" rx="3" class="db"/>
+  <text x="72" y="698" class="s">data store</text>
+  <rect x="40" y="710" width="22" height="16" rx="3" class="ext"/>
+  <text x="72" y="723" class="s">external / people</text>
+</svg>
