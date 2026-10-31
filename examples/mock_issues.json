@@ -1,0 +1,11 @@
+{
+  "tenant_id": "dev",
+  "id": "mock_issues",
+  "request": {
+    "url": "https://mockvendor:8081/issues",
+    "allowed_ports": [8081]
+  },
+  "auth": {"type": "none"},
+  "pagination": {"type": "offset", "offset_param": "startAt", "size_param": "maxResults", "page_size": 10},
+  "items_path": "issues"
+}

@@ -26,6 +26,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -153,9 +154,20 @@ func (e *environment) request(t *testing.T, tenant, method, path string, body []
 	}
 	return b
 }
+
+// portOf returns the port of a test server URL. Non-443 ports must be listed in
+// request.allowed_ports, exactly like a real connector on a non-standard port.
+func portOf(raw string) int {
+	u, _ := url.Parse(raw)
+	p, _ := strconv.Atoi(u.Port())
+	if p == 0 {
+		return 443
+	}
+	return p
+}
 func userConfig(id, url string) config.Config {
 	path := func(s string) *string { return &s }
-	c := config.Config{Version: 1, ID: id, Name: id, Request: engine.Request{URL: url, Method: "GET", TimeoutSeconds: 1}, Auth: engine.Auth{Type: "none"}, Pagination: engine.Pagination{Type: "none"}, Destination: config.Destination{Entity: "user", Mapping: map[string]config.Field{"id": {Path: path("id"), Required: true, Transform: "string"}, "name": {Path: path("profile.name")}, "email": {Path: path("email")}, "last_login": {Path: path("last_login"), Transform: "datetime"}}}, Retry: engine.Retry{MaxAttempts: 2, BaseDelayMillis: 1, MaxRetryAfterSeconds: 5}}
+	c := config.Config{Version: 1, ID: id, Name: id, Request: engine.Request{URL: url, Method: "GET", TimeoutSeconds: 1, AllowedPorts: []int{portOf(url)}}, Auth: engine.Auth{Type: "none"}, Pagination: engine.Pagination{Type: "none"}, Destination: config.Destination{Entity: "user", Mapping: map[string]config.Field{"id": {Path: path("id"), Required: true, Transform: "string"}, "name": {Path: path("profile.name")}, "email": {Path: path("email")}, "last_login": {Path: path("last_login"), Transform: "datetime"}}}, Retry: engine.Retry{MaxAttempts: 2, BaseDelayMillis: 1, MaxRetryAfterSeconds: 5}}
 	c.Defaults()
 	c.Limits.MaxRunSeconds = 10
 	c.Limits.MaxPages = 10
@@ -288,6 +300,7 @@ func TestCombinedQuarantineDatesAndUpsert(t *testing.T) {
 		t.Fatal(issues)
 	}
 	c.Request.URL = e.vendor.URL + "/fixture-events"
+	c.Request.AllowedPorts = []int{portOf(c.Request.URL)}
 	e.save(t, "tenant-a", c, true)
 	for i := 0; i < 2; i++ {
 		r := e.run(t, "tenant-a", c.ID, 200)
@@ -432,7 +445,7 @@ func TestCombinedSecretsAndAuthentication(t *testing.T) {
 	e.request(t, "tenant-a", "PUT", "/secrets/wrong-host", body, 204)
 	e.save(t, "tenant-a", blocked, true)
 	before = e.callsCount("/secure")
-	if r := e.run(t, "tenant-a", blocked.ID, 502); r.Error != "destination_denied" {
+	if r := e.run(t, "tenant-a", blocked.ID, 502); r.Error != "credential_binding_mismatch" {
 		t.Fatal(r)
 	}
 	if e.callsCount("/secure") != before {

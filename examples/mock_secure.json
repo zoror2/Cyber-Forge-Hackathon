@@ -1,0 +1,9 @@
+{
+  "tenant_id": "dev",
+  "id": "mock_secure",
+  "request": {
+    "url": "https://mockvendor:8081/secure",
+    "allowed_ports": [8081]
+  },
+  "auth": {"type": "bearer", "secret": "mock"}
+}

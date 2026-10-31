@@ -71,7 +71,16 @@ func newHarness(t *testing.T, h http.HandlerFunc) *harness {
 }
 
 func (h *harness) conn(path string) Connector {
-	return Connector{TenantID: "t1", ID: "test", Request: Request{URL: h.srv.URL + path}, Auth: Auth{Type: "bearer", Secret: "tok"}}
+	return Connector{TenantID: "t1", ID: "test",
+		Request: Request{URL: h.srv.URL + path, AllowedPorts: []int{portOf(h.srv)}},
+		Auth:    Auth{Type: "bearer", Secret: "tok"}}
+}
+
+// portOf returns the random port a test server listens on (tests must allow
+// it explicitly, just like a real connector on a non-443 port).
+func portOf(srv *httptest.Server) int {
+	p, _ := strconv.Atoi(srv.URL[strings.LastIndex(srv.URL, ":")+1:])
+	return p
 }
 
 func (h *harness) fetch(c Connector) (Result, []any, error) {
@@ -184,6 +193,106 @@ func TestOAuthClientCredentialsCachesToken(t *testing.T) {
 	}
 	if tokenHits.Load() != 1 {
 		t.Fatalf("token should be fetched once and cached, got %d", tokenHits.Load())
+	}
+}
+
+// ---- Egress hardening (feature 1) ----
+
+// OAuth where the token host differs from the API host (Wiz/Microsoft style).
+// Works only when the secret is bound to BOTH hosts; bound to the token host
+// alone, the access token must not be sent to the API host.
+func TestSecretBoundToTwoHosts(t *testing.T) {
+	var apiHits atomic.Int32
+	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		apiHits.Add(1)
+		if r.Header.Get("Authorization") != "Bearer at-2" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, itemsJSON(1, 2))
+	})
+	// Second server = separate token host (same test certificate, other port).
+	tokenSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"access_token":"at-2","token_type":"Bearer","expires_in":3600}`)
+	}))
+	t.Cleanup(tokenSrv.Close)
+	tokenHost := strings.TrimPrefix(tokenSrv.URL, "https://")
+
+	c := h.conn("/data")
+	c.Request.AllowedPorts = []int{portOf(h.srv), portOf(tokenSrv)}
+	c.Auth = Auth{Type: "oauth2_client_credentials", Secret: "wiz", TokenURL: tokenSrv.URL + "/token", ClientID: "c1"}
+
+	// Bound to token host only -> token must not reach the API host.
+	h.eng.Secrets = fakeSecrets{"t1/wiz": NewSecret(secretValue, tokenHost)}
+	if _, _, err := h.fetch(c); !errors.Is(err, egress.ErrBlocked) {
+		t.Fatalf("token host only: want ErrBlocked, got %v", err)
+	}
+	if apiHits.Load() != 0 {
+		t.Fatal("API host must not be called")
+	}
+
+	// Bound to both -> works. (New engine: no cached token from the first try.)
+	h.eng.tokens = map[string]oauthToken{}
+	h.eng.Secrets = fakeSecrets{"t1/wiz": NewSecret(secretValue, tokenHost, h.host)}
+	if _, items, err := h.fetch(c); err != nil || len(items) != 2 {
+		t.Fatalf("both hosts: items=%d err=%v", len(items), err)
+	}
+
+	// Wildcards are refused even if they would match.
+	h.eng.tokens = map[string]oauthToken{}
+	h.eng.Secrets = fakeSecrets{"t1/wiz": NewSecret(secretValue, tokenHost, "*")}
+	if _, _, err := h.fetch(c); !errors.Is(err, egress.ErrBlocked) {
+		t.Fatalf("wildcard binding: want ErrBlocked, got %v", err)
+	}
+}
+
+// A port not listed in allowed_ports is refused before anything is sent.
+func TestPortNotAllowedIsRefused(t *testing.T) {
+	var hits atomic.Int32
+	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		fmt.Fprint(w, itemsJSON(1, 1))
+	})
+	c := h.conn("/x")
+	c.Request.AllowedPorts = nil // default [443]; test server is on a random port
+	if _, _, err := h.fetch(c); !errors.Is(err, egress.ErrBlocked) {
+		t.Fatalf("want ErrBlocked, got %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("request must never be sent, hits=%d", hits.Load())
+	}
+}
+
+// Every egress block is logged as a structured security event.
+func TestEgressBlockIsSecurityEvent(t *testing.T) {
+	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, itemsJSON(1, 1))
+	})
+	h.eng.Secrets = fakeSecrets{"t1/tok": NewSecret(secretValue, "api.github.com")}
+	if _, _, err := h.fetch(h.conn("/x")); !errors.Is(err, egress.ErrBlocked) {
+		t.Fatalf("want ErrBlocked, got %v", err)
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(h.logs.Bytes(), &entry); err != nil {
+		t.Fatalf("log is not one JSON line: %v\n%s", err, h.logs.String())
+	}
+	if entry["event"] != "egress_blocked" || entry["level"] != "ERROR" || entry["tenant"] != "t1" || entry["connector"] != "test" {
+		t.Fatalf("unexpected security event: %v", entry)
+	}
+	if strings.Contains(h.logs.String(), secretValue) {
+		t.Fatal("secret leaked into security event")
+	}
+}
+
+// http:// is refused by the API-facing Validate even when the engine's dev
+// policy would allow it.
+func TestValidateAlwaysRequiresHTTPS(t *testing.T) {
+	c := Connector{TenantID: "t1", ID: "x", Request: Request{URL: "http://mockvendor:8081/users"}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("Validate must reject http://")
+	}
+	if err := c.validate(true); err != nil {
+		t.Fatalf("dev validate should accept http://: %v", err)
 	}
 }
 

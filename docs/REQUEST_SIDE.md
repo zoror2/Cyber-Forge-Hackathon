@@ -25,11 +25,16 @@ Every outbound request passes through here. It refuses anything that could leak 
 | Function | What it does |
 |---|---|
 | `Policy` | The rules. The zero value is production. `AllowPrivate`, `AllowHTTP` and `RootCAs` exist **only** for local dev/tests (mock vendor, test servers). |
-| `CheckURL` | HTTPS only; no `user:pass@` inside URLs; host must exist. |
+| `CheckURL` | HTTPS only; no `user:pass@` inside URLs; host must exist; non-ASCII hosts refused (use punycode `xn--`); IPv6 zone IDs refused; IP literals checked immediately; legacy numeric hosts (`127.1`, `2130706433`, `0x7f000001`, `0177.0.0.1`) refused. |
+| `CheckPort` | Only ports in the connector's `allowed_ports` (default `[443]`). Stops configs from turning us into a port scanner. |
+| `CheckSecretHosts` | A secret may be bound to a **list** of exact hosts (e.g. OAuth token host + API host). Any `*` wildcard in the list = refused. Empty list = refused. |
+| `ProductionSafe` | Errors if any dev override (`AllowPrivate`, `AllowHTTP`, `RootCAs`) is set. The API service's `main()` must call it outside dev and refuse to start. |
 | `CheckSecretHost` | A secret goes **only** to the exact host it is bound to. `api.github.com.evil.com`, `sub.api.github.com` and other ports are all refused. |
 | `CheckIP` | Refuses loopback, private (10/172.16/192.168), link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast, IPv6 equivalents and IPv4-in-IPv6 tricks. |
 | `Client` | The HTTP client the engine must use. It checks the **actual IP at connect time** (after DNS), so `evil.com → 127.0.0.1` fails. It never follows redirects, ignores proxy env vars, and uses TLS 1.2+ with header size and timeout limits. |
-| `ErrBlocked` | Marks every refusal. The engine never retries it and logs it at ERROR level. |
+| `ErrBlocked` | Marks every refusal. The engine never retries it and logs it at ERROR level as a structured security event: `event=egress_blocked`, `tenant`, `connector`, redacted `url`, `reason`. Alert on this event. |
+
+**On-prem tools** (private-network SIEM/DLP/firewalls) are **never** reached directly: the platform refuses private IPs in production, with no per-tenant exception. They will come in through a customer-run **collector** that pushes outbound to us (design pending).
 
 ## `internal/engine/spec.go`: the connector config (request part)
 
@@ -51,7 +56,8 @@ The shape of the request half of a config, plus validation. **Member B owns the 
 | Item | What it does |
 |---|---|
 | `Secret` | A value plus its one allowed host. The value sits inside a closure, so printing any struct that contains it shows a memory address, never the token. `String`, `%#v`, JSON, text and `slog` all print `[redacted]`. |
-| `NewSecret(value, host)` | How Member B's secrets backend hands a secret to the engine. |
+| `NewSecret(value, hosts...)` | How Member B's secrets backend hands a secret to the engine. Usually one host; several only when a vendor needs it (token host ≠ API host). |
+| `AllowedHosts()` | Copy of the bound hosts (safe to show in the UI). |
 | `SecretStore` | **The contract with Member B**: `Get(ctx, tenantID, name) → Secret`. Secrets are per tenant. |
 
 ## `internal/engine/auth.go`: attaching credentials
@@ -60,7 +66,7 @@ The shape of the request half of a config, plus validation. **Member B owns the 
 |---|---|
 | `authorize` | Adds credentials to a request: `api_key` (custom header), `bearer`, `basic` (username + secret), or OAuth2. |
 | `boundSecret` | Fetches a secret **and checks its bound host against this exact request URL** before it can be used. |
-| `oauthToken` | OAuth2 client-credentials: sends the client secret only to the token URL's bound host, uses the access token only on that same host, caches tokens **in memory only**, refreshes 30s before expiry, and drops the cached token on a 401. |
+| `oauthToken` | OAuth2 client-credentials: token URL must be https, on an allowed port, and one of the secret's bound hosts; the access token is used only on the secret's bound hosts; caches tokens **in memory only**, refreshes 30s before expiry, and drops the cached token on a 401. |
 
 ## `internal/engine/engine.go`: the fetch loop
 

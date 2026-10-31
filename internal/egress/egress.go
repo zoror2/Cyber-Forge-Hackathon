@@ -121,8 +121,87 @@ func (p Policy) CheckURL(u *url.URL) error {
 	if u.User != nil {
 		return fmt.Errorf("%w: credentials inside the URL are not allowed", ErrBlocked)
 	}
-	if u.Hostname() == "" {
+	host := u.Hostname()
+	if host == "" {
 		return fmt.Errorf("%w: URL has no host", ErrBlocked)
+	}
+	// Non-ASCII hostnames can hide look-alike letters (Cyrillic "а" vs Latin
+	// "a") that a human approver can't tell apart. Require the ASCII
+	// (punycode, "xn--...") form so what the approver sees is what we call.
+	for _, r := range host {
+		if r > 0x7e {
+			return fmt.Errorf("%w: non-ASCII hostname, use the punycode (xn--) form", ErrBlocked)
+		}
+	}
+	// "%" only appears in IPv6 zone IDs (fe80::1%eth0), which name a local
+	// network interface. Never valid for a vendor API.
+	if strings.Contains(host, "%") {
+		return fmt.Errorf("%w: IPv6 zone identifiers are not allowed", ErrBlocked)
+	}
+	// A literal IP in the URL: check it right away for a clear error message.
+	// (Client checks again at connect time anyway.)
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return p.CheckIP(ip)
+	}
+	// Legacy numeric spellings like "127.1", "2130706433", "0x7f000001" or
+	// "0177.0.0.1" are treated as IP addresses by some resolvers. They have
+	// no legitimate use for a vendor API, so refuse them outright.
+	if looksNumeric(host) {
+		return fmt.Errorf("%w: ambiguous numeric host %q, use a hostname or a standard IP", ErrBlocked, host)
+	}
+	return nil
+}
+
+// looksNumeric reports whether every dot-separated label of host is a decimal
+// number or a 0x hex number. "123.example.com" is NOT numeric ("example").
+func looksNumeric(host string) bool {
+	for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
+		l := strings.ToLower(label)
+		if l == "" {
+			return false
+		}
+		if strings.HasPrefix(l, "0x") {
+			l = l[2:]
+			if strings.Trim(l, "0123456789abcdef") != "" {
+				return false
+			}
+			continue
+		}
+		if strings.Trim(l, "0123456789") != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// CheckPort allows only ports in allowed. A URL without an explicit port uses
+// the scheme default (443 for https, 80 for http).
+//
+// Why: without this, a config could make the platform knock on any port of
+// any public server (databases, SSH, mail), turning us into a scanning tool
+// whose traffic comes from our IP addresses.
+func CheckPort(u *url.URL, allowed []int) error {
+	port := u.Port()
+	if port == "" {
+		port = "443"
+		if u.Scheme == "http" {
+			port = "80"
+		}
+	}
+	for _, p := range allowed {
+		if fmt.Sprint(p) == port {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: port %s is not in the connector's allowed ports %v", ErrBlocked, port, allowed)
+}
+
+// ProductionSafe returns an error if any dev/test loosening is set. The
+// service's main() must call it outside development and refuse to start on
+// error, so a dev setting can never silently reach production.
+func (p Policy) ProductionSafe() error {
+	if len(p.AllowPrivate) > 0 || p.AllowHTTP || p.RootCAs != nil {
+		return errors.New("egress policy has dev/test overrides (AllowPrivate, AllowHTTP or RootCAs) set")
 	}
 	return nil
 }
@@ -163,6 +242,35 @@ func CheckSecretHost(boundHost string, target *url.URL) error {
 		return fmt.Errorf("%w: secret is bound to %s, not %s", ErrBlocked, bound, target.Host)
 	}
 	return nil
+}
+
+// CheckSecretHosts allows a secret bound to SEVERAL exact hosts, e.g. an
+// OAuth client whose token host differs from its API host:
+//
+//	bound ["auth.app.wiz.io", "api.us17.app.wiz.io"]
+//
+// The target must match one entry exactly (same rules as CheckSecretHost).
+// Wildcards ("*.wiz.io") are refused: they would send the key to ANY
+// subdomain, including a forgotten one an attacker could take over.
+func CheckSecretHosts(bound []string, target *url.URL) error {
+	if len(bound) == 0 {
+		return fmt.Errorf("%w: secret has no bound host", ErrBlocked)
+	}
+	for _, b := range bound {
+		if strings.Contains(b, "*") {
+			return fmt.Errorf("%w: wildcard host bindings are not allowed (%s)", ErrBlocked, b)
+		}
+	}
+	for _, b := range bound {
+		if CheckSecretHost(b, target) == nil {
+			return nil
+		}
+	}
+	host := ""
+	if target != nil {
+		host = target.Host
+	}
+	return fmt.Errorf("%w: secret is bound to %v, not %s", ErrBlocked, bound, host)
 }
 
 // Client returns the ONLY HTTP client the engine may use for vendor calls.

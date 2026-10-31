@@ -178,13 +178,24 @@ Member A reviews our secrets/API auth before merge. Request-engine details and
 the broader target-integration analysis remain in [REQUEST_SIDE.md](docs/REQUEST_SIDE.md)
 and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 
+## Live sources (PRD: three real free-tier sources)
+
+| # | Source | Config | Auth | Paging | Status |
+|---|---|---|---|---|---|
+| 1 | CISA KEV | [configs/cisa_kev.json](configs/cisa_kev.json) | none | none | ✅ live: 1766 received / 1766 accepted / 0 quarantined; re-run upserts (no duplicates) |
+| 2 | GitHub REST (OWASP public members) | [configs/github_members.json](configs/github_members.json) | bearer | Link header | ✅ live: 4 pages, 36 / 36 / 0; re-run upserts; token never in logs or DB |
+| 3 | NVD CVE or Jira | not yet | api_key / basic | offset | ⏳ not started |
+
+Evidence (config hash, UTC time, counts, outcome) is in [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md).
+How to write a config, with every field explained: [configs/README.md](configs/README.md).
+
 ## FR traceability
 
 | FR | Implementation and evidence | Remaining |
 |---|---|---|
-| 1 Auth | A's `internal/engine/auth.go`, tenant-scoped secrets, unit + integrated auth tests | Live vendor evidence |
+| 1 Auth | A's `internal/engine/auth.go`, tenant-scoped secrets, unit + integrated auth tests; credential failures classified, never retried | Live bearer (GitHub) + api_key/basic (NVD or Jira) evidence |
 | 2 URL/method/params | Shared A contract + strict `pkg/config`; invalid-config tests | Additional protocols deferred |
-| 3 Paging | A engine; page/offset/link/cursor tests and real local page-to-DB runs | Live paging evidence |
+| 3 Paging | A engine; page/offset/link/cursor tests and real local page-to-DB runs | Live Link (GitHub, 4 pages) + offset evidence |
 | 4 Schedule | `internal/runner`, PG locks and two-tenant scheduling tests | 60-second live-provider demo |
 | 5 Mapping | `pkg/mapping` nested/index/default/date/enum/exact-number tests | None for tested capabilities |
 | 6 Secrets | RLS + per-tenant encrypted/AWS backends, binding/redaction/isolation tests | Live KMS/IAM review |
@@ -192,8 +203,32 @@ and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 | 8 429 | Seconds/date/delay-cap unit tests and actual 1-second local wait | Persistent next-retry eligibility extension |
 | 9 Bad rows | Typed validation + page/index quarantine; integrated malformed fixture | Raw payload intentionally omitted |
 | 10 Health | Protected JSON/escaped HTML, history and failure tests | Phase 2 UI/SSO |
-| 11 Common storage | Tenant/source/ID upserts and actual PG RLS tests | Three live sources |
+| 11 Common storage | Tenant/source/ID upserts and actual PG RLS tests; **live CISA KEV: 1766 events, re-run still 1766** | Sources 2 and 3 live |
 
 The Python files are removed from this branch. GitHub's PR diff still lists their
 **deletions** because the base branch previously contained them. For a short file
 explanation, see [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md).
+
+## Request engine: Member A additions on this branch
+
+Added on top of the merged engine (all covered by tests in `internal/egress` and `internal/engine`):
+
+- **Egress hardening:** refuses legacy numeric hosts (`127.1`, `0x7f000001`, `2130706433`), IPv6 zone IDs and non-ASCII hostnames; per-connector `request.allowed_ports` (default `[443]`, applied to API and token URLs); secrets bind to a **list** of exact hosts, wildcards refused; `Policy.ProductionSafe()`; every block logged as `event=egress_blocked`. Fuzz tests for host binding and IP checks.
+- **Multi-field secrets:** `engine.NewSecretFields(map, hosts...)` for `client_id` + `client_secret`, `key_id` + `key`, etc. `engine.NewSecret(value, host)` still works unchanged.
+- **`static` auth:** headers built from secret fields with `{{secret.<field>}}` placeholders only (e.g. Okta `Authorization: SSWS {{secret.value}}`, Cortex two-header keys). CR/LF in a secret is refused.
+- **OAuth2:** `client_id` / `client_secret` from config or secret fields; non-secret `extra_params` (e.g. Wiz `audience`).
+- **Credential errors:** `*engine.AuthError` with `Status` (`missing`, `incomplete`, `binding_mismatch`, `needs_reauth`, `insufficient_permissions`) and `CredentialID` (`Secret.WithID`), logged as `event=auth_failed`. 5xx/429 are never credential errors. Credential errors are **never retried** (a missing secret fails in 1 attempt, not 4), and runs/health report them as `credential_missing`, `credential_incomplete`, `credential_binding_mismatch` or `auth_failed` instead of `collection_failed`.
+- **`cmd/fetch`:** dev command that runs one engine connector JSON from `examples/` against the TLS mock, using the same `internal/app.Policy` dev rules as the API: `docker compose --profile tools run --rm fetch -config /examples/mock_users.json`.
+
+### Docs
+
+| Doc | Content |
+|---|---|
+| [configs/README.md](configs/README.md) | **Config template**: every field, auth examples, common schema, storing a secret, what is refused |
+| [docs/CONFIG_SHAPE.md](docs/CONFIG_SHAPE.md) | (roadmap) Two-layer config (reviewed vendor templates + tenant connectors), credential records, research on the 35 roadmap vendors |
+| [docs/AI.md](docs/AI.md) | (roadmap) AI gateway, AI for configs, prompt-injection and poisoning defences, evals |
+| [docs/AUTOMATION.md](docs/AUTOMATION.md) | (roadmap) What gets automated for users, and what never is |
+| [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md) | Redacted live-run evidence for the three real sources (PRD §15) |
+| [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | Built architecture, run lifecycle, ranked optimization points (O1–O8) with code references |
+
+**Scope:** PRD first. The PRD's must-haves (FR-1..FR-11, its User/Device/Event schema, three live free-tier sources) come before the roadmap (35 enterprise vendors, OCSF export, SIEM destinations, AI config drafter, KEV-to-connected-vendor/credential exposure matching). Current storage is the PRD schema; OCSF is a later export format, not the stored format.

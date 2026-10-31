@@ -94,6 +94,28 @@ services:
       testpostgres: {condition: service_healthy}
     networks: [checks]
     profiles: [tools]
+  # Runs ONE connector config through the real engine (cmd/fetch, dev only):
+  #   docker compose --profile tools run --rm fetch -config /examples/mock_users.json
+  # Same dev egress rules as the API (internal/app.Policy): TLS mock, dev CA,
+  # private range limited to the compose network. Plain HTTP is refused.
+  fetch:
+    build:
+      context: .
+      args: {CMD: fetch}
+    environment:
+      CB_ENV: dev
+      CB_DEV_ALLOW_PRIVATE: 172.30.0.0/24
+      CB_DEV_CA_FILE: /certs/cert.pem
+      # Fake token for the mock's /secure endpoint, bound to the mock host only.
+      # Real secrets never go in this file.
+      CB_SECRET_MOCK: mock-token
+      CB_SECRET_MOCK_HOSTS: mockvendor:8081
+    volumes: ['./examples:/examples:ro','./data/devcert/cert.pem:/certs/cert.pem:ro']
+    depends_on: [mockvendor]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    profiles: [tools]
 networks:
   default:
     ipam:

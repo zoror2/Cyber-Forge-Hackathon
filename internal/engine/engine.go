@@ -85,8 +85,9 @@ func New(secrets SecretStore, policy egress.Policy, log *slog.Logger) *Engine {
 // if a later page fails, so the caller should record the run as "partial".
 func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) (Result, error) {
 	// 1. Fill defaults and validate. Nothing is sent for an invalid connector.
+	//    (http:// is accepted only when the dev-only Policy.AllowHTTP is set.)
 	c = c.withDefaults()
-	if err := c.Validate(); err != nil {
+	if err := c.validate(e.Policy.AllowHTTP); err != nil {
 		return Result{}, fmt.Errorf("invalid connector: %w", err)
 	}
 
@@ -216,8 +217,14 @@ func (c Connector) pagedURL(base *url.URL, page, offset int, cursor string) *url
 
 // get performs one logical request: it calls once() and retries on
 // temporary failures, waiting between attempts as retryDelay decides.
+//
+// onAttempt (optional) is called before every attempt, retries included, so
+// the runner can record how many requests a run really made.
 func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *url.URL, onAttempt ...func()) ([]byte, http.Header, error) {
-	if err := e.Policy.CheckURL(u); err != nil { // https / no-credentials check
+	if err := e.Policy.CheckURL(u); err != nil { // https, no credentials, no odd hosts
+		return nil, nil, err
+	}
+	if err := egress.CheckPort(u, c.Request.AllowedPorts); err != nil { // 443 unless approved
 		return nil, nil, err
 	}
 	for attempt := 1; ; attempt++ {
@@ -252,6 +259,12 @@ func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *u
 //	network errors and timeouts: exponential backoff
 func (e *Engine) retryDelay(r Retry, attempt int, header http.Header, err error) (time.Duration, bool) {
 	if attempt >= r.MaxAttempts || errors.Is(err, egress.ErrBlocked) || errors.Is(err, ErrTooLarge) {
+		return 0, false
+	}
+	// Credential problems (missing secret, wrong binding, 401/403) never fix
+	// themselves within a run; retrying only delays the real error.
+	var ae *AuthError
+	if errors.As(err, &ae) {
 		return 0, false
 	}
 	// base << (attempt-1) doubles each time: 1s, 2s, 4s, ...
@@ -294,7 +307,8 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 	req.Header.Set("User-Agent", "ConfigBridge/0.1")
 
 	// Attach credentials (checks secret-to-host binding first).
-	if err := e.authorize(ctx, client, c, req); err != nil {
+	credID, err := e.authorize(ctx, client, c, req)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -311,7 +325,11 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 		if resp.StatusCode == http.StatusUnauthorized && c.Auth.Type == "oauth2_client_credentials" {
 			e.dropToken(c) // token rejected: fetch a fresh one next time
 		}
-		return nil, resp.Header, &StatusError{Code: resp.StatusCode}
+		se := &StatusError{Code: resp.StatusCode}
+		if status, ok := statusFromHTTP(resp.StatusCode, false); ok && c.Auth.Type != "none" {
+			return nil, resp.Header, authErr(status, c.Auth.Secret, credID, se) // tell WHICH credential to fix
+		}
+		return nil, resp.Header, se
 	}
 
 	body, err := readLimited(resp.Body, c.Limits.MaxResponseBytes)
@@ -321,15 +339,29 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 	return body, resp.Header, nil
 }
 
-// logFailure records a failed request. Egress blocks are logged at ERROR
-// because they can mean someone is trying to misuse a config.
+// logFailure records a failed request.
+//
+// Egress blocks are SECURITY EVENTS: logged at ERROR with a fixed
+// event="egress_blocked" field, so log-based alerting can match on it.
+// A block can mean a misconfigured connector or someone trying to misuse one.
+//
+// Credential problems additionally carry credential_id and auth_status, so
+// alerting can route "needs_reauth" to the credential's owner.
 func (e *Engine) logFailure(c Connector, u *url.URL, err error) {
-	level := slog.LevelWarn
-	if errors.Is(err, egress.ErrBlocked) {
-		level = slog.LevelError
+	attrs := []any{"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u)}
+	var ae *AuthError
+	if errors.As(err, &ae) {
+		attrs = append(attrs, "credential_id", ae.CredentialID, "auth_status", ae.Status)
 	}
-	e.Log.Log(context.Background(), level, "vendor request failed",
-		"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u), "error", err.Error())
+	if errors.Is(err, egress.ErrBlocked) {
+		e.Log.Error("egress blocked", append(attrs, "event", "egress_blocked", "reason", err.Error())...)
+		return
+	}
+	if ae != nil {
+		e.Log.Warn("credential problem", append(attrs, "event", "auth_failed", "error", err.Error())...)
+		return
+	}
+	e.Log.Warn("vendor request failed", append(attrs, "event", "vendor_request_failed", "error", err.Error())...)
 }
 
 // readLimited reads at most max bytes. It reads one extra byte to detect

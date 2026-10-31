@@ -4,3 +4,4 @@ coverage.out
 .env
 data/
 *.exe
+PRD_*.pdf

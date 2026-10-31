@@ -41,18 +41,38 @@ type Request struct {
 	Params         map[string]string `json:"params"`          // query params, NON-secret only (e.g. limit=100)
 	Headers        map[string]string `json:"headers"`         // extra headers, NON-secret only (e.g. Accept)
 	TimeoutSeconds int               `json:"timeout_seconds"` // max time per request
+	// AllowedPorts lists the ports this connector may connect to (API, next
+	// pages and OAuth token URL). Default [443]. Anything else must be listed
+	// explicitly so the approver sees it.
+	AllowedPorts []int `json:"allowed_ports"`
 }
 
 // Auth says how to log in (FR-1). It holds the secret's NAME, never its value;
 // the value is fetched from the SecretStore at run time.
 type Auth struct {
-	Type     string   `json:"type"`      // none | api_key | bearer | basic | oauth2_client_credentials
+	Type     string   `json:"type"`      // none | static | api_key | bearer | basic | oauth2_client_credentials
 	Secret   string   `json:"secret"`    // secret NAME in the secret store, e.g. "crowdstrike"
 	Header   string   `json:"header"`    // api_key only: header name, e.g. "X-API-Key"
 	Username string   `json:"username"`  // basic only: e.g. the Jira account email
 	TokenURL string   `json:"token_url"` // oauth2 only: where to get access tokens
-	ClientID string   `json:"client_id"` // oauth2 only: the API client's ID (not secret)
+	ClientID string   `json:"client_id"` // oauth2 only: the API client's ID (not secret); "" = take it from secret field "client_id"
 	Scopes   []string `json:"scopes"`    // oauth2 only: optional permission scopes
+
+	// static only: headers built from secret fields, e.g. Cortex XSIAM:
+	//   {"name": "x-xdr-auth-id", "value": "{{secret.key_id}}"}
+	//   {"name": "Authorization", "value": "{{secret.key}}"}
+	// The only placeholder allowed is {{secret.<field>}}.
+	Headers []HeaderTemplate `json:"headers"`
+
+	// oauth2 only: extra NON-secret form fields for the token request,
+	// e.g. Wiz needs {"audience": "wiz-api"}.
+	ExtraParams map[string]string `json:"extra_params"`
+}
+
+// HeaderTemplate is one header of a static auth block.
+type HeaderTemplate struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // Pagination says how to walk through all pages of results (FR-3).
@@ -87,6 +107,9 @@ type Retry struct {
 func (c Connector) withDefaults() Connector {
 	setDefault(&c.Request.Method, "GET")
 	setDefault(&c.Request.TimeoutSeconds, 30)
+	if len(c.Request.AllowedPorts) == 0 {
+		c.Request.AllowedPorts = []int{443} // standard HTTPS only
+	}
 	setDefault(&c.Auth.Type, "none")
 	setDefault(&c.Pagination.Type, "none")
 	if c.Pagination.Type == "page" {
@@ -170,8 +193,16 @@ func splitWords(s string) []string {
 
 // Validate checks the connector and returns EVERY problem at once (joined),
 // so the UI/API can show all errors together instead of one at a time.
-func (c Connector) Validate() error {
+// URLs must be https. This is what the API and UI must call.
+func (c Connector) Validate() error { return c.validate(false) }
+
+// validate is Validate with one dev-only switch: allowHTTP also accepts
+// http:// URLs. The engine passes egress.Policy.AllowHTTP here, which is
+// refused in production by Policy.ProductionSafe, so plain HTTP can only ever
+// work against the local mock vendor.
+func (c Connector) validate(allowHTTP bool) error {
 	c = c.withDefaults()
+	okScheme := func(s string) bool { return s == "https" || (allowHTTP && s == "http") }
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 
@@ -187,11 +218,19 @@ func (c Connector) Validate() error {
 	if c.Request.Method != "GET" {
 		bad("request.method must be GET (platform is read-only)")
 	}
-	if u, err := url.Parse(c.Request.URL); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+	if u, err := url.Parse(c.Request.URL); err != nil || !okScheme(u.Scheme) || u.Host == "" || u.User != nil {
 		bad("request.url must be an absolute https URL without credentials")
 	}
 	if c.Request.TimeoutSeconds < 1 || c.Request.TimeoutSeconds > 120 {
 		bad("request.timeout_seconds must be 1-120")
+	}
+	if len(c.Request.AllowedPorts) > 5 {
+		bad("request.allowed_ports may list at most 5 ports")
+	}
+	for _, p := range c.Request.AllowedPorts {
+		if p < 1 || p > 65535 {
+			bad("request.allowed_ports: %d is not a valid port", p)
+		}
 	}
 	// Secrets must never be typed into headers or params. "Host" is also
 	// blocked because overriding it could confuse routing / host binding.
@@ -210,6 +249,8 @@ func (c Connector) Validate() error {
 	a := c.Auth
 	switch a.Type {
 	case "none":
+	case "static":
+		validateStaticHeaders(a.Headers, bad)
 	case "api_key":
 		if a.Header == "" {
 			bad("auth.header is required for api_key")
@@ -220,11 +261,13 @@ func (c Connector) Validate() error {
 			bad("auth.username is required for basic")
 		}
 	case "oauth2_client_credentials":
-		if u, err := url.Parse(a.TokenURL); err != nil || u.Scheme != "https" || u.Host == "" {
+		if u, err := url.Parse(a.TokenURL); err != nil || !okScheme(u.Scheme) || u.Host == "" {
 			bad("auth.token_url must be an absolute https URL")
 		}
-		if a.ClientID == "" {
-			bad("auth.client_id is required for oauth2_client_credentials")
+		for name := range a.ExtraParams {
+			if looksSensitive(name) || reservedOAuthParam[name] {
+				bad("auth.extra_params.%s is not allowed (secrets and grant fields are set by the engine)", name)
+			}
 		}
 	default:
 		bad("auth.type %q is not supported", a.Type)
@@ -278,5 +321,53 @@ func (c Connector) Validate() error {
 		bad("retry.max_retry_after_seconds must be 1-900")
 	}
 
+	// Placeholders are only allowed inside auth.headers. Anywhere else they
+	// would be sent literally, which means a template wasn't resolved.
+	for name, v := range c.Request.Headers {
+		if strings.Contains(v, "{{") {
+			bad("request.headers.%s: placeholders are not allowed here", name)
+		}
+	}
+	for name, v := range c.Request.Params {
+		if strings.Contains(v, "{{") {
+			bad("request.params.%s: placeholders are not allowed here", name)
+		}
+	}
+
 	return errors.Join(errs...) // nil if errs is empty
+}
+
+// reservedOAuthParam are token-request fields the engine sets itself.
+var reservedOAuthParam = map[string]bool{"grant_type": true, "scope": true, "client_id": true, "client_secret": true}
+
+// headerName is an RFC 9110 header field name ("token" characters).
+var headerName = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
+
+// validateStaticHeaders checks a static auth block: 1-5 well-formed, unique
+// header names, values that use ONLY {{secret.<field>}} placeholders, and at
+// least one placeholder overall (otherwise there's no credential at all).
+func validateStaticHeaders(hs []HeaderTemplate, bad func(string, ...any)) {
+	if len(hs) == 0 || len(hs) > 5 {
+		bad("auth.headers must list 1-5 headers for static")
+		return
+	}
+	seen := map[string]bool{}
+	placeholders := 0
+	for i, h := range hs {
+		if !headerName.MatchString(h.Name) || strings.EqualFold(h.Name, "host") {
+			bad("auth.headers[%d].name %q is not a valid header name", i, h.Name)
+		}
+		if seen[strings.ToLower(h.Name)] {
+			bad("auth.headers[%d].name %q is listed twice", i, h.Name)
+		}
+		seen[strings.ToLower(h.Name)] = true
+		fields, err := secretPlaceholders(h.Value)
+		if err != nil {
+			bad("auth.headers[%d].value: %v", i, err)
+		}
+		placeholders += len(fields)
+	}
+	if placeholders == 0 {
+		bad("auth.headers must use at least one {{secret.<field>}} placeholder")
+	}
 }

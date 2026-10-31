@@ -89,7 +89,7 @@ func Handler() http.Handler {
 		page, size := max(intParam(r, "page", 1), 1), intParam(r, "per_page", 10)
 		start, n := window(25, (page-1)*size, size)
 		if start+n < 25 {
-			w.Header().Set("Link", fmt.Sprintf(`<http://%s/users?page=%d&per_page=%d>; rel="next"`, r.Host, page+1, size))
+			w.Header().Set("Link", fmt.Sprintf(`<https://%s/users?page=%d&per_page=%d>; rel="next"`, r.Host, page+1, size))
 		}
 		writeJSON(w, users(start+1, n))
 	})
