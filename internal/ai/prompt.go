@@ -38,7 +38,7 @@ You write configuration only. You never produce, invent or sample data records.
 # What you return (the response schema)
 - config_json: the complete config as a JSON string. Only the keys listed under "Config document" exist; any other key (e.g. tenant_id) is rejected. No duplicate keys, no comments.
 - plan: "standard" if the endpoint works on the product's normal plan, "premium" if it needs an enterprise tier/add-on license, "unknown" if the docs don't say.
-- needed: the MINIMUM the customer does to connect. One item per credential: where to create it in the vendor console, the least-privilege read-only role/scope, and EVERY value they will paste (client ID AND client secret; key ID AND secret). Add the tenant address only if the host contains your-tenant. Nothing you can decide yourself goes here.
+- needed: the MINIMUM the customer does to connect, at most 2 items. Item 1: the credential, in ONE sentence: where to create it in the vendor console, the least-privilege read-only role/scope, and every value they will paste (e.g. "client ID and client secret"). Item 2, only if the config contains your-tenant: their tenant address. Nothing else (no "test the source", no settings you can decide yourself).
 - optional: 1-4 settings they MAY tune later (regional host, filter, schedule, extra fields). Never something required to connect.
 - notes: one short line per non-obvious choice (endpoint, auth, paging, items_path, each lookup/enum, anything unverified or not reachable by GET).
 - sources: 1-3 official vendor documentation https URLs the endpoint, auth and fields came from. Only pages from the research or that you are certain exist; [] if unsure.
@@ -123,6 +123,7 @@ How the mapper behaves at run time (a wrong choice rejects records, it is not a 
 - LIST endpoints only (inventory/list/search over GET), never a single-item lookup.
 - Pull only: if the data is only available by streaming/export (syslog, S3/blob export, webhooks), POST search or GraphQL, do NOT invent a GET endpoint. Draft the best dataset that IS readable by GET (users, devices, findings) and say in notes what needs the vendor's export.
 - Auto: the endpoint MUST work on the standard plan. Premium/enterprise-only data goes in notes and also_available, unless the customer explicitly asked for it.
+- Auto picks the product's CORE entity, not its activity log: identity provider/directory/SaaS workspace -> users (user_inventory); EDR/MDM/asset tool -> devices (inventory_info); vulnerability/code/cloud scanner or CVE feed -> vulnerability_finding; alerting/SIEM/XDR whose main object is alerts -> detection_finding. authentication only when the product's purpose IS sign-in events and it has no user list. Logs and events go in also_available.
 
 # Before you answer, check
 - every Config document key is spelled as above and nothing else is present
@@ -149,7 +150,7 @@ func userPrompt(r Request, secrets []Secret) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Today (UTC): %s\nProduct: %s\n", time.Now().UTC().Format("2006-01-02"), strings.TrimSpace(r.Product))
 	if r.Auto() {
-		b.WriteString("Data wanted: auto. Pick the ONE dataset a security team most wants from this product, available on the standard plan (identity provider -> user_inventory, EDR/MDM -> inventory_info, CVE/threat feed -> vulnerability_finding, SIEM/alerting -> detection_finding). Set destination.class to it and list the product's other datasets in also_available.\n")
+		b.WriteString("Data wanted: auto. Pick the product's core entity on the standard plan, per the Auto rules (users, devices, vulnerabilities or alerts; not its activity log). Set destination.class to it and list the product's other datasets in also_available.\n")
 	} else {
 		fmt.Fprintf(&b, "Data wanted: %s (destination.class must be exactly this)\n", r.Data)
 	}
@@ -181,7 +182,7 @@ func fence(s string) string {
 
 // researchQuestion: the Gemini search step. Asks only for what the config needs.
 func researchQuestion(r Request) string {
-	data := "its main security dataset that EVERY customer has on the standard plan (users, devices, logins or findings); if a richer dataset needs a premium/enterprise tier, name it and its tier separately"
+	data := "its core security entity that EVERY customer has on the standard plan (users for identity/SaaS, devices for EDR/MDM, vulnerabilities for scanners, alerts for alerting tools; not activity logs); if a richer dataset needs a premium/enterprise tier, name it and its tier separately"
 	if !r.Auto() {
 		data = "OCSF class " + r.Data
 	}
@@ -196,7 +197,7 @@ func researchQuestion(r Request) string {
 3. Endpoint: the organization/account-wide GET endpoint that LISTS these records across everything the customer owns, its plan/tier/license requirement, and required non-secret headers (Accept, API version). Say if the data is only available by streaming/export, POST search, GraphQL or webhooks.
 4. Paging: request params (and max page size), and the response field or header that gives the next page.
 5. Response: the JSON path of the records array and the names of id, name/title, email, status, severity and timestamp fields; the timestamp format (ISO-8601 string, epoch seconds or epoch milliseconds); the documented values of status/severity/type enums.
-6. Time filter: since/until (from/to) query params for incremental pulls, if any.
+6. Only if the data is events/alerts: since/until (from/to) query params for incremental pulls.
 7. The exact official documentation URLs you used.
 Say "unknown" for anything the docs do not state. Do not guess.`
 }
