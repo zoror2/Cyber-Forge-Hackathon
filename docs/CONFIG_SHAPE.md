@@ -1,5 +1,10 @@
 # Config shape
 
+> Current engine checks (1 November 2026): see
+> [VENDOR_TESTING.md](VENDOR_TESTING.md). The design below includes unimplemented
+> collectors, signers, protocols and approval workflows. Its vendor research
+> checkmarks indicate documentation availability, not passing integration tests.
+
 How a vendor integration is described, and what an engineer enters per tenant.
 Based on research into all 35 target vendors (section 9). Owners: Member A
 (request side: layer 1 auth / request / pagination) and Member B (storage,

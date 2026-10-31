@@ -23,13 +23,13 @@ type geminiCache struct {
 	cache map[string]researchHit
 }
 
-// NewGemini drafts with the Gemini API. Every draft first researches the
-// vendor's CURRENT docs with Google Search, then writes the config from those
-// facts with strict JSON output (two calls: search and strict schema output
-// are kept apart so neither depends on the other being supported together).
+// NewGemini provides strict JSON drafts and explanations through Gemini.
+// Draft uses reviewed examples or retrieved public documentation with checked
+// evidence. The search adapter remains separately tested; model search text
+// alone is not accepted as execution-contract evidence.
 func NewGemini(key, model string) *Client {
 	return &Client{Key: key, Model: model, URL: "https://generativelanguage.googleapis.com/v1beta/models/",
-		HTTP: &http.Client{Timeout: 120 * time.Second}, gemini: true}
+		HTTP: &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, gemini: true}
 }
 
 // LookupDNS fails only when the host does not exist (NXDOMAIN). A resolver
@@ -107,7 +107,7 @@ func (c *Client) search(ctx context.Context, r Request, used *meter) (string, er
 // geminiOnce: one strict-JSON call.
 func (c *Client) geminiOnce(ctx context.Context, msgs []message, s schema) (string, insights.Usage, time.Duration, error) {
 	body := map[string]any{"generationConfig": map[string]any{
-		"responseMimeType": "application/json", "responseJsonSchema": s.body, "temperature": 0.2,
+		"responseMimeType": "application/json", "responseJsonSchema": s.body, "temperature": 0.2, "maxOutputTokens": 4096,
 		"thinkingConfig": map[string]any{"thinkingLevel": "low"}}}
 	var contents []map[string]any
 	for _, m := range msgs {
@@ -142,8 +142,8 @@ func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, i
 		return "", none, 0, fmt.Errorf("%w: unreachable", ErrUpstream) // e may echo the URL
 	}
 	defer res.Body.Close()
-	b, e := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-	if e != nil {
+	b, e := io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
+	if e != nil || len(b) > 4<<20 {
 		return "", none, 0, ErrUpstream
 	}
 	switch {

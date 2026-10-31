@@ -1,6 +1,11 @@
 -- OCSF becomes the common schema. Every record is one OCSF event (payload),
--- whatever its class; the PRD-era users/devices/events tables are retired.
-DROP TABLE users, devices, events;
+-- whatever its class. Preserve historical PRD records for operator review and
+-- replay: silently dropping customer records during a schema upgrade is unsafe.
+ALTER TABLE users RENAME TO legacy_users;
+ALTER TABLE devices RENAME TO legacy_devices;
+ALTER TABLE events RENAME TO legacy_events;
+-- The replacement OCSF indexes reuse these names (migration 9).
+ALTER INDEX IF EXISTS kev_vendor_product RENAME TO legacy_kev_vendor_product;
 CREATE TABLE ocsf_records(
  tenant_id text NOT NULL,
  source text NOT NULL,

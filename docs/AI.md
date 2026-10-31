@@ -1,5 +1,10 @@
 # AI design
 
+> Current implementation and tests (1 November 2026): see
+> [AI_DRAFTS.md](AI_DRAFTS.md) and [VERIFICATION.md](VERIFICATION.md).
+> This document includes historical plans; its roadmap statements are not a
+> current implementation checklist.
+
 > Implementation update: Prajwal added a first Groq-backed public-source config
 > drafter, explicit tenant/request opt-in, quotas/audit and draft preview.
 > See [KEV_AND_AI.md](KEV_AND_AI.md) for what is actually built. Bedrock, local

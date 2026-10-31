@@ -46,7 +46,7 @@ func TestBedrockDraftUsesForcedToolAndValidates(t *testing.T) {
 	if !c.Allowed("tenant-a") || c.Provider() != "bedrock" {
 		t.Fatal("bedrock client not configured")
 	}
-	d, err := c.Draft(context.Background(), Request{Product: "GitHub", Data: "auto"}, nil)
+	d, err := c.generate(context.Background(), Request{Product: "FixtureVendor", Data: "auto"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestBedrockErrorsAreNotEchoed(t *testing.T) {
 	secret := "arn:aws:iam::123456789012:user/someone"
 	for _, e := range []error{&types.AccessDeniedException{Message: aws.String(secret)}, &types.ValidationException{Message: aws.String(secret)}, errors.New(secret)} {
 		rt := &fakeRT{reply: func(int) (*bedrockruntime.ConverseOutput, error) { return nil, e }}
-		_, err := NewBedrock(rt, "m").Draft(context.Background(), Request{Product: "Okta", Data: "auto"}, nil)
+		_, err := NewBedrock(rt, "m").generate(context.Background(), Request{Product: "Okta", Data: "auto"}, nil)
 		if !errors.Is(err, ErrUpstream) || strings.Contains(err.Error(), "123456789012") {
 			t.Fatalf("got %v", err)
 		}

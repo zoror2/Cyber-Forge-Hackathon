@@ -49,7 +49,7 @@ func TestGeminiResearchesThenDraftsAndChecksHosts(t *testing.T) {
 		}
 		return nil
 	}
-	d, err := c.Draft(context.Background(), Request{Product: "GitHub", Data: "auto"}, nil)
+	d, err := c.generate(context.Background(), Request{Product: "FixtureVendor", Data: "auto"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

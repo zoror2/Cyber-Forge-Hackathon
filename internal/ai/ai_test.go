@@ -37,7 +37,7 @@ func fake(t *testing.T, answers ...string) (*Client, *[]string) {
 func TestDraftRepairsAgainstValidator(t *testing.T) {
 	bad := strings.Replace(string(configs.GitHubMembers), `"https://`, `"http://`, 1) // validator rejects http
 	c, seen := fake(t, bad, string(configs.GitHubMembers))
-	d, e := c.Draft(context.Background(), Request{Product: "GitHub", Data: "user_inventory"}, []Secret{{"github_token", "api.github.com"}})
+	d, e := c.generate(context.Background(), Request{Product: "FixtureVendor", Data: "user_inventory"}, []Secret{{"github_token", "api.github.com"}})
 	if e != nil || d.Rounds != 2 || !json.Valid(d.Config) {
 		t.Fatal("repair loop", e, d)
 	}
@@ -57,10 +57,39 @@ func TestDraftRepairsAgainstValidator(t *testing.T) {
 
 func TestDraftGivesUpWithIssues(t *testing.T) {
 	c, seen := fake(t, `{"version":1,"id":"BAD ID"}`)
-	_, e := c.Draft(context.Background(), Request{Product: "Okta", Data: "user_inventory"}, nil)
+	_, e := c.generate(context.Background(), Request{Product: "Okta", Data: "user_inventory"}, nil)
 	var bad *InvalidDraft
 	if !errors.As(e, &bad) || len(bad.Issues) == 0 || len(*seen) != 1+MaxRepairs {
 		t.Fatal("should stop after repairs with issues", e, len(*seen))
+	}
+}
+
+func TestProviderKeysNeverFollowRedirects(t *testing.T) {
+	for _, makeClient := range []func(string, string) *Client{New, NewGemini} {
+		hits := 0
+		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(200) }))
+		redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, 302) }))
+		c := makeClient("SYNTHETIC_PROVIDER_KEY", "fixture")
+		req, _ := http.NewRequest("GET", redirect.URL, nil)
+		req.Header.Set("x-goog-api-key", c.Key)
+		res, e := c.HTTP.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		res.Body.Close()
+		redirect.Close()
+		target.Close()
+		if res.StatusCode != 302 || hits != 0 {
+			t.Fatal("provider redirect followed")
+		}
+	}
+}
+func TestDraftPreservesTheSelectedClass(t *testing.T) {
+	c, _ := fake(t, string(configs.GitHubMembers))
+	_, e := c.generate(context.Background(), Request{Product: "FixtureVendor", Data: "vulnerability_finding"}, nil)
+	var bad *InvalidDraft
+	if !errors.As(e, &bad) || len(bad.Issues) != 1 || bad.Issues[0].Field != "destination.class" {
+		t.Fatal("changed requested class", e)
 	}
 }
 
@@ -75,7 +104,7 @@ func TestDraftNotConfiguredAndProviderErrors(t *testing.T) {
 	defer srv.Close()
 	c := New("test-key", "")
 	c.URL = srv.URL
-	_, e := c.Draft(context.Background(), Request{Product: "X", Data: "user_inventory"}, nil)
+	_, e := c.generate(context.Background(), Request{Product: "X", Data: "user_inventory"}, nil)
 	if !errors.Is(e, ErrUpstream) || strings.Contains(e.Error(), "test-key") || strings.Contains(e.Error(), "internal detail") {
 		t.Fatal("provider error leaked body or key:", e)
 	}
@@ -83,7 +112,7 @@ func TestDraftNotConfiguredAndProviderErrors(t *testing.T) {
 
 func TestRequestCheck(t *testing.T) {
 	for _, a := range []string{"auto", ""} {
-		if (Request{Product: "Okta", Data: a}).Check() != nil {
+		if (Request{Product: "GitHub", Data: a}).Check() != nil {
 			t.Fatal("auto rejected", a)
 		}
 	}
@@ -92,7 +121,7 @@ func TestRequestCheck(t *testing.T) {
 			t.Fatal("accepted", r.Product, r.Data)
 		}
 	}
-	if (Request{Product: "Okta", Data: "user_inventory"}).Check() != nil {
+	if (Request{Product: "GitHub", Data: "user_inventory"}).Check() != nil {
 		t.Fatal("valid request rejected")
 	}
 }

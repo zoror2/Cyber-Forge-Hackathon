@@ -12,7 +12,7 @@ func TestSIEMRoutesRejectUnauthenticatedRequests(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, path := range []string{"/siem/refresh", "/siem/findings", "/siem/ask", "/ai/usage"} {
+	for _, path := range []string{"/siem/refresh", "/siem/findings", "/siem/ask", "/ai/usage", "/ai/consumption"} {
 		for _, method := range []string{"GET", "POST"} {
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, httptest.NewRequest(method, path, nil))

@@ -1,0 +1,16 @@
+{
+  "version": 1, "id": "sophos_central_endpoints", "name": "Sophos Central endpoint inventory", "vendor": "Sophos Intercept X",
+  "request": {"method": "GET", "url": "https://your-sophos-region.example.com/endpoint/v1/endpoints", "headers": {"Accept": "application/json", "X-Tenant-ID": "your-sophos-tenant-id"}, "timeout_seconds": 20},
+  "auth": {"type": "oauth2_client_credentials", "secret": "sophos_central", "token_url": "https://id.sophos.com/api/v2/oauth2/token", "client_auth_method": "client_secret_post", "scopes": ["token"]},
+  "items_path": "items", "pagination": {"type": "cursor", "cursor_param": "pageFromKey", "cursor_path": "pages.nextKey", "size_param": "pageSize", "page_size": 100},
+  "destination": {"class": "inventory_info", "mapping": {
+    "device.uid": {"path": "id", "required": true, "transform": "string"},
+    "device.hostname": {"path": "hostname", "transform": "string"},
+    "device.type_id": {"constant": 0},
+    "device.ip": {"path": "ipv4Addresses.0", "transform": "string"},
+    "metadata.product.name": {"constant": "Sophos Central"}, "metadata.product.vendor_name": {"constant": "Sophos"}
+  }},
+  "schedule": {"enabled": false, "interval_seconds": 900},
+  "limits": {"max_response_bytes": 1048576, "max_pages": 20, "max_records": 1000, "max_run_seconds": 120},
+  "retry": {"max_attempts": 3, "base_delay_ms": 1000, "max_retry_after_seconds": 60}
+}

@@ -49,8 +49,8 @@ function when(v) {
   return isNaN(d) ? String(v) : d.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
 }
 const short = (s, n = 10) => (s ? String(s).slice(0, n) : '');
-const OK = ['healthy', 'success', 'live'];
-const WARN = ['degraded', 'completed_with_errors', 'incomplete', 'draft', 'approved', 'partial'];
+const OK = ['healthy', 'success', 'live', 'drafted', 'explained'];
+const WARN = ['degraded', 'completed_with_errors', 'incomplete', 'draft', 'approved', 'partial', 'reserved'];
 function pill(v) {
   const s = String(v || 'idle');
   const cls = OK.includes(s) ? 'ok' : WARN.includes(s) ? 'warn' : ['idle', 'running', 'test'].includes(s) ? '' : 'bad';
@@ -136,7 +136,7 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
 function lock(msg) {
   S.me = null;
   app().replaceChildren(loginView(msg));
@@ -151,6 +151,7 @@ async function enter(me) {
   shell();
 }
 async function boot() {
+  if (location.hash === '#/platform-ai') return platformAIPage();
   try {
     const me = () => fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
     let r = await me();
@@ -202,7 +203,8 @@ function loginView(msg) {
   h('div', { class: 'brand', style: 'padding:0' }, h('span', { class: 'logo' }, 'CB'), 'ConfigBridge'),
   h('div', {}, title, sub), body, err, go, links);
   draw();
-  return h('div', { class: 'login' }, h('div', { class: 'card' }, form));
+  return h('div', { class: 'login' }, h('div', { class: 'card' }, form,
+    h('div', { class: 'bd small muted' }, h('a', { href: '#/platform-ai' }, 'Platform AI usage'))));
 }
 function shell() {
   const nav = h('nav', { class: 'nav' }, NAV.filter(([, , need]) => !need || can(need)).map(([id, label]) => h('a', { href: '#/' + id, 'data-v': id }, label)));
@@ -217,6 +219,10 @@ function shell() {
   route();
 }
 function route() {
+  if (location.hash === '#/platform-ai') return platformAIPage();
+  clearPlatformAI();
+  if (!S.me) return boot();
+  if (!document.getElementById('view')) return shell();
   document.querySelectorAll('.drawer, .scrim').forEach((x) => x.remove());
   if (!S.me) return;
   const [, view = 'overview', arg = ''] = (location.hash || '#/overview').split('/');
@@ -225,7 +231,7 @@ function route() {
   const v = document.getElementById('view');
   if (!v) return;
   const name = view.split('?')[0];
-  const fn = { overview, connectors, builder, records, insights, quarantine, runs, secrets, access }[name] || overview;
+  const fn = { overview, connectors, builder, records, insights, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
   v.replaceChildren(h('div', { class: 'muted' }, 'Loading…'));
   fn(v, decodeURIComponent(arg.split('?')[0]), q).catch((e) => {
     if (S.me) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
@@ -914,7 +920,7 @@ function renderBuilder(v) {
   refreshJSON();
 }
 // ---------- Add source: product + data type -> AI draft -> key -> Connect ----------
-const W = { product: '', data: 'auto', details: '', draft: null, msg: '', bad: false, progress: [], address: '' };
+const W = { product: '', data: 'auto', profile: '', dataset: '', scope: 'public', documentation: '', details: '', draft: null, msg: '', bad: false, progress: [], address: '' };
 const optTag = () => h('span', { class: 'tag', style: 'margin-left:6px' }, 'optional');
 async function wizard(v) {
   const [sec, cfgs] = await Promise.all([must('GET', '/secrets?limit=500'), must('GET', '/configs?limit=500')]);
@@ -925,7 +931,7 @@ async function wizard(v) {
 }
 // loadDraft puts an AI draft or a checked pasted config into the Connect card.
 function loadDraft(d, pasted) {
-  Object.assign(W, { draft: d, pasted, progress: [], creds: {}, address: '', addressRaw: '', pasteIssues: [] });
+  Object.assign(W, { draft: d, pasted, progress: [], creds: {}, inputs: {}, address: '', addressRaw: '', pasteIssues: [] });
   B.f = parse(d.config); B.existing = null; B.saved = null; B.steps = {};
   // the template the address is filled into; kept so the address can be changed
   W.base = { url: B.f.url, token_url: B.f.auth.token_url, ports: B.f.ports };
@@ -937,16 +943,25 @@ function renderWizard(v) {
   const re = () => renderWizard(v);
   const say = (msg, bad) => { W.msg = msg; W.bad = !!bad; };
   const kinds = Object.keys(KIND).filter((k) => classes()[k]);
-  const product = h('input', { value: W.product, placeholder: 'e.g. Okta, AbuseIPDB, CrowdStrike', autocomplete: 'off', oninput: (e) => { W.product = e.target.value; W.queue = []; } });
-  const details = h('textarea', { rows: 2, value: W.details, placeholder: 'Anything special, or paste part of the vendor API docs', oninput: (e) => { W.details = e.target.value; } });
+  const product = h('input', { id: 'vendor-product', value: W.product, placeholder: 'e.g. GitHub, NVD, CISA', autocomplete: 'off', oninput: (e) => { const pos = e.target.selectionStart; W.product = e.target.value; W.profile = ''; W.draft = null; W.queue = []; re(); const input = document.getElementById('vendor-product'); input.focus(); input.setSelectionRange(pos, pos); } });
+  const github = /github/i.test(W.product);
+  const datasets = github ? [['github_public_users', 'Public GitHub users'], ['github_public_contributors', 'Contributors of one public repository (users)'], ['github_public_members', 'Public organization members']] : /nvd|^nist$/i.test(W.product) ? [['nvd_kev_cves', 'NVD CVEs in the CISA KEV subset']] : /cisa|^kev$/i.test(W.product) ? [['cisa_kev', 'CISA KEV catalog (official mirror)']] : [];
+  if (datasets.length) datasets.push(['custom', 'Another dataset: use public API documentation']);
+  const generic = !datasets.length || W.profile === 'custom';
+  const profile = datasets.length ? h('label', { class: 'f' }, h('span', {}, 'Dataset / scope'), h('select', { 'aria-label': 'Dataset / scope', onchange: (e) => { W.profile = e.target.value; W.draft = null; re(); } }, datasets.map(([id, text]) => h('option', { value: id, selected: id === (W.profile || datasets[0][0]) }, text))), github ? h('span', { class: 'small faint' }, 'Reviewed examples collect users, not repository objects. Choose contributors explicitly for a public repository. No Enterprise plan is required.') : null) : null;
+  const documentation = generic ? h('div', { class: 'stack' },
+    h('label', { class: 'f' }, h('span', {}, 'Requested dataset (public description only)'), h('input', { 'aria-label': 'Requested dataset', value: W.dataset, placeholder: 'e.g. users, login events, vulnerability findings', oninput: (e) => { W.dataset = e.target.value; } })),
+    h('label', { class: 'f' }, h('span', {}, 'Access scope'), h('select', { 'aria-label': 'Access scope', onchange: (e) => { W.scope = e.target.value; } }, ['public', 'repository', 'organization', 'account', 'enterprise'].map((x) => h('option', { value: x, selected: W.scope === x }, x)))),
+    h('label', { class: 'f' }, h('span', {}, 'Official public API documentation URLs (one per line, up to 3)'), h('textarea', { 'aria-label': 'Public documentation URLs', rows: 3, value: W.documentation, placeholder: 'https://vendor.example/developers/api', oninput: (e) => { W.documentation = e.target.value; } })),
+    h('span', { class: 'small faint' }, 'Only the product, public dataset/scope and retrieved public documentation go to the hosted AI. Do not put customer names, private URLs, keys or records here. You choose the trusted publisher; the backend checks citations. If documentation is insufficient, the draft stops with clear errors.')) : null;
   const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
-    W.draft = null; W.progress = []; say('Drafting…'); re();
-    const r = await api('POST', '/ai/draft', { product: W.product.trim(), data: W.data, details: W.details });
+    W.draft = null; W.progress = []; W.pasteIssues = []; say('Drafting…'); re();
+    const r = await api('POST', '/ai/draft', { product: W.product.trim(), profile: generic ? '' : (W.profile || datasets[0][0]), data: W.data, ...(generic ? { dataset: W.dataset.trim(), scope: W.scope, documentation_urls: W.documentation.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) } : {}) });
     say('');
     if (r.ok) loadDraft(r.data, false);
     else if (r.status === 503 && r.data && r.data.error === 'ai_not_configured') say('AI is not set up on this server. Use "Fill in manually".', true);
-    else if (r.status === 422) { say('The AI could not produce a valid setup. Use "Fill in manually" to finish it.', true); if (r.data.config) B.f = parse(r.data.config); }
+    else if (r.status === 422) { say((r.data && r.data.detail) || 'The public references do not support a usable setup. Supply focused API docs or fill in manually.', true); W.pasteIssues = (r.data && r.data.issues) || []; }
     else if (r.status === 429) say('Too many drafts in a row. Wait a few seconds.', true);
     else say('AI request failed: ' + ((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status), true);
     re();
@@ -975,10 +990,12 @@ function renderWizard(v) {
       h('div', { class: 'row' }, checkBtn, W.msg ? h('span', { class: 'small', style: W.bad ? 'color:var(--bad)' : 'color:var(--muted)' }, W.msg) : null))) :
     h('div', { class: 'card' }, h('div', { class: 'bd stack' },
       h('label', { class: 'f' }, h('span', {}, 'Product'), product),
+      profile,
+      documentation,
       h('div', { class: 'f' }, h('span', {}, 'What data', optTag()), h('div', { class: 'row' },
         ['auto'].concat(kinds).map((k) => h('button', { type: 'button', class: 'sm' + (W.data === k ? ' primary' : ''), onclick: () => { W.data = k; re(); } }, k === 'auto' ? 'Auto' : KIND[k]))),
         W.data === 'auto' ? h('span', { class: 'small faint' }, 'The AI picks this product\'s main data. Pick one only if you want something else.') : null),
-      h('label', { class: 'f' }, h('span', {}, 'Notes', optTag()), details),
+      (W.pasteIssues || []).length ? h('ul', { class: 'issues' }, W.pasteIssues.map((x) => h('li', {}, x.field + ': ' + x.message))) : null,
       h('div', { class: 'row' }, draftBtn, W.msg ? h('span', { class: 'small', style: W.bad ? 'color:var(--bad)' : 'color:var(--muted)' }, W.msg) : null))),
   ];
   if (W.draft) parts.push(draftCard(v));
@@ -995,7 +1012,13 @@ function draftCard(v) {
   // the customer part may be in a host or a path (e.g. login.microsoftonline.com/your-tenant/...)
   const tmpl = W.base.url + ' ' + (W.base.token_url || '');
   const hasBlank = /your-tenant/.test(tmpl); // the address step stays visible so it can be corrected
-  const placeholder = /your-tenant/.test(c.request.url + ' ' + (a.token_url || '')); // still unfilled
+  const pathInputs = W.draft.inputs || [];
+  const placeholder = /your-tenant/.test(c.request.url + ' ' + (a.token_url || '')) || pathInputs.some((x) => c.request.url.includes(x.placeholder));
+  const pathFields = pathInputs.length ? h('div', { class: 'stack' }, ...pathInputs.map((x) => h('label', { class: 'f' }, h('span', {}, x.label), h('input', { 'aria-label': x.label, value: (W.inputs || {})[x.name] || '', placeholder: x.placeholder, autocomplete: 'off', oninput: (e) => { W.inputs[x.name] = e.target.value.trim(); } }))), h('button', { type: 'button', onclick: () => {
+    if (pathInputs.some((x) => !/^[A-Za-z0-9._-]{1,100}$/.test(W.inputs[x.name] || '') || ['.', '..', x.placeholder].includes(W.inputs[x.name]))) { toast('Enter each owner, repository or organization name separately, without a URL.', true); return; }
+    let url = W.base.url; for (const x of pathInputs) url = url.replace(x.placeholder, encodeURIComponent(W.inputs[x.name]));
+    B.f.url = url; B.saved = null; B.steps = {}; W.progress = []; re();
+  } }, 'Apply dataset inputs')) : null;
   // needed 1: the customer's own part of the address (Okta domain, enterprise slug, tenant id, device IP)
   const what = W.draft.tenant_hint || 'your ' + (W.product || 'vendor') + ' address';
   const addr = h('input', { value: W.addressRaw || '', placeholder: what, autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.addressRaw = e.target.value.trim(); } });
@@ -1081,6 +1104,8 @@ function draftCard(v) {
   let n = 0;
   return h('div', { class: 'card' }, h('div', { class: 'bd stack' },
     h('div', {}, h('h2', {}, c.name || c.id), h('div', { class: 'small muted' }, 'Pulling ', h('strong', {}, kind(c.destination.class)), ' from ' + (apiHost || c.request.url))),
+    W.draft.contract ? h('div', { class: 'stack small' }, h('strong', {}, W.draft.contract.scope), h('span', {}, W.draft.contract.access), h('code', {}, W.draft.contract.method + ' ' + c.request.url), h('span', {}, 'Auth: ' + W.draft.contract.authentication + '; records: ' + (W.draft.contract.items_path || 'root array') + '; pagination: ' + W.draft.contract.pagination), h('span', {}, 'Response fields used: ' + W.draft.contract.response_fields.join(', ')), h('span', { class: 'muted' }, W.draft.contract.status === 'reviewed_profile_fallback' ? 'The AI proposal differed from the reviewed contract; this draft uses the reviewed template. Test it before activating.' : W.draft.contract.status === 'documented_candidate' ? 'Citations checked against supplied public references. Preview and review before activation.' : 'Reviewed public API contract. Test it before activating.')) : null,
+    pathFields,
     (W.draft.also_available || []).length ? h('div', { class: 'row small' }, h('span', { class: 'muted' }, 'Also available from ' + (W.product.trim() || 'this product') + ':'),
       W.draft.also_available.map((k) => h('button', { type: 'button', class: 'sm', title: 'Set up ' + kind(k) + ' as another source',
         onclick: () => { W.data = k; W.again = true; re(); } }, '+ ' + kind(k))),

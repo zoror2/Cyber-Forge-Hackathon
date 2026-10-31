@@ -153,6 +153,15 @@ func TestKEVExposureIsolationAndCredentialOwnership(t *testing.T) {
 	if err == nil {
 		t.Fatal("tenant could edit reviewed aliases")
 	}
+	// CISA's exact official mirror is the same reviewed feed; arbitrary GitHub
+	// repositories and other hosts still cannot establish CISA provenance.
+	if _, err = e.db.Admin.Exec(ctx, "UPDATE "+e.db.Schema+".configs SET body=jsonb_set(body,'{request,url}','\"https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json\"') WHERE id='cisa_kev'"); err != nil {
+		t.Fatal(err)
+	}
+	var mirrored []store.Exposure
+	if err = json.Unmarshal(e.request(t, "tenant-a", "GET", "/exposure?connector=tenant-a-ivanti", nil, 200), &mirrored); err != nil || len(mirrored) != 1 || mirrored[0].KEVCount != 23 {
+		t.Fatal("official CISA mirror lost provenance", mirrored, err)
+	}
 	// Changing the producing revision's URL simulates a non-CISA source: ignored.
 	if _, err = e.db.Admin.Exec(ctx, "UPDATE "+e.db.Schema+".configs SET body=jsonb_set(body,'{request,url}','\"https://other.example.com\"') WHERE id='cisa_kev'"); err != nil {
 		t.Fatal(err)

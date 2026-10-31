@@ -11,8 +11,10 @@ tenant API key → live DB config → guarded HTTP/auth/retry/paging engine
               → filter → OCSF mapper (pinned schema) → PostgreSQL ocsf_records + quarantine → runs/health API
 ```
 
-The working local sources are synthetic TLS fixtures. Live vendor credentials,
-real AWS Secrets Manager access, cloud deployment, SSO and two-person config
+Local tests use synthetic TLS fixtures plus live GitHub, NVD and CISA checks.
+See the [FR/bonus verification checklist](docs/VERIFICATION.md) and
+[current AI drafting flow](docs/AI_DRAFTS.md) for evidence and limitations.
+Real AWS Secrets Manager access, cloud deployment, SSO and two-person config
 approval remain separate work. The engine supports the specific auth/paging
 capabilities in its config contract; it does not support every vendor protocol.
 
@@ -117,9 +119,9 @@ credentials out of synced/shared environments and exports. Vendor tokens belong
 in Postman Vault. The isolation folder requires a separately provisioned tenant B
 and its own local API-key value.
 
-REST endpoints require `Authorization: Bearer <tenant API key>`. The development
-browser console uses Basic authentication as described below. PostgreSQL stores
-only its SHA-256 hash. Tenant identity comes from authentication; no body, URL or
+REST clients use `Authorization: Bearer <tenant API key>`; PostgreSQL stores
+only the key's SHA-256 hash. The browser console uses account sign-in and
+HttpOnly session cookies. Tenant identity comes from authentication; no body, URL or
 caller-selected tenant header can choose it. Unknown/other-tenant connector IDs
 return 404. Collection routes return only the authenticated tenant's data.
 
@@ -263,11 +265,17 @@ and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 
 ## Web console
 
-`http://127.0.0.1:8080/ui/` (served by the same binary, `internal/ui`). Sign in with the tenant API key; it stays in
-the tab's memory only (no localStorage/cookies, gone on reload). Views: overview/health, connectors, **form config
+`http://127.0.0.1:8080/ui/` (served by the same binary, `internal/ui`). Sign in with
+your account id, email and password; sessions use HttpOnly cookies. Views include
+**AI usage** (daily tokens, model breakdown and request logs), overview/health, connectors, **form config
 builder (B-5)** with OCSF path suggestions and the save → validate → activate → test → run pipeline, OCSF records with a
 JSON viewer, quarantine grouped by cause, runs, secrets (write-only). Strict CSP (`'self'` only, no inline script, no
 CDNs); every vendor value is rendered as text. Same-origin browser calls are allowed; cross-site requests get 403.
+
+Platform operators can compare customer AI consumption at `/ui/#/platform-ai`
+using the separate private `CB_OPERATOR_TOKEN`. Customer admins see only their
+own account. Prompts, answers and keys are excluded from usage logs; missing
+provider usage stays unknown. See [AI usage setup and verification](docs/AI_USAGE.md).
 
 ## Live sources (PRD: three real free-tier sources)
 
