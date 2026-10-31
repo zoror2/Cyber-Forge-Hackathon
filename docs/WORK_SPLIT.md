@@ -11,6 +11,7 @@ Config-driven security integration platform. Product, not a prototype: **securit
 | Tenancy | Single-tenant: one isolated AWS account per customer |
 | Configs | Written by engineers only, entered through the hosted UI (phase 2) |
 | Order | Phase 1: engine + API, tested in Postman. Phase 2: UI + AWS |
+| Members | **Member A = Mohith** (request side). Member B = teammate (data side + API) |
 
 Architecture diagram: [architecture.svg](architecture.svg)
 
