@@ -261,6 +261,12 @@ func (e *Engine) retryDelay(r Retry, attempt int, header http.Header, err error)
 	if attempt >= r.MaxAttempts || errors.Is(err, egress.ErrBlocked) || errors.Is(err, ErrTooLarge) {
 		return 0, false
 	}
+	// Credential problems (missing secret, wrong binding, 401/403) never fix
+	// themselves within a run; retrying only delays the real error.
+	var ae *AuthError
+	if errors.As(err, &ae) {
+		return 0, false
+	}
 	// base << (attempt-1) doubles each time: 1s, 2s, 4s, ...
 	backoff := time.Duration(r.BaseDelayMillis) * time.Millisecond << (attempt - 1)
 
@@ -301,7 +307,8 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 	req.Header.Set("User-Agent", "ConfigBridge/0.1")
 
 	// Attach credentials (checks secret-to-host binding first).
-	if err := e.authorize(ctx, client, c, req); err != nil {
+	credID, err := e.authorize(ctx, client, c, req)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -318,7 +325,11 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 		if resp.StatusCode == http.StatusUnauthorized && c.Auth.Type == "oauth2_client_credentials" {
 			e.dropToken(c) // token rejected: fetch a fresh one next time
 		}
-		return nil, resp.Header, &StatusError{Code: resp.StatusCode}
+		se := &StatusError{Code: resp.StatusCode}
+		if status, ok := statusFromHTTP(resp.StatusCode, false); ok && c.Auth.Type != "none" {
+			return nil, resp.Header, authErr(status, c.Auth.Secret, credID, se) // tell WHICH credential to fix
+		}
+		return nil, resp.Header, se
 	}
 
 	body, err := readLimited(resp.Body, c.Limits.MaxResponseBytes)
@@ -333,17 +344,24 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 // Egress blocks are SECURITY EVENTS: logged at ERROR with a fixed
 // event="egress_blocked" field, so log-based alerting can match on it.
 // A block can mean a misconfigured connector or someone trying to misuse one.
+//
+// Credential problems additionally carry credential_id and auth_status, so
+// alerting can route "needs_reauth" to the credential's owner.
 func (e *Engine) logFailure(c Connector, u *url.URL, err error) {
+	attrs := []any{"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u)}
+	var ae *AuthError
+	if errors.As(err, &ae) {
+		attrs = append(attrs, "credential_id", ae.CredentialID, "auth_status", ae.Status)
+	}
 	if errors.Is(err, egress.ErrBlocked) {
-		e.Log.Error("egress blocked",
-			"event", "egress_blocked",
-			"tenant", c.TenantID, "connector", c.ID,
-			"url", RedactURL(u), "reason", err.Error())
+		e.Log.Error("egress blocked", append(attrs, "event", "egress_blocked", "reason", err.Error())...)
 		return
 	}
-	e.Log.Warn("vendor request failed",
-		"event", "vendor_request_failed",
-		"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u), "error", err.Error())
+	if ae != nil {
+		e.Log.Warn("credential problem", append(attrs, "event", "auth_failed", "error", err.Error())...)
+		return
+	}
+	e.Log.Warn("vendor request failed", append(attrs, "event", "vendor_request_failed", "error", err.Error())...)
 }
 
 // readLimited reads at most max bytes. It reads one extra byte to detect

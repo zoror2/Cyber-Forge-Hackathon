@@ -561,7 +561,8 @@ func (s Scope) Health(ctx context.Context, limit, offset int) (out []Health, err
 				h.Status = "failed"
 			}
 			switch h.Error {
-			case "rate_limited", "auth_failed", "destination_denied", "timeout":
+			case "rate_limited", "auth_failed", "destination_denied", "timeout",
+				"credential_missing", "credential_incomplete", "credential_binding_mismatch":
 				h.Status = h.Error
 			}
 			out = append(out, h)

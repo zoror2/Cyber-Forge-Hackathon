@@ -445,7 +445,7 @@ func TestCombinedSecretsAndAuthentication(t *testing.T) {
 	e.request(t, "tenant-a", "PUT", "/secrets/wrong-host", body, 204)
 	e.save(t, "tenant-a", blocked, true)
 	before = e.callsCount("/secure")
-	if r := e.run(t, "tenant-a", blocked.ID, 502); r.Error != "destination_denied" {
+	if r := e.run(t, "tenant-a", blocked.ID, 502); r.Error != "credential_binding_mismatch" {
 		t.Fatal(r)
 	}
 	if e.callsCount("/secure") != before {

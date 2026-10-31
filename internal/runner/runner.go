@@ -173,6 +173,17 @@ func (r *Runner) Run(ctx context.Context, tenant, id string, test, scheduled boo
 	return run, e
 }
 func Category(e error) string {
+	// Credential problems first: binding_mismatch is also an egress block, and
+	// 401/403 are also StatusErrors, but the credential status is more useful.
+	var ae *engine.AuthError
+	if errors.As(e, &ae) {
+		switch ae.Status {
+		case engine.StatusNeedsReauth, engine.StatusInsufficientPermissions:
+			return "auth_failed"
+		default: // missing, incomplete, binding_mismatch
+			return "credential_" + ae.Status
+		}
+	}
 	switch {
 	case errors.Is(e, egress.ErrBlocked):
 		return "destination_denied"
