@@ -175,3 +175,12 @@ Remove-Variable plain, v
 - secrets in `params` / `headers`, or `{{…}}` anywhere except `auth.headers`
 - responses over `max_response_bytes`
 - unknown JSON keys; mapping keys that aren't real OCSF fields; platform-owned OCSF fields; values outside OCSF enums
+
+## Optional B-1 incremental sync
+
+Supported vendor APIs can add an `incremental` time-window block. Use
+[`mock_incremental_users.json`](mock_incremental_users.json) for the local TLS
+demo and [`docs/BONUS_B1.md`](../docs/BONUS_B1.md) for the required lower/upper
+filter and stable-pagination contract. This is opt-in; existing configs keep
+full-sync behavior. Do not enable it on KEV or GitHub members without documented
+modification filters.

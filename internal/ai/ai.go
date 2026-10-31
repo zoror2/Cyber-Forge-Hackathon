@@ -41,6 +41,19 @@ type Client struct {
 	Model string // e.g. openai/gpt-oss-120b
 	URL   string // chat completions endpoint
 	HTTP  *http.Client
+	// Tenants may use the drafter; empty = every tenant. CB_AI_ENABLED_TENANTS.
+	Tenants map[string]bool
+	// DailyLimit drafts per tenant per UTC day, counted in Postgres (shared by
+	// replicas, survives restarts). Each draft is up to 1+MaxRepairs model calls.
+	DailyLimit int
+}
+
+// PromptVersion is recorded in ai_audit so a draft can be traced to its prompt.
+const PromptVersion = "draft-v1"
+
+// Allowed reports whether a tenant may draft.
+func (c *Client) Allowed(tenant string) bool {
+	return c != nil && c.Key != "" && (len(c.Tenants) == 0 || c.Tenants[tenant])
 }
 
 // New reads nothing from the environment itself; cmd/api passes values in.
@@ -49,7 +62,7 @@ func New(key, model string) *Client {
 		model = "openai/gpt-oss-120b"
 	}
 	return &Client{Key: key, Model: model, URL: "https://api.groq.com/openai/v1/chat/completions",
-		HTTP: &http.Client{Timeout: 90 * time.Second}}
+		HTTP: &http.Client{Timeout: 90 * time.Second}, DailyLimit: 20}
 }
 
 type Request struct {

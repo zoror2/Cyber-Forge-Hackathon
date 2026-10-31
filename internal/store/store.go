@@ -4,6 +4,7 @@ package store
 
 import (
 	"configbridge/pkg/config"
+	"configbridge/pkg/incremental"
 	"configbridge/pkg/model"
 	"context"
 	"crypto/sha256"
@@ -22,26 +23,47 @@ import (
 //go:embed migrations/001_initial.sql
 var migration string
 
-//go:embed migrations/002_ocsf.sql
+//go:embed migrations/002_exposure.sql
+var migrationExposure string
+
+//go:embed migrations/003_ai_drafts.sql
+var migrationAI string
+
+//go:embed migrations/004_incremental.sql
+var migrationIncremental string
+
+//go:embed migrations/005_notifications.sql
+var migrationNotifications string
+
+//go:embed migrations/006_ocsf.sql
 var migrationOCSF string
 
-//go:embed migrations/003_prd_views.sql
+//go:embed migrations/007_prd_views.sql
 var migrationPRDViews string
 
-//go:embed migrations/004_scale.sql
+//go:embed migrations/008_scale.sql
 var migrationScale string
+
+//go:embed migrations/009_exposure_ocsf.sql
+var migrationExposureOCSF string
 
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
+// 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
 var migrations = []struct {
 	version int
 	sql     string
 	tables  []string
 }{
 	{1, migration, []string{"tenants", "api_keys", "configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"}},
-	{2, migrationOCSF, []string{"ocsf_records"}},
-	{3, migrationPRDViews, nil},
-	{4, migrationScale, nil},
+	{2, migrationExposure, nil},
+	{3, migrationAI, []string{"ai_usage", "ai_audit"}},
+	{4, migrationIncremental, nil},
+	{5, migrationNotifications, []string{"alert_state", "alert_outbox"}},
+	{6, migrationOCSF, []string{"ocsf_records"}},
+	{7, migrationPRDViews, nil},
+	{8, migrationScale, nil},
+	{9, migrationExposureOCSF, nil},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -133,6 +155,12 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage TO "+role); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE ON "+sch+".alert_state,"+sch+".alert_outbox TO "+role); e != nil {
+		return e
+	}
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
@@ -146,10 +174,13 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 			return e
 		}
 	}
+	if _, e = tx.Exec(ctx, "GRANT SELECT ON "+sch+".vendor_aliases TO "+role); e != nil {
+		return e
+	}
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON ALL SEQUENCES IN SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, fn := range []string{"authenticate_api_key(bytea)", "due_connectors()", "running_connectors()"} {
+	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e
 		}
@@ -199,18 +230,28 @@ func Bootstrap(ctx context.Context, dsn, tenant, apiKey, kmsKey string) error {
 	return tx.Commit(ctx)
 }
 func (s *Store) Authenticate(ctx context.Context, key string) (string, error) {
+	caller, err := s.AuthenticateCaller(ctx, key)
+	return caller.Tenant, err
+}
+
+type Caller struct {
+	Tenant string
+	Actor  string
+}
+
+func (s *Store) AuthenticateCaller(ctx context.Context, key string) (Caller, error) {
 	hash := sha256.Sum256([]byte(key))
-	var tenant string
+	var tenant, principal string
 	var stored []byte
-	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash FROM authenticate_api_key($1)", hash[:]).Scan(&tenant, &stored)
+	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash,principal_id FROM authenticate_api_key_identity($1)", hash[:]).Scan(&tenant, &stored, &principal)
 	if e != nil || !config.ValidID(tenant) {
-		return "", ErrNotFound
+		return Caller{}, ErrNotFound
 	}
 	// The narrow security-definer lookup returns no unhashed key or customer data.
 	if e != nil || subtle.ConstantTimeCompare(stored, hash[:]) != 1 {
-		return "", ErrNotFound
+		return Caller{}, ErrNotFound
 	}
-	return tenant, nil
+	return Caller{Tenant: tenant, Actor: "api_key:" + principal}, nil
 }
 func (s Scope) WithTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if !config.ValidID(s.Tenant) {
@@ -355,8 +396,28 @@ func (s Scope) Activate(ctx context.Context, id string, revision int) error {
 			return e
 		}
 		_, e := tx.Exec(ctx, "INSERT INTO sync_state(tenant_id,connector,next_due)VALUES($1,$2,now()) ON CONFLICT(tenant_id,connector) DO UPDATE SET next_due=now()", s.Tenant, id)
-		return e
+		if e != nil {
+			return e
+		}
+		if c.Notifications == nil || !c.Notifications.Enabled {
+			return s.resetAlerts(ctx, tx, id)
+		}
+		return nil
 	})
+}
+func (s Scope) ConfigRevision(ctx context.Context, id string, revision int) (out SavedConfig, err error) {
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		var body []byte
+		e := tx.QueryRow(ctx, "SELECT body,version,status,config_hash FROM configs WHERE tenant_id=$1 AND id=$2 AND version=$3", s.Tenant, id, revision).Scan(&body, &out.Revision, &out.Status, &out.Hash)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if e != nil {
+			return e
+		}
+		return json.Unmarshal(body, &out.Config)
+	})
+	return
 }
 
 // Lock holds a session lock on a dedicated connection and cancels work if that
@@ -420,7 +481,11 @@ func (s Scope) StartRun(ctx context.Context, r model.Run) error {
 		if _, e := tx.Exec(ctx, "UPDATE runs SET outcome='interrupted',ended_at=now(),error='interrupted' WHERE tenant_id=$1 AND connector=$2 AND outcome='running'", s.Tenant, r.Connector); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx, "INSERT INTO runs(tenant_id,id,connector,config_version,config_hash,mode,started_at,outcome)VALUES($1,$2,$3,$4,$5,$6,$7,'running')", s.Tenant, r.ID, r.Connector, r.ConfigVersion, r.ConfigHash, r.Mode, r.StartedAt)
+		var window []byte
+		if r.Incremental != nil {
+			window, _ = json.Marshal(r.Incremental)
+		}
+		_, e := tx.Exec(ctx, "INSERT INTO runs(tenant_id,id,connector,config_version,config_hash,mode,started_at,outcome,incremental)VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8)", s.Tenant, r.ID, r.Connector, r.ConfigVersion, r.ConfigHash, r.Mode, r.StartedAt, window)
 		return e
 	})
 }
@@ -454,7 +519,19 @@ func (s Scope) SavePage(ctx context.Context, runID, source string, records []mod
 }
 func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
-		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10,skipped=$11 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error, r.Skipped)
+		var window, checkpoint []byte
+		if r.Incremental != nil {
+			copy := *r.Incremental
+			copy.Committed = r.Outcome == "success" && r.Quarantined == 0 && r.Mode == "live"
+			if copy.Until.Before(copy.Since) {
+				return incremental.ErrState
+			}
+			window, _ = json.Marshal(copy)
+			if copy.Committed {
+				checkpoint, _ = json.Marshal(incremental.Checkpoint{Version: 1, ConfigHash: r.ConfigHash, Through: copy.Until})
+			}
+		}
+		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10,incremental=$11,skipped=$12 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error, window, r.Skipped)
 		if e != nil {
 			return e
 		}
@@ -464,8 +541,11 @@ func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 		if interval < 1 {
 			interval = 60
 		}
-		_, e = tx.Exec(ctx, `INSERT INTO sync_state(tenant_id,connector,last_success,next_due)VALUES($1,$2,CASE WHEN $3 THEN $4::timestamptz ELSE NULL END,now()+make_interval(secs=>$5)) ON CONFLICT(tenant_id,connector) DO UPDATE SET last_success=CASE WHEN $3 THEN $4::timestamptz ELSE sync_state.last_success END,next_due=now()+make_interval(secs=>$5)`, s.Tenant, r.Connector, r.Outcome == "success", r.EndedAt, interval)
-		return e
+		_, e = tx.Exec(ctx, `INSERT INTO sync_state(tenant_id,connector,last_success,next_due,watermark)VALUES($1,$2,CASE WHEN $3 THEN $4::timestamptz ELSE NULL END,now()+make_interval(secs=>$5),$6) ON CONFLICT(tenant_id,connector) DO UPDATE SET last_success=CASE WHEN $3 THEN $4::timestamptz ELSE sync_state.last_success END,next_due=now()+make_interval(secs=>$5),watermark=COALESCE($6,sync_state.watermark)`, s.Tenant, r.Connector, r.Outcome == "success", r.EndedAt, interval, checkpoint)
+		if e != nil {
+			return e
+		}
+		return s.queueAlert(ctx, tx, r)
 	})
 }
 
@@ -525,15 +605,19 @@ func (s Scope) IsDue(ctx context.Context, id string) (due bool, err error) {
 func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []model.Run, err error) {
 	out = []model.Run{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
-		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error,skipped FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
+		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error,incremental,skipped FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var r model.Run
-			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error, &r.Skipped); e != nil {
+			var window []byte
+			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error, &window, &r.Skipped); e != nil {
 				return e
+			}
+			if len(window) > 0 && json.Unmarshal(window, &r.Incremental) != nil {
+				return incremental.ErrState
 			}
 			out = append(out, r)
 		}

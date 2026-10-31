@@ -96,8 +96,8 @@ $env:TEST_DATABASE_URL = $env:MIGRATION_DATABASE_URL
 .\scripts\check.ps1
 ```
 
-The gate checks formatting, `go vet`, every Go test with `-race`, and native builds
-for API/bootstrap/mock/certificate generation. It requires the database URL so
+The gate checks formatting, `go vet`, every Go test with `-race`, and all six native
+command builds, including the local test mailbox. It requires the database URL so
 integration tests cannot silently skip. A failed check prevents pushing. The
 same suite is available as `docker compose --profile tools run --rm test`;
 dependencies download separately, then the test network has no internet egress.
@@ -117,7 +117,8 @@ credentials out of synced/shared environments and exports. Vendor tokens belong
 in Postman Vault. The isolation folder requires a separately provisioned tenant B
 and its own local API-key value.
 
-Every endpoint requires `Authorization: Bearer <tenant API key>`. PostgreSQL stores
+REST endpoints require `Authorization: Bearer <tenant API key>`. The development
+browser console uses Basic authentication as described below. PostgreSQL stores
 only its SHA-256 hash. Tenant identity comes from authentication; no body, URL or
 caller-selected tenant header can choose it. Unknown/other-tenant connector IDs
 return 404. Collection routes return only the authenticated tenant's data.
@@ -127,26 +128,77 @@ return 404. Collection routes return only the authenticated tenant's data.
 | `POST /configs` | Strict JSON → new draft revision, no network call |
 | `POST /configs/{id}/validate` | Validate the stored config |
 | `POST /configs/{id}/activate` | Body `{"revision":1}`; select the live version |
-| `PUT /secrets/{name}` | Body `{value,allowed_host}`; 204 and no value returned |
+| `POST /configs/{id}/test` | Body `{"revision":1}`; sample a saved draft before activation, no production writes |
+| `PUT /secrets/{name}` | `{value,allowed_host}` or `{fields,allowed_hosts}`; write-only |
 | `GET /secrets` | Names, host bindings and dates only |
 | `POST /connectors/{id}/test` | Empty body; one-page/100-row sample, no writes |
 | `POST /connectors/{id}/run` | Empty body; synchronously run the live DB config |
+| `GET /connectors/{id}/sync-state` | Inspect the tenant's durable incremental bookmark and next due time |
 | `GET /runs?connector=` | Paginated history |
 | `GET /health` | JSON health, or escaped HTML with `Accept: text/html` |
 | `GET /records/{ocsf_class}?source=` | Paginated OCSF records: `vulnerability_finding`, `detection_finding`, `user_inventory`, `inventory_info`, `authentication` |
 | `GET /quarantine?connector=` | Paginated rejection metadata |
+| `GET /alerts?connector=` | Tenant-scoped email delivery status; no destination addresses |
+| `GET /exposure?connector=` | Reviewed KEV vendor matches and credential metadata; deployment review required |
+| `GET /ai/sources` | Reviewed public descriptions available for drafting |
+| `POST /ai/config-draft` | Explicit consent → Groq proposal; never saves or activates a connector |
+| `GET /ai/audit` | Tenant-scoped draft audit metadata/hashes |
 
 List defaults: `limit=100&offset=0`; maximum limit 500. Busy connectors/capacity
 return 409. Failed vendor collections return 502 with a sanitized persisted run
 result. Runs with invalid rows complete with errors and show degraded health.
-Only a clean success changes `last_success`; partial runs never advance a
-watermark. The watermark column is reserved and unused.
+Only a clean success changes `last_success`. B-1 time-window incremental sync
+advances its tenant-scoped bookmark only after every page succeeds with no
+quarantine; partial, failed and preview runs never advance it. Ordinary configs
+remain full syncs. See [docs/BONUS_B1.md](docs/BONUS_B1.md) for the supported
+filter contract and the localhost 3 → 2 → 0 download demonstration.
+
+## Email alerts and browser onboarding
+
+**B-4:** an opted-in connection queues an email after three consecutive failed or
+degraded collections by default. A PostgreSQL outbox retries failed delivery;
+recovery cancels pending alerts. One alert per outage and a cooldown limit spam.
+The operator configures tenant destinations privately; connector configs contain
+only the threshold and cooldown. Real SMTP requires verified TLS.
+
+**B-5:** open `http://127.0.0.1:8080/onboarding` while the development API is running.
+At the browser login prompt, use username `apikey` and your own tenant API key
+from the private `.env` as the password. Fill the form, generate/download JSON,
+save a draft, then test it. Activation stays a separate API action. The form uses
+stored credential names and makes no AI calls. It is disabled outside development;
+this local login is not production SSO.
+
+See [docs/BONUS_B4_B5.md](docs/BONUS_B4_B5.md) for the offline mailbox demo,
+browser walkthrough, tests, limitations and simple file explanations. B-1 through
+B-5 now have local implementations; Mohit's remaining real-source/free-tier
+integration and its auth/pagination evidence are still deferred.
 
 See [configs/mock_users.json](configs/mock_users.json) for the full config. The
 request half uses Member A's exact field names: `auth.secret`, `items_path`,
 pagination `none/page/offset/link/cursor`, and retry `base_delay_ms`. Date layouts
 use Go notation (`2006-01-02`), with an explicit IANA timezone for naive dates.
 User-supplied `tenant_id`, unknown keys and duplicate JSON keys are rejected.
+
+## KEV and AI config drafts
+
+KEV events now retain optional `vendor`/`product` fields. A reviewed alias table
+matches those to live connector `vendor` labels. `/exposure` identifies candidate
+vendor associations and the credential ID/owner for each connector. It does not
+establish that a customer's deployment is affected or automate key rotation.
+Resync KEV after upgrading so old records gain the new fields.
+
+Groq drafting is opt-in per tenant and per request. It receives only reviewed
+public descriptions and synthetic examples in `public_sources/`. Customer
+names/IDs are filled locally; credentials, private samples and stored records
+never enter its prompt. A new vendor needs a reviewed public source file first.
+The AI proposes mapping/paging, then strict validation tests it against the
+examples. Download/edit the config, save it as a draft, test that exact revision,
+then explicitly activate it. The future local-model adapter is separate work.
+
+See [docs/KEV_AND_AI.md](docs/KEV_AND_AI.md) for localhost commands, limits,
+privacy boundaries, migration compatibility and the test matrix. Use the
+separate `postman/ConfigBridge.KEV-AI.collection.json` deliberately: it calls
+Groq and public CISA, while the original collection remains synthetic/local.
 
 ## Security boundaries
 

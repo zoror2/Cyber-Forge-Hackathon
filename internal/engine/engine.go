@@ -116,12 +116,16 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 	// first non-empty page teaches us the real size, so a capped page is not
 	// mistaken for the last one (that silently dropped data).
 	effective := c.Pagination.PageSize
+	probing := false          // only fetching again to confirm a short first page was the last
 	var next *url.URL         // link style: next URL taken from the Link header
 	seen := map[string]bool{} // URLs already fetched (loop detection)
 
 	// 5. Page loop.
 	for {
 		if res.Pages >= c.Limits.MaxPages {
+			if probing {
+				return res, nil // the short first page was most likely the only one
+			}
 			return res, ErrPageLimit // runaway pagination protection
 		}
 
@@ -165,8 +169,10 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 			if len(items) == 0 {
 				return res, nil
 			}
+			probing = false
 			if res.Pages == 1 && len(items) < effective {
 				effective = len(items) // vendor capped the size; one extra request confirms the end
+				probing = true
 			} else if len(items) < effective {
 				return res, nil
 			}

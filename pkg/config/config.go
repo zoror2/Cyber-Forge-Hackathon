@@ -25,18 +25,38 @@ var identifier = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 func ValidID(s string) bool { return identifier.MatchString(s) }
 
 type Config struct {
-	Version     int               `json:"version"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Request     engine.Request    `json:"request"`
-	Auth        engine.Auth       `json:"auth"`
-	ItemsPath   string            `json:"items_path"`
-	Pagination  engine.Pagination `json:"pagination"`
-	Limits      Limits            `json:"limits"`
-	Retry       engine.Retry      `json:"retry"`
-	Schedule    Schedule          `json:"schedule"`
-	Filter      []Condition       `json:"filter"`
-	Destination Destination       `json:"destination"`
+	Version       int               `json:"version"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Vendor        string            `json:"vendor,omitempty"`
+	Request       engine.Request    `json:"request"`
+	Auth          engine.Auth       `json:"auth"`
+	ItemsPath     string            `json:"items_path"`
+	Pagination    engine.Pagination `json:"pagination"`
+	Limits        Limits            `json:"limits"`
+	Retry         engine.Retry      `json:"retry"`
+	Schedule      Schedule          `json:"schedule"`
+	Filter        []Condition       `json:"filter"`
+	Destination   Destination       `json:"destination"`
+	Incremental   *Incremental      `json:"incremental,omitempty"`
+	Notifications *Notifications    `json:"notifications,omitempty"`
+}
+type Notifications struct {
+	Enabled          bool `json:"enabled"`
+	FailureThreshold int  `json:"failure_threshold"`
+	CooldownSeconds  int  `json:"cooldown_seconds"`
+}
+
+// Time windows require a documented inclusive lower bound, exclusive upper
+// bound and stable pagination from the vendor. They are never inferred by AI.
+type Incremental struct {
+	Type             string `json:"type"`
+	StartTime        string `json:"start_time"`
+	SinceParam       string `json:"since_param"`
+	UntilParam       string `json:"until_param"`
+	UpdatedAtPath    string `json:"updated_at_path"`
+	OverlapSeconds   int    `json:"overlap_seconds"`
+	SafetyLagSeconds int    `json:"safety_lag_seconds"`
 }
 
 // Condition keeps a vendor record only when it matches. All conditions must
@@ -157,6 +177,14 @@ func (c Config) Connector(tenant string) engine.Connector {
 	return engine.Connector{TenantID: tenant, ID: c.ID, Request: c.Request, Auth: c.Auth, ItemsPath: c.ItemsPath, Pagination: c.Pagination, Limits: engine.Limits{MaxResponseBytes: c.Limits.MaxResponseBytes, MaxPages: c.Limits.MaxPages, MaxRunSeconds: c.Limits.MaxRunSeconds}, Retry: c.Retry}
 }
 func (c *Config) Defaults() {
+	if c.Notifications != nil && c.Notifications.Enabled {
+		if c.Notifications.FailureThreshold == 0 {
+			c.Notifications.FailureThreshold = 3
+		}
+		if c.Notifications.CooldownSeconds == 0 {
+			c.Notifications.CooldownSeconds = 3600
+		}
+	}
 	if c.Request.Method == "" {
 		c.Request.Method = "GET"
 	}
@@ -224,11 +252,23 @@ func (c Config) Validate() []Issue {
 	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 200 {
 		add("name", "must contain 1-200 characters")
 	}
+	if c.Vendor != "" && (strings.TrimSpace(c.Vendor) == "" || len(c.Vendor) > 200) {
+		add("vendor", "must contain 1-200 characters when supplied")
+	}
 	if c.Limits.MaxRecords < 1 || c.Limits.MaxRecords > 1000000 {
 		add("limits.max_records", "must be 1-1000000")
 	}
 	if c.Schedule.Enabled && (c.Schedule.IntervalSeconds < 1 || c.Schedule.IntervalSeconds > 31536000) {
 		add("schedule.interval_seconds", "must be 1-31536000 when enabled")
+	}
+	out = append(out, c.validateIncremental()...)
+	if n := c.Notifications; n != nil && n.Enabled {
+		if n.FailureThreshold < 1 || n.FailureThreshold > 100 {
+			add("notifications.failure_threshold", "must be 1-100")
+		}
+		if n.CooldownSeconds < 60 || n.CooldownSeconds > 604800 {
+			add("notifications.cooldown_seconds", "must be 60-604800")
+		}
 	}
 	// URLs must carry noncredential query values through params, never inline.
 	for _, raw := range []string{c.Request.URL, c.Auth.TokenURL} {
@@ -394,7 +434,7 @@ func requiredCovered(attrs map[string]ocsf.Attr, mapped map[string]bool, prefix 
 }
 
 func ValidHost(host string) bool {
-	if host == "" || host != strings.ToLower(host) || strings.ContainsAny(host, "/@?# \\\t\r\n") {
+	if host == "" || len(host) > 253 || host != strings.ToLower(host) || strings.ContainsAny(host, "*,/@?# \\\t\r\n") {
 		return false
 	}
 	u, e := url.Parse("https://" + host)

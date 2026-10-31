@@ -1,5 +1,11 @@
 # AI design
 
+> Implementation update: Prajwal added a first Groq-backed public-source config
+> drafter, explicit tenant/request opt-in, quotas/audit and draft preview.
+> See [KEV_AND_AI.md](KEV_AND_AI.md) for what is actually built. Bedrock, local
+> models and security-data analysis below remain roadmap. The drafter receives
+> reviewed public descriptions/synthetic examples only, not customer data.
+
 ConfigBridge is an **AI-based cybersecurity product**. AI is held to the same
 bar as the egress guard: threat-modelled, tested, audited, and never trusted
 on its own.

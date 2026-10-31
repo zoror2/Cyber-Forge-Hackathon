@@ -3,6 +3,9 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -17,14 +20,16 @@ import (
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
+	"configbridge/pkg/incremental"
 	"configbridge/pkg/ocsf"
 	"configbridge/pkg/secrets"
 )
 
 type API struct {
-	Store   *store.Store
-	Engine  *runner.Runner
-	Secrets *secrets.Service
+	Store               *store.Store
+	Engine              *runner.Runner
+	Secrets             *secrets.Service
+	NotificationTenants map[string]bool
 	// Test seam only; the binary always uses Store.Authenticate.
 	Authenticate func(context.Context, string) (string, error)
 	// Limits for this API; nil means DefaultLimits.
@@ -34,17 +39,16 @@ type API struct {
 }
 
 type tenantKey struct{}
+type callerKey struct{}
 
 func (a *API) scope(r *http.Request) store.Scope {
 	return a.Store.ForTenant(r.Context().Value(tenantKey{}).(string))
 }
 func New(a *API) (http.Handler, error) {
-	lookup := a.Authenticate
-	if lookup == nil {
+	if a.Authenticate == nil {
 		if a.Store == nil {
 			return nil, errors.New("authentication store required")
 		}
-		lookup = a.Store.Authenticate
 	}
 	lim, rl, keys := newLimiter(), DefaultLimits, newKeyCache(30*time.Second)
 	if a.Limits != nil {
@@ -56,16 +60,21 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("POST /configs", a.submit)
 	mux.HandleFunc("POST /configs/{id}/validate", a.validate)
 	mux.HandleFunc("POST /configs/{id}/activate", a.activate)
+	mux.HandleFunc("POST /configs/{id}/test", a.preview)
 	mux.HandleFunc("PUT /secrets/{name}", a.putSecret)
 	mux.HandleFunc("GET /secrets", a.listSecrets)
 	mux.HandleFunc("POST /connectors/{id}/test", a.test)
 	mux.HandleFunc("POST /connectors/{id}/run", a.run)
+	mux.HandleFunc("GET /connectors/{id}/sync-state", a.syncState)
 	mux.HandleFunc("GET /runs", a.runs)
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /records/{class}", a.records)
 	mux.HandleFunc("GET /quarantine", a.quarantine)
 	mux.HandleFunc("GET /schema/{view}", a.prdView)
 	mux.HandleFunc("POST /ai/draft", a.aiDraft)
+	mux.HandleFunc("GET /ai/audit", a.aiAudit)
+	mux.HandleFunc("GET /alerts", a.alerts)
+	mux.HandleFunc("GET /exposure", a.exposure)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -96,8 +105,15 @@ func New(a *API) (http.Handler, error) {
 			}
 		}
 		var tenant string
+		var caller store.Caller
 		if well {
-			tenant, _ = lookup(r.Context(), token)
+			if a.Authenticate != nil {
+				tenant, _ = a.Authenticate(r.Context(), token)
+				caller = store.Caller{Tenant: tenant, Actor: "test:principal"}
+			} else {
+				caller, _ = a.Store.AuthenticateCaller(r.Context(), token)
+				tenant = caller.Tenant
+			}
 		}
 		if config.ValidID(tenant) {
 			keys.put(key, tenant)
@@ -124,7 +140,8 @@ func New(a *API) (http.Handler, error) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
 			return
 		}
-		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), tenantKey{}, tenant)))
+		ctx := context.WithValue(r.Context(), tenantKey{}, tenant)
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(ctx, callerKey{}, caller)))
 	}), nil
 }
 
@@ -150,6 +167,10 @@ func fail(w http.ResponseWriter, status int, category string) {
 }
 func dbFail(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, incremental.ErrState):
+		fail(w, 503, "incremental_state_invalid")
+	case errors.Is(err, incremental.ErrNotReady):
+		fail(w, 409, "incremental_window_not_ready")
 	case errors.Is(err, store.ErrNotFound):
 		fail(w, 404, "config_not_found_or_not_live")
 	case errors.Is(err, store.ErrBusy):
@@ -211,6 +232,10 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) {
 	c, issues := config.Decode(b)
 	if len(issues) > 0 {
 		write(w, 422, map[string]any{"errors": issues})
+		return
+	}
+	if c.Notifications != nil && c.Notifications.Enabled && !a.NotificationTenants[a.scope(r).Tenant] {
+		fail(w, 422, "email_notifications_not_configured_for_tenant")
 		return
 	}
 	saved, e := a.scope(r).SaveConfig(r.Context(), c)
@@ -343,28 +368,25 @@ func (a *API) activate(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]any{"id": r.PathValue("id"), "revision": body.Revision, "status": "live"})
 }
 func (a *API) putSecret(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Value string `json:"value"`
-		Host  string `json:"allowed_host"`
-	}
+	var body secrets.Input
 	if !jsonBody(w, r, &body) {
 		return
 	}
 	// Name the bad field (never echo the value).
-	for _, c := range []struct {
-		bad   bool
-		field string
-	}{
-		{!config.ValidID(r.PathValue("name")), "name: lowercase a-z 0-9 _ - only, e.g. nvd_key"},
-		{!config.ValidHost(body.Host), "allowed_host: bare lowercase host only, e.g. services.nvd.nist.gov (no https://, path or spaces)"},
-		{body.Value == "" || len(body.Value) > 32768, "value: required, at most 32768 bytes"},
-	} {
-		if c.bad {
-			write(w, 422, map[string]string{"error": "invalid_secret_input", "detail": c.field})
-			return
-		}
+	bad := ""
+	switch _, _, err := body.Normalize(); {
+	case !config.ValidID(r.PathValue("name")):
+		bad = "name: lowercase a-z 0-9 _ - only, e.g. nvd_key"
+	case body.Host != "" && !config.ValidHost(body.Host):
+		bad = "allowed_host: bare lowercase host only, e.g. services.nvd.nist.gov (no https://, path or spaces)"
+	case err != nil:
+		bad = "need exactly one of value/fields and one of allowed_host/allowed_hosts (at most 8 hosts, 16 fields, 32768 bytes)"
 	}
-	e := a.Secrets.Put(r.Context(), a.scope(r).Tenant, r.PathValue("name"), body.Value, body.Host)
+	if bad != "" {
+		write(w, 422, map[string]string{"error": "invalid_secret_input", "detail": bad})
+		return
+	}
+	e := a.Secrets.PutCredential(r.Context(), r.Context().Value(callerKey{}).(store.Caller), r.PathValue("name"), body)
 	if errors.Is(e, secrets.ErrBinding) {
 		fail(w, 409, "host_binding_is_immutable")
 		return
@@ -399,6 +421,26 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		write(w, 400, map[string]string{"error": "invalid_ai_request", "detail": e.Error()})
 		return
 	}
+	caller := r.Context().Value(callerKey{}).(store.Caller)
+	if !a.AI.Allowed(caller.Tenant) {
+		fail(w, 503, "ai_not_configured")
+		return
+	}
+	id := make([]byte, 16)
+	rand.Read(id)
+	in, _ := json.Marshal(req)
+	audit := store.AIAudit{RequestID: hex.EncodeToString(id), Actor: caller.Actor, SourceID: aiSourceID(req.Product),
+		SourceHash: sha(in), Provider: "groq", Model: a.AI.Model, PromptVersion: ai.PromptVersion}
+	scope := a.scope(r)
+	// Reserve before calling the model: failed and cancelled drafts count too.
+	if e := scope.ReserveAI(r.Context(), a.AI.DailyLimit, audit); e != nil {
+		if errors.Is(e, store.ErrAIBudget) {
+			fail(w, 429, "ai_daily_limit_reached")
+		} else {
+			dbFail(w, e)
+		}
+		return
+	}
 	var secrets []ai.Secret
 	if a.Secrets != nil {
 		list, e := a.Secrets.List(r.Context(), a.scope(r).Tenant, 200, 0)
@@ -412,6 +454,17 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	d, e := a.AI.Draft(r.Context(), req, secrets)
 	var bad *ai.InvalidDraft
+	switch audit.Outcome = "provider_failed"; {
+	case e == nil:
+		audit.Outcome, audit.OutputHash = "drafted", sha(d.Config)
+	case errors.As(e, &bad):
+		audit.Outcome = "validation_rejected"
+	}
+	// Audit holds hashes and metadata only: never the prompt, config or secrets.
+	if e := scope.RecordAI(context.WithoutCancel(r.Context()), audit); e != nil {
+		dbFail(w, e)
+		return
+	}
 	switch {
 	case e == nil:
 		write(w, 200, d)
@@ -423,6 +476,35 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		write(w, 502, map[string]string{"error": "ai_provider_failed", "detail": strings.TrimPrefix(e.Error(), ai.ErrUpstream.Error()+": ")})
 	}
 }
+func (a *API) aiAudit(w http.ResponseWriter, r *http.Request) {
+	l, o, ok := paging(w, r)
+	if !ok {
+		return
+	}
+	data, e := a.scope(r).AIAudits(r.Context(), l, o)
+	if e != nil {
+		dbFail(w, e)
+		return
+	}
+	write(w, 200, data)
+}
+
+// aiSourceID is the audited product name: lowercased, safe characters, bounded.
+func aiSourceID(product string) string {
+	out := []rune{}
+	for _, c := range strings.ToLower(product) {
+		if len(out) == 64 {
+			break
+		}
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' {
+			out = append(out, c)
+		} else if c == ' ' {
+			out = append(out, '_')
+		}
+	}
+	return string(out)
+}
+func sha(b []byte) string                                  { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 func (a *API) run(w http.ResponseWriter, r *http.Request)  { a.execute(w, r, false) }
 func (a *API) test(w http.ResponseWriter, r *http.Request) { a.execute(w, r, true) }
 func (a *API) execute(w http.ResponseWriter, r *http.Request, test bool) {
@@ -547,4 +629,29 @@ func (a *API) checkFilter(w http.ResponseWriter, r *http.Request, id string) boo
 		return false
 	}
 	return true
+}
+
+// preview tests an exact saved draft revision without activating it or
+// writing records, runs, quarantine or schedule state.
+func (a *API) preview(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int `json:"revision"`
+	}
+	if !jsonBody(w, r, &in) {
+		return
+	}
+	if in.Revision < 1 {
+		fail(w, 400, "revision_required")
+		return
+	}
+	result, err := a.Engine.Preview(r.Context(), a.scope(r).Tenant, r.PathValue("id"), in.Revision)
+	if err != nil && result.ID == "" {
+		dbFail(w, err)
+		return
+	}
+	status := 200
+	if err != nil {
+		status = 502
+	}
+	write(w, status, result)
 }

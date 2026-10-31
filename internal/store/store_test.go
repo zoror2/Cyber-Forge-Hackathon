@@ -38,7 +38,8 @@ func TestEveryTableHasForcedRLS(t *testing.T) {
 			t.Fatal(e)
 		}
 		seen++
-		if name == "schema_migrations" {
+		// Global, migration-maintained, SELECT-only for the app role: no tenant rows.
+		if name == "schema_migrations" || name == "vendor_aliases" {
 			continue
 		}
 		if !enabled || !forced || policies == 0 {

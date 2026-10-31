@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,6 +39,11 @@ func run() error {
 	policy, e := app.Policy(os.Getenv)
 	if e != nil {
 		return e
+	}
+	if os.Getenv("CB_ENV") != "dev" {
+		if e = policy.ProductionSafe(); e != nil {
+			return e
+		}
 	}
 	db, e := store.Open(setup, os.Getenv("DATABASE_URL"))
 	if e != nil {
@@ -81,9 +88,32 @@ func run() error {
 		}
 		limits = &api.Limits{}
 	}
+	alerts, e := app.Notifications(os.Getenv, db)
+	if e != nil {
+		return e
+	}
+	notificationTenants := map[string]bool{}
+	if alerts != nil {
+		for tenant := range alerts.Routes {
+			notificationTenants[tenant] = true
+		}
+	}
 	// AI drafter: off unless GROQ_API_KEY is set. The key is never logged.
 	drafter := ai.New(os.Getenv("GROQ_API_KEY"), os.Getenv("CB_AI_MODEL"))
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter})
+	if raw := strings.TrimSpace(os.Getenv("CB_AI_ENABLED_TENANTS")); raw != "" {
+		drafter.Tenants = map[string]bool{}
+		for _, t := range strings.Split(raw, ",") {
+			drafter.Tenants[strings.TrimSpace(t)] = true
+		}
+	}
+	if raw := os.Getenv("CB_AI_DAILY_LIMIT"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 1000 {
+			return errors.New("CB_AI_DAILY_LIMIT must be 1-1000")
+		}
+		drafter.DailyLimit = n
+	}
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, NotificationTenants: notificationTenants})
 	if e != nil {
 		return e
 	}
@@ -95,6 +125,10 @@ func run() error {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); runs.Schedule(ctx, time.Second) }()
+	if alerts != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); alerts.Run(ctx, time.Second) }()
+	}
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()
 	slog.Info("API started", "tenant_id", "system", "authentication", "tenant API keys")

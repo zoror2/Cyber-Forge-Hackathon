@@ -8,6 +8,8 @@ $config=[IO.File]::ReadAllText((Join-Path (Get-Location) 'configs/mock_users.jso
 if($env:CB_SMOKE_VENDOR_URL){$config.request.url=$env:CB_SMOKE_VENDOR_URL.TrimEnd('/')+'/users'}
 $saved=Invoke-RestMethod "$base/configs" -Method Post -Headers $headers -ContentType 'application/json' -Body ($config | ConvertTo-Json -Depth 15)
 $null=Invoke-RestMethod "$base/configs/mock_users/validate" -Method Post -Headers $headers
+$draftTest=Invoke-RestMethod "$base/configs/mock_users/test" -Method Post -Headers $headers -ContentType 'application/json' -Body (@{revision=$saved.revision}|ConvertTo-Json)
+if($draftTest.accepted -ne 10 -or $draftTest.mode -ne 'test'){throw 'Draft revision sample failed'}
 $null=Invoke-RestMethod "$base/configs/mock_users/activate" -Method Post -Headers $headers -ContentType 'application/json' -Body (@{revision=$saved.revision}|ConvertTo-Json)
 $test=Invoke-RestMethod "$base/connectors/mock_users/test" -Method Post -Headers $headers
 if($test.accepted -ne 10 -or $test.mode -ne 'test'){throw 'Connection sample failed'}
