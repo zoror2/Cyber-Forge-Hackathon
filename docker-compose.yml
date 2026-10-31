@@ -1,0 +1,30 @@
+# Local development only.
+#   docker compose run --rm test        vet + race-enabled tests, no network
+#   docker compose up -d mockvendor     fake vendor on http://localhost:8081
+# Member B adds postgres + the engine API service here.
+services:
+  test:
+    image: golang:1.27
+    working_dir: /src
+    volumes:
+      - .:/src
+      - gomod:/go/pkg/mod
+      - gocache:/root/.cache/go-build
+    network_mode: none # tests must never touch the real internet
+    command: sh -c 'unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then echo "needs gofmt:"; echo "$$unformatted"; exit 1; fi; go vet ./... && go test -race -count=1 ./...'
+    profiles: ["tools"]
+
+  mockvendor:
+    build:
+      context: .
+      args:
+        CMD: mockvendor
+    ports:
+      - "127.0.0.1:8081:8081" # loopback only, never exposed on the LAN
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  gomod:
+  gocache:
