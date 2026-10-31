@@ -36,6 +36,11 @@ func run() error {
 	if e != nil {
 		return e
 	}
+	if os.Getenv("CB_ENV") != "dev" {
+		if e = policy.ProductionSafe(); e != nil {
+			return e
+		}
+	}
 	db, e := store.Open(setup, os.Getenv("DATABASE_URL"))
 	if e != nil {
 		return e
@@ -71,7 +76,25 @@ func run() error {
 	svc := &secrets.Service{Store: db, Backend: backend, BackendName: name}
 	requests := engine.New(svc, policy, slog.Default())
 	runs := runner.New(db, requests)
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc})
+	drafting, e := app.Drafting(os.Getenv)
+	if e != nil {
+		return e
+	}
+	alerts, e := app.Notifications(os.Getenv, db)
+	if e != nil {
+		return e
+	}
+	notificationTenants := map[string]bool{}
+	if alerts != nil {
+		for tenant := range alerts.Routes {
+			notificationTenants[tenant] = true
+		}
+	}
+	console, e := app.Onboarding(os.Getenv)
+	if e != nil {
+		return e
+	}
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, AI: drafting, NotificationTenants: notificationTenants, UI: console})
 	if e != nil {
 		return e
 	}
@@ -83,6 +106,10 @@ func run() error {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); runs.Schedule(ctx, time.Second) }()
+	if alerts != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); alerts.Run(ctx, time.Second) }()
+	}
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()
 	slog.Info("API started", "tenant_id", "system", "authentication", "tenant API keys")

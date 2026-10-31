@@ -15,5 +15,5 @@ if($unformatted){throw ('Run gofmt on: '+($unformatted -join ', '))}
 if($LASTEXITCODE -ne 0){throw 'go vet failed'}
 & $go test -race -count=1 -timeout=120s ./...
 if($LASTEXITCODE -ne 0){throw 'Go tests or race detection failed'}
-foreach($cmd in @('api','bootstrap','mockvendor','devcert')){& $go build -o ('bin/'+$cmd+'.exe') ('./cmd/'+$cmd);if($LASTEXITCODE -ne 0){throw ('Build failed: '+$cmd)}}
+foreach($cmd in (Get-ChildItem cmd -Directory).Name){& $go build -o ('bin/'+$cmd+'.exe') ('./cmd/'+$cmd);if($LASTEXITCODE -ne 0){throw ('Build failed: '+$cmd)}}
 Write-Host 'PASS: formatting, vet, full tests with real Postgres, race detector, and all native builds.'

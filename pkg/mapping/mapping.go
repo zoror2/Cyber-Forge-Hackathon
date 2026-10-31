@@ -50,6 +50,12 @@ func Items(payload any, path string) ([]any, error) {
 }
 func transform(v any, s config.Field) (any, error) {
 	switch s.Transform {
+	case "trim":
+		text, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("string required")
+		}
+		return strings.TrimSpace(text), nil
 	case "", "lookup":
 		if s.Transform == "lookup" {
 			if replacement, ok := s.Lookup[fmt.Sprint(v)]; ok {

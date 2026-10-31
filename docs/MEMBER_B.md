@@ -73,8 +73,10 @@ access, deployment and throughput measurements remain unverified.
 
 - Result attempts count logical API attempts, including retries, not separate
   OAuth token exchanges. Partial runs retain already committed pages and report
-  incomplete outcomes. Only clean successes update `last_success`; no watermark
-  is advanced.
+  incomplete outcomes. Only clean successes update `last_success`. B-1 now
+  advances a tenant-scoped time-window checkpoint after a complete run with no
+  quarantined rows; failures and previews retain the previous checkpoint.
+  See [BONUS_B1.md](BONUS_B1.md).
 - Retry-After timing is tested. Persisting a server's next eligible retry time
   across process restarts is still a shared extension; it is not implemented.
 - AWS SDK behavior is tested through a fake client with actual PostgreSQL tenant

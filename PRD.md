@@ -141,8 +141,8 @@ The following IDs come from the organizer's PRD. Implementation details and acce
 | B-1 | After the required release | An incremental-enabled source uses a committed watermark and can resume without losing records after failure. |
 | B-2 | High priority | Invalid config fails before network access and points to the failing key. |
 | B-3 | High priority | A test command makes a bounded connection check without inserting production records or advancing the watermark. |
-| B-4 | Deferred | External failure notifications are optional and require destination configuration and user authorization. |
-| B-5 | Optional | A form generates config that passes the same validator used by the CLI. |
+| B-4 | Implemented locally | Opt-in email alerts use an operator-routed, tenant-isolated outbox; verified with a loopback capture, not an external mailbox. |
+| B-5 | Implemented locally | The development web form generates, downloads, saves and tests drafts through shared validation. See docs/BONUS_B4_B5.md. |
 
 ## 6 Proposed technology and small module structure
 

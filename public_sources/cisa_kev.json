@@ -1,0 +1,12 @@
+{
+ "id":"cisa_kev",
+ "classification":"public_documentation_and_synthetic_examples",
+ "vendor":"CISA",
+ "name":"CISA Known Exploited Vulnerabilities",
+ "documentation_url":"https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+ "documentation":"The public JSON feed contains a vulnerabilities array. cveID is the event ID, vulnerabilityName is its description, dateAdded is a YYYY-MM-DD date (UTC, date precision), vendorProject and product identify the affected vendor and product. Trim vendor/product strings. Event type is the constant known_exploited_vulnerability; severity must be unknown because the feed provides no CVSS score. There is no authentication and no pagination. The example below is synthetic, not a claim about a real vulnerability.",
+ "request":{"method":"GET","url":"https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json","timeout_seconds":20},
+ "auth":{"type":"none"},
+ "entity":"event",
+ "example":{"vulnerabilities":[{"cveID":"CVE-2099-99999","vendorProject":" Synthetic Vendor ","product":" Synthetic Product ","vulnerabilityName":"Synthetic example only","dateAdded":"2024-10-01"}]}
+}
