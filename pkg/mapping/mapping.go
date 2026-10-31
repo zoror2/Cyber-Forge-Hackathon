@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -185,7 +186,20 @@ func Map(row any, c config.Config, tenant string, fetched time.Time, index int) 
 		return bad("destination.class", "unsupported OCSF class")
 	}
 	values := map[string]any{}
-	for path, spec := range c.Destination.Mapping {
+	// Fixed order so a bad record always reports the same field: identity first, then sorted.
+	identity := ocsf.Identity[c.Destination.Class]
+	order := make([]string, 0, len(c.Destination.Mapping))
+	for path := range c.Destination.Mapping {
+		order = append(order, path)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if (order[i] == identity) != (order[j] == identity) {
+			return order[i] == identity
+		}
+		return order[i] < order[j]
+	})
+	for _, path := range order {
+		spec := c.Destination.Mapping[path]
 		v := spec.Constant
 		if spec.Path != nil {
 			v, _ = Path(row, *spec.Path)

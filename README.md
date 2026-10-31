@@ -178,6 +178,14 @@ Member A reviews our secrets/API auth before merge. Request-engine details and
 the broader target-integration analysis remain in [REQUEST_SIDE.md](docs/REQUEST_SIDE.md)
 and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 
+## Web console
+
+`http://127.0.0.1:8080/ui/` (served by the same binary, `internal/ui`). Sign in with the tenant API key; it stays in
+the tab's memory only (no localStorage/cookies, gone on reload). Views: overview/health, connectors, **form config
+builder (B-5)** with OCSF path suggestions and the save → validate → activate → test → run pipeline, OCSF records with a
+JSON viewer, quarantine grouped by cause, runs, secrets (write-only). Strict CSP (`'self'` only, no inline script, no
+CDNs); every vendor value is rendered as text. Same-origin browser calls are allowed; cross-site requests get 403.
+
 ## Live sources (PRD: three real free-tier sources)
 
 | # | Source | Config | Auth | Paging | Status |
@@ -202,7 +210,7 @@ How to write a config, with every field explained: [configs/README.md](configs/R
 | 7 Retries | A retry engine + integrated failure/exhaustion/timeout tests | Live provider behavior |
 | 8 429 | Seconds/date/delay-cap unit tests and actual 1-second local wait | Persistent next-retry eligibility extension |
 | 9 Bad rows | OCSF type/enum/required validation + page/index quarantine with the OCSF field path; integrated malformed fixture | Raw payload intentionally omitted |
-| 10 Health | Protected JSON/escaped HTML, history and failure tests | Phase 2 UI/SSO |
+| 10 Health | Protected JSON/escaped HTML, history and failure tests; web console overview (`internal/ui`) | SSO |
 | 11 Common storage | Common schema = **OCSF 1.9.0**, one `ocsf_records` table (class_uid + jsonb), tenant/source/ID upserts, actual PG RLS tests; **live: 1766 KEV findings + 36 GitHub users, re-runs unchanged** | Sources 2 and 3 live |
 
 The Python files are removed from this branch. GitHub's PR diff still lists their

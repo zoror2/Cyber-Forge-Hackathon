@@ -6,6 +6,7 @@ import (
 	"configbridge/internal/engine"
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
+	"configbridge/internal/ui"
 	"configbridge/pkg/secrets"
 	"context"
 	"encoding/json"
@@ -79,7 +80,7 @@ func run() error {
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
-	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 3610 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, BaseContext: nil}
+	server := &http.Server{Addr: addr, Handler: ui.Mount(handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 3610 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, BaseContext: nil}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); runs.Schedule(ctx, time.Second) }()

@@ -66,6 +66,15 @@ func init() {
 // Version is the pinned OCSF schema version written into metadata.version.
 func Version() string { return schema.Version }
 
+// Public is the pinned schema plus the platform's mapping rules, for the UI's
+// mapping helper. It is public OCSF metadata: no tenant data.
+func Public() ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"schema": json.RawMessage(schemaJSON), "identity": Identity,
+		"platform_owned": PlatformOwned, "default_activity": defaultActivity,
+	})
+}
+
 // Identity is the field that identifies one record per source; it becomes the
 // upsert key, so re-running a source updates rows instead of duplicating them.
 var Identity = map[string]string{

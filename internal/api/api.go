@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,8 @@ func New(a *API) (http.Handler, error) {
 		lookup = a.Store.Authenticate
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /configs", a.listConfigs)
+	mux.HandleFunc("GET /configs/{id}", a.getConfig)
 	mux.HandleFunc("POST /configs", a.submit)
 	mux.HandleFunc("POST /configs/{id}/validate", a.validate)
 	mux.HandleFunc("POST /configs/{id}/activate", a.activate)
@@ -66,12 +69,25 @@ func New(a *API) (http.Handler, error) {
 			fail(w, 401, "unauthorized")
 			return
 		}
-		if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		if !sameOrigin(r) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
 			return
 		}
 		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), tenantKey{}, tenant)))
 	}), nil
+}
+
+// sameOrigin allows non-browser clients (no Origin) and the bundled UI served
+// from this host. Browsers set Sec-Fetch-Site/Origin themselves; page scripts
+// cannot forge them. Auth is a bearer header, never a cookie, so this is
+// defence in depth, not the CSRF control.
+func sameOrigin(r *http.Request) bool {
+	site, origin := r.Header.Get("Sec-Fetch-Site"), r.Header.Get("Origin")
+	if origin == "" {
+		return site != "cross-site" && site != "same-site"
+	}
+	u, e := url.Parse(origin)
+	return e == nil && site == "same-origin" && u.Host == r.Host && (u.Scheme == "http" || u.Scheme == "https")
 }
 func write(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -152,6 +168,30 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 201, map[string]any{"id": c.ID, "revision": saved.Revision, "status": saved.Status, "hash": saved.Hash})
+}
+func (a *API) listConfigs(w http.ResponseWriter, r *http.Request) {
+	l, o, ok := paging(w, r)
+	if !ok {
+		return
+	}
+	data, e := a.scope(r).Configs(r.Context(), l, o)
+	if e != nil {
+		dbFail(w, e)
+		return
+	}
+	write(w, 200, data)
+}
+func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
+	if !config.ValidID(r.PathValue("id")) {
+		fail(w, 404, "config_not_found_or_not_live")
+		return
+	}
+	s, e := a.scope(r).Config(r.Context(), r.PathValue("id"), false)
+	if e != nil {
+		dbFail(w, e)
+		return
+	}
+	write(w, 200, s)
 }
 func (a *API) validate(w http.ResponseWriter, r *http.Request) {
 	s, e := a.scope(r).Config(r.Context(), r.PathValue("id"), false)

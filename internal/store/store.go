@@ -274,6 +274,40 @@ func (s Scope) Config(ctx context.Context, id string, live bool) (out SavedConfi
 	})
 	return
 }
+
+// ConfigSummary is one connector's newest revision plus its live revision (0 = none).
+type ConfigSummary struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Class    string    `json:"class"`
+	Revision int       `json:"revision"`
+	Status   string    `json:"status"`
+	Hash     string    `json:"hash"`
+	Live     int       `json:"live_revision"`
+	Created  time.Time `json:"created_at"`
+}
+
+func (s Scope) Configs(ctx context.Context, limit, offset int) (out []ConfigSummary, err error) {
+	out = []ConfigSummary{}
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		rows, e := tx.Query(ctx, `SELECT DISTINCT ON (c.id) c.id,COALESCE(c.body->>'name',''),COALESCE(c.body->'destination'->>'class',''),c.version,c.status,c.config_hash,c.created_at,
+			COALESCE((SELECT MAX(l.version) FROM configs l WHERE l.tenant_id=c.tenant_id AND l.id=c.id AND l.status='live'),0)
+			FROM configs c WHERE c.tenant_id=$1 ORDER BY c.id,c.version DESC LIMIT $2 OFFSET $3`, s.Tenant, limit, offset)
+		if e != nil {
+			return e
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var c ConfigSummary
+			if e = rows.Scan(&c.ID, &c.Name, &c.Class, &c.Revision, &c.Status, &c.Hash, &c.Created, &c.Live); e != nil {
+				return e
+			}
+			out = append(out, c)
+		}
+		return rows.Err()
+	})
+	return
+}
 func (s Scope) Activate(ctx context.Context, id string, revision int) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
 		var locked bool

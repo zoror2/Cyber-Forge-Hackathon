@@ -100,6 +100,15 @@ func TestTenantRLSAndUpsert(t *testing.T) {
 	if _, e = a.Config(ctx, other.ID, false); !errors.Is(e, store.ErrNotFound) {
 		t.Fatal("cross-tenant config visible")
 	}
+	// a second draft: the list shows the newest revision and still names the live one
+	if _, e = a.SaveConfig(ctx, c); e != nil {
+		t.Fatal(e)
+	}
+	list, e := a.Configs(ctx, 100, 0)
+	if e != nil || len(list) != 1 || list[0].ID != c.ID || list[0].Revision != 2 || list[0].Status != "draft" ||
+		list[0].Live != 1 || list[0].Class != "vulnerability_finding" || list[0].Hash == "" {
+		t.Fatal("config list wrong (or tenant-b's only-b leaked)", list, e)
+	}
 	var n int
 	if e = db.Store.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM ocsf_records").Scan(&n); e != nil || n != 0 {
 		t.Fatal("tenant setting leaked into pooled session", n, e)
