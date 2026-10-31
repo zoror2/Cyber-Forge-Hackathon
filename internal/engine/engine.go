@@ -185,7 +185,7 @@ func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *u
 			return nil, header, err
 		}
 		e.Log.Warn("vendor request failed, retrying",
-			"connector", c.ID, "url", RedactURL(u), "attempt", attempt, "wait", wait.String(), "error", err.Error())
+			"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u), "attempt", attempt, "wait", wait.String(), "error", err.Error())
 		if err := e.sleep(ctx, wait); err != nil {
 			return nil, nil, err
 		}
@@ -242,7 +242,7 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		if resp.StatusCode == http.StatusUnauthorized && c.Auth.Type == "oauth2_client_credentials" {
-			e.dropToken(c.ID)
+			e.dropToken(c)
 		}
 		return nil, resp.Header, &StatusError{Code: resp.StatusCode}
 	}
@@ -259,7 +259,7 @@ func (e *Engine) logFailure(c Connector, u *url.URL, err error) {
 		level = slog.LevelError // possible misuse: surface loudly
 	}
 	e.Log.Log(context.Background(), level, "vendor request failed",
-		"connector", c.ID, "url", RedactURL(u), "error", err.Error())
+		"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u), "error", err.Error())
 }
 
 func readLimited(r io.Reader, max int64) ([]byte, error) {

@@ -34,7 +34,7 @@ func (e *Engine) authorize(ctx context.Context, client *http.Client, c Connector
 		return nil
 	}
 
-	s, err := e.boundSecret(ctx, a.Secret, req.URL)
+	s, err := e.boundSecret(ctx, c.TenantID, a.Secret, req.URL)
 	if err != nil {
 		return err
 	}
@@ -51,11 +51,14 @@ func (e *Engine) authorize(ctx context.Context, client *http.Client, c Connector
 	return nil
 }
 
-func (e *Engine) boundSecret(ctx context.Context, name string, target *url.URL) (Secret, error) {
+func (e *Engine) boundSecret(ctx context.Context, tenantID, name string, target *url.URL) (Secret, error) {
 	if e.Secrets == nil {
 		return Secret{}, errors.New("no secret store configured")
 	}
-	s, err := e.Secrets.Get(ctx, name)
+	if tenantID == "" {
+		return Secret{}, errors.New("missing tenant")
+	}
+	s, err := e.Secrets.Get(ctx, tenantID, name)
 	if err != nil {
 		return Secret{}, fmt.Errorf("secret %q: %w", name, err)
 	}
@@ -77,7 +80,7 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 	if err := e.Policy.CheckURL(tokenURL); err != nil {
 		return "", err
 	}
-	s, err := e.boundSecret(ctx, a.Secret, tokenURL)
+	s, err := e.boundSecret(ctx, c.TenantID, a.Secret, tokenURL)
 	if err != nil {
 		return "", err
 	}
@@ -85,8 +88,9 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 		return "", fmt.Errorf("oauth token for %q: %w", a.Secret, err)
 	}
 
+	key := tokenKey(c)
 	e.mu.Lock()
-	cached, ok := e.tokens[c.ID]
+	cached, ok := e.tokens[key]
 	e.mu.Unlock()
 	if ok && e.now().Before(cached.expires) {
 		return cached.value, nil
@@ -133,13 +137,18 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 		ttl = 5 * time.Minute
 	}
 	e.mu.Lock()
-	e.tokens[c.ID] = oauthToken{value: tr.AccessToken, expires: e.now().Add(max(ttl-30*time.Second, 0))}
+	e.tokens[key] = oauthToken{value: tr.AccessToken, expires: e.now().Add(max(ttl-30*time.Second, 0))}
 	e.mu.Unlock()
 	return tr.AccessToken, nil
 }
 
-func (e *Engine) dropToken(id string) {
+// tokenKey scopes cached tokens to tenant AND connector. Keying by connector
+// alone would let two tenants with the same connector ID share a token.
+// IDs are validated to [a-z0-9_-], so "/" cannot create collisions.
+func tokenKey(c Connector) string { return c.TenantID + "/" + c.ID }
+
+func (e *Engine) dropToken(c Connector) {
 	e.mu.Lock()
-	delete(e.tokens, id)
+	delete(e.tokens, tokenKey(c))
 	e.mu.Unlock()
 }

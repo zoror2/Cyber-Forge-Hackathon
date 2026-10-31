@@ -8,7 +8,8 @@ Config-driven security integration platform. Product, not a prototype: **securit
 |---|---|
 | Language | Go (rewrite of the current Python Milestone 1 code) |
 | Cloud | AWS, we build and host |
-| Tenancy | Single-tenant: one isolated AWS account per customer |
+| Tenancy | **Multi-tenant** (changed from single-tenant): one shared platform; isolation via RLS, tenant-scoped secrets/caches, per-tenant KMS keys. See MEMBER_B_HANDOFF §2.6 |
+| Config format | JSON, stored in Postgres JSONB; entered through the UI form |
 | Configs | Written by engineers only, entered through the hosted UI (phase 2) |
 | Order | Phase 1: engine + API, tested in Postman. Phase 2: UI + AWS |
 | Members | **Member A = Mohith** (request side). Member B = teammate (data side + API) |

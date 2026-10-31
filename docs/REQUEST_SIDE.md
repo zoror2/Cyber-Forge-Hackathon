@@ -52,7 +52,7 @@ The shape of the request half of a config, plus validation. **Member B owns the 
 |---|---|
 | `Secret` | A value plus its one allowed host. The value sits inside a closure, so printing any struct that contains it shows a memory address, never the token. `String`, `%#v`, JSON, text and `slog` all print `[redacted]`. |
 | `NewSecret(value, host)` | How Member B's secrets backend hands a secret to the engine. |
-| `SecretStore` | **The contract with Member B**: `Get(ctx, name) → Secret`. |
+| `SecretStore` | **The contract with Member B**: `Get(ctx, tenantID, name) → Secret`. Secrets are per tenant. |
 
 ## `internal/engine/auth.go`: attaching credentials
 

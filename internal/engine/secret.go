@@ -35,6 +35,10 @@ func (Secret) MarshalText() ([]byte, error) { return []byte("[redacted]"), nil }
 func (Secret) LogValue() slog.Value         { return slog.StringValue("[redacted]") }
 
 // SecretStore is the contract with Member B's secrets backend.
+//
+// The tenant is an explicit parameter (not hidden in ctx) so the compiler
+// forces every caller to supply it. Implementations must never return another
+// tenant's secret, even when two tenants use the same secret name.
 type SecretStore interface {
-	Get(ctx context.Context, name string) (Secret, error)
+	Get(ctx context.Context, tenantID, name string) (Secret, error)
 }

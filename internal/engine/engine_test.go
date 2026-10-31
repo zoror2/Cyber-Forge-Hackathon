@@ -22,10 +22,11 @@ import (
 
 const secretValue = "tok-SUPERSECRET-123"
 
+// fakeSecrets is keyed "tenant/name", like a real per-tenant store.
 type fakeSecrets map[string]Secret
 
-func (f fakeSecrets) Get(_ context.Context, name string) (Secret, error) {
-	s, ok := f[name]
+func (f fakeSecrets) Get(_ context.Context, tenantID, name string) (Secret, error) {
+	s, ok := f[tenantID+"/"+name]
 	if !ok {
 		return Secret{}, errors.New("not found")
 	}
@@ -53,7 +54,7 @@ func newHarness(t *testing.T, h http.HandlerFunc) *harness {
 		AllowPrivate: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 		RootCAs:      pool,
 	}
-	hs.eng = New(fakeSecrets{"tok": NewSecret(secretValue, hs.host)}, policy, slog.New(slog.NewJSONHandler(hs.logs, nil)))
+	hs.eng = New(fakeSecrets{"t1/tok": NewSecret(secretValue, hs.host)}, policy, slog.New(slog.NewJSONHandler(hs.logs, nil)))
 	hs.eng.sleep = func(_ context.Context, d time.Duration) error {
 		hs.sleeps = append(hs.sleeps, d)
 		return nil
@@ -62,7 +63,7 @@ func newHarness(t *testing.T, h http.HandlerFunc) *harness {
 }
 
 func (h *harness) conn(path string) Connector {
-	return Connector{ID: "test", Request: Request{URL: h.srv.URL + path}, Auth: Auth{Type: "bearer", Secret: "tok"}}
+	return Connector{TenantID: "t1", ID: "test", Request: Request{URL: h.srv.URL + path}, Auth: Auth{Type: "bearer", Secret: "tok"}}
 }
 
 func (h *harness) fetch(c Connector) (Result, []any, error) {
@@ -112,7 +113,7 @@ func TestBearerSentOnlyToBoundHost(t *testing.T) {
 		t.Fatalf("bound host should work: items=%d err=%v", len(items), err)
 	}
 
-	h.eng.Secrets = fakeSecrets{"tok": NewSecret(secretValue, "api.github.com")}
+	h.eng.Secrets = fakeSecrets{"t1/tok": NewSecret(secretValue, "api.github.com")}
 	_, _, err := h.fetch(h.conn("/x"))
 	if !errors.Is(err, egress.ErrBlocked) {
 		t.Fatalf("secret bound elsewhere must be refused, got %v", err)
@@ -175,6 +176,68 @@ func TestOAuthClientCredentialsCachesToken(t *testing.T) {
 	}
 	if tokenHits.Load() != 1 {
 		t.Fatalf("token should be fetched once and cached, got %d", tokenHits.Load())
+	}
+}
+
+// ---- Tenant isolation ----
+
+// Two tenants use the SAME connector ID with different OAuth clients.
+// Each must get its own token; a cache keyed by connector alone would leak.
+func TestTenantsNeverShareOAuthTokens(t *testing.T) {
+	var tokenHits atomic.Int32
+	var seen []string
+	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			tokenHits.Add(1)
+			_, sec, _ := r.BasicAuth()
+			switch sec {
+			case "secret-A":
+				fmt.Fprint(w, `{"access_token":"at-A","token_type":"Bearer","expires_in":3600}`)
+			case "secret-B":
+				fmt.Fprint(w, `{"access_token":"at-B","token_type":"Bearer","expires_in":3600}`)
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+			return
+		}
+		seen = append(seen, r.Header.Get("Authorization"))
+		fmt.Fprint(w, itemsJSON(1, 1))
+	})
+	h.eng.Secrets = fakeSecrets{
+		"ta/oauth": NewSecret("secret-A", h.host),
+		"tb/oauth": NewSecret("secret-B", h.host),
+	}
+	for _, tenant := range []string{"ta", "tb", "ta"} {
+		c := h.conn("/data")
+		c.TenantID = tenant
+		c.Auth = Auth{Type: "oauth2_client_credentials", Secret: "oauth", TokenURL: h.srv.URL + "/token", ClientID: "same-client"}
+		if _, _, err := h.fetch(c); err != nil {
+			t.Fatalf("tenant %s: %v", tenant, err)
+		}
+	}
+	want := []string{"Bearer at-A", "Bearer at-B", "Bearer at-A"}
+	if fmt.Sprint(seen) != fmt.Sprint(want) {
+		t.Fatalf("tokens used = %v, want %v", seen, want)
+	}
+	if tokenHits.Load() != 2 {
+		t.Fatalf("want one token fetch per tenant (2), got %d", tokenHits.Load())
+	}
+}
+
+// A tenant must not be able to use a secret that only exists for another tenant.
+func TestTenantCannotUseAnotherTenantsSecret(t *testing.T) {
+	var hits atomic.Int32
+	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		fmt.Fprint(w, itemsJSON(1, 1))
+	})
+	c := h.conn("/x")
+	c.TenantID = "t2" // the harness only has t1's secret
+	if _, _, err := h.fetch(c); err == nil {
+		t.Fatal("tenant t2 must not resolve tenant t1's secret")
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("request must never be sent, hits=%d", hits.Load())
 	}
 }
 
@@ -409,7 +472,7 @@ func TestValidateRejectsSecretsOutsideAuth(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors")
 	}
-	for _, want := range []string{"https", "headers.Authorization", "params.api_key", `auth.type "magic"`} {
+	for _, want := range []string{"tenant_id", "https", "headers.Authorization", "params.api_key", `auth.type "magic"`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("missing %q in: %v", want, err)
 		}

@@ -5,7 +5,7 @@
 Adding a new tool means writing a **connector config**, not new code. The engine handles authentication, pagination, retries, rate limits, secret safety and health for every connector the same way.
 
 > **Status:** early development. Request-side engine (Member A) is scaffolded and tested. Data side + API (Member B) not started. Not production-ready.
-> **Product, not a prototype:** security is the top priority. Single-tenant (one isolated AWS deployment per customer).
+> **Product, not a prototype:** security is the top priority. **Multi-tenant**: one shared AWS platform serves all customers, with tenant isolation enforced in the database (row-level security), secrets (per-tenant keys) and every in-memory cache.
 
 ---
 
@@ -194,8 +194,9 @@ Non-negotiable controls, in priority order:
 1. **Secret-to-host binding** (egress guard). Even a fully compromised UI account can't send a key to an attacker's server.
 2. **Write-only secrets.** Once saved, never shown again, via UI or API.
 3. **Two-person config approval** (draft → approve by someone else → live). The engine only runs `live` configs from the database.
-4. **SSO + MFA + server-side role checks** on every API call (phase 2).
-5. **Least-privilege AWS IAM + private networking**, one AWS account per customer.
+4. **Tenant isolation:** Postgres row-level security on `tenant_id`, tenant taken from authentication only, secrets and OAuth tokens scoped to tenant + connector, one KMS key per tenant, cross-tenant tests in CI.
+5. **SSO + MFA + server-side role checks** on every API call (phase 2).
+6. **Least-privilege AWS IAM + private networking.**
 
 Plus: read-only vendor tokens, redacted logs, response size caps, no redirects, append-only audit log, stdlib-only Go (minimal supply chain), distroless non-root containers.
 

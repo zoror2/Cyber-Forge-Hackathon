@@ -35,13 +35,15 @@ All of it is Go standard library only. Run `docker compose --profile tools run -
 ```go
 // internal/engine/secret.go
 type SecretStore interface {
-    Get(ctx context.Context, name string) (Secret, error)
+    Get(ctx context.Context, tenantID, name string) (Secret, error)
 }
 
 func NewSecret(value, allowedHost string) Secret
 ```
 
 Rules for your backend:
+
+- **Multi-tenant:** secrets are looked up by **(tenant, name)**. Two tenants may both have a secret called `crowdstrike`; they must never resolve to each other's. Encrypt each tenant's secrets with **that tenant's own KMS key**.
 
 - **Every secret is stored with exactly one allowed host** (e.g. `api.github.com`, or `localhost:8081` for the mock in dev). No host means it's unusable; the engine refuses it.
 - Return secrets **only** via `engine.NewSecret(value, host)`. Never put raw values in your own structs, logs or errors.
@@ -56,7 +58,8 @@ Rules for your backend:
 ```go
 // internal/engine/spec.go (request side only)
 type Connector struct {
-    ID         string     `json:"id"`
+    TenantID   string     `json:"tenant_id"`   // set by the platform from the session / DB row, never from user input
+    ID         string     `json:"id"`          // tenant_id and id: [a-z0-9][a-z0-9_-]{0,63}
     Request    Request    `json:"request"`     // url, params, headers, timeout_seconds (GET only)
     Auth       Auth       `json:"auth"`        // type + secret NAME (+ header/username/token_url/client_id/scopes)
     Pagination Pagination `json:"pagination"`  // none | page | offset | link | cursor
@@ -153,6 +156,34 @@ Note: `Connector.Validate()` requires `https://` URLs, so in dev either run the 
 
 ---
 
+### 2.6 Multi-tenant rules (decided: one shared platform for all customers)
+
+All customers' data and vendor keys live in one database and one app, so isolation must be **enforced by the system**, not remembered:
+
+| # | Rule | Where |
+|---|---|---|
+| 1 | Every table has `tenant_id`; **Postgres row-level security (RLS)** policies filter on it. The app connects as a role that **cannot bypass RLS**, and sets the tenant per transaction (`SET LOCAL app.tenant_id = $1`). | B3 |
+| 2 | **Tenant comes from authentication only** (phase 1: the API key belongs to one tenant; phase 2: SSO session). Never from a URL, body field or header the caller controls. | B6 |
+| 3 | Unique keys include the tenant: `(tenant_id, source, external_id)`, `(tenant_id, connector_id)`. | B3 |
+| 4 | Secrets looked up by `(tenant, name)`, one **KMS key per tenant**. | B4 |
+| 5 | Scheduler locks keyed by **tenant + connector**; per-tenant concurrency limits so one tenant can't starve others. | B5 |
+| 6 | `tenant_id` on every log line, run row, quarantine row and audit entry. | all |
+| 7 | **Isolation tests**: authenticate as tenant A and try to read or run tenant B's configs, records, runs, quarantine and secrets through every endpoint. Every attempt must return 404. | B6/B7 |
+
+The engine already does its part: secret lookups and OAuth token caches are scoped to tenant + connector (tests `TestTenantsNeverShareOAuthTokens`, `TestTenantCannotUseAnotherTenantsSecret`).
+
+**Phase 1 API auth with tenants:** replace the single admin token with **API keys stored hashed (SHA-256) in an `api_keys` table, each belonging to one tenant**. The key identifies the tenant. Compare in constant time.
+
+### 2.7 How customers connect a tool (drives your API and UI)
+
+1. The customer's admin creates a **dedicated read-only API credential** in the vendor console (a service account or API client, never a person's own login). Each vendor template will carry these setup steps.
+2. In our UI they pick the vendor template, enter host/region and IDs, and paste the credential into a **write-only secret field**.
+3. **Test connection** makes one real call and returns a count or a clear error.
+4. Draft → approved by a different person → live → scheduled pulls.
+5. Expired or revoked credential: the run status is `auth_failed`, health shows it, and the customer pastes a new one (rotation without downtime).
+
+Configs are stored as **JSON** (Postgres `JSONB`). The generic config shape (auth blocks `static` / `oauth2` / `session` / named signers, connection types `https_pull` / `collector` / `syslog_receive`) is being designed next; agree it with Member A before building config storage.
+
 ## 3. Your tasks, with the security requirements
 
 ### B1: Config schema + validation
@@ -188,7 +219,7 @@ See §2.1.
 
 ### B6: HTTP API + health page
 - Endpoints are frozen in [WORK_SPLIT.md](WORK_SPLIT.md#api-tested-in-postman).
-- **Admin token on every endpoint**, compared with `crypto/subtle.ConstantTimeCompare`, loaded from env. Return 401 without detail.
+- **Tenant-bound API key on every endpoint** (see §2.6): stored hashed, compared with `crypto/subtle.ConstantTimeCompare`. Return 401 without detail. Another tenant's resource returns **404**, never 403, so IDs can't be probed.
 - **Never unauthenticated, even in dev.** The token gets replaced by SSO in phase 2; no backdoor stays behind.
 - The engine runs **only `live` configs read from the DB**. `POST /connectors/{id}/run` takes an ID, never a config body.
 - Body size limits, `http.Server` timeouts (`ReadHeaderTimeout` etc.), JSON errors without stack traces.

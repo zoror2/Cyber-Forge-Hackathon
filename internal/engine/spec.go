@@ -4,13 +4,21 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode"
 )
 
+// idPattern restricts tenant and connector IDs to a safe alphabet so they can
+// be used in cache keys, log fields and lock names without escaping issues.
+var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
 // Connector is the request side of a connection config. Member B owns the full
 // config (mapping, schedule, destination) and embeds or converts to this.
 type Connector struct {
+	// TenantID is set by the platform from the authenticated session or the
+	// stored config row. Never copy it from user-supplied request data.
+	TenantID   string     `json:"tenant_id"`
 	ID         string     `json:"id"`
 	Request    Request    `json:"request"`
 	Auth       Auth       `json:"auth"`
@@ -138,8 +146,11 @@ func (c Connector) Validate() error {
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 
-	if c.ID == "" {
-		bad("id is required")
+	if !idPattern.MatchString(c.TenantID) {
+		bad("tenant_id is required (lowercase letters, digits, - or _, max 64)")
+	}
+	if !idPattern.MatchString(c.ID) {
+		bad("id is required (lowercase letters, digits, - or _, max 64)")
 	}
 	if c.Request.Method != "GET" {
 		bad("request.method must be GET (platform is read-only)")
