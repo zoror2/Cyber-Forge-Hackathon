@@ -18,9 +18,11 @@ FROM golang:1.27 AS build
 ARG CMD
 WORKDIR /src
 # Copy only what the build needs (see .dockerignore for what's excluded)
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY pkg ./pkg
 # CGO_ENABLED=0  -> fully static binary (needed for the distroless/static image)
 # -trimpath      -> no local file paths embedded in the binary
 # -ldflags=-s -w -> strip debug symbols (smaller binary)

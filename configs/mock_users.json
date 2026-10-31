@@ -1,0 +1,14 @@
+{
+ "version":1,"id":"mock_users","name":"Synthetic paginated users",
+ "request":{"method":"GET","url":"https://mockvendor:8081/users","timeout_seconds":5},
+ "auth":{"type":"none"},"items_path":"",
+ "pagination":{"type":"page","page_param":"page","size_param":"per_page","page_size":10},
+ "schedule":{"enabled":false,"interval_seconds":60},
+ "destination":{"entity":"user","mapping":{
+  "id":{"path":"id","required":true,"transform":"string"},
+  "name":{"path":"profile.name"},"email":{"path":"email"},
+  "last_login":{"path":"last_login","transform":"datetime"}
+ }},
+ "limits":{"max_pages":10,"max_records":100,"max_response_bytes":1048576,"max_run_seconds":30},
+ "retry":{"max_attempts":4,"base_delay_ms":1000,"max_retry_after_seconds":5}
+}
