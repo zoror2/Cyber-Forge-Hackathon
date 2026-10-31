@@ -83,23 +83,7 @@ func (c *Client) research(ctx context.Context, r Request, used *meter) (string, 
 }
 
 func (c *Client) search(ctx context.Context, r Request, used *meter) (string, error) {
-	data := "its main security dataset that EVERY customer has on the standard plan (users, devices, logins or findings); if a richer dataset needs a premium/enterprise tier, name it and its tier separately"
-	if !r.Auto() {
-		data = "OCSF class " + r.Data
-	}
-	q := "Product: " + r.Product + "\nData wanted: " + data + "\n"
-	if strings.TrimSpace(r.Details) != "" {
-		q += "Customer notes: " + r.Details + "\n"
-	}
-	q += `Search the vendor's CURRENT official API documentation and report, briefly and factually:
-0. If the name is a company with several products that each have their own API, list them in one line each (product, API host, cloud or on-prem) and research the one a security team would mean by this name; say which one you picked.
-1. Where the API runs: vendor cloud (exact host, regional hosts) or on the customer's own appliance/tenant (what part is customer-specific).
-2. The current recommended auth (not deprecated ones): scheme, EVERY credential value the customer must create, token URL and token request parameters (audience/scope) if OAuth.
-3. The organization/account-wide REST GET endpoint that LISTS those records across everything the customer owns (not one repo/project) (path) and which plan/tier/license it requires, and if logs/events are only available by streaming/export (syslog, S3, SIEM forwarders), say so.
-4. Pagination: request parameters and the response field or header that gives the next page; the JSON path of the records array.
-5. Key record fields (id, name/email, status, timestamps).
-6. The exact official documentation URLs you used.
-Say "unknown" for anything the docs do not state. Do not guess.`
+	q := researchQuestion(r)
 	body := map[string]any{
 		"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": q}}}},
 		"tools":    []map[string]any{{"google_search": map[string]any{}}},
