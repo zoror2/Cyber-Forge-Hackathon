@@ -5,6 +5,8 @@ package engine
 // schedule, approval status) and embeds this Connector inside it.
 
 import (
+	"configbridge/pkg/jsonvalue"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -24,14 +26,22 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 type Connector struct {
 	// TenantID is set by the platform from the authenticated session or the
 	// stored config row. Never copy it from user-supplied request data.
-	TenantID   string     `json:"tenant_id"`
-	ID         string     `json:"id"`         // unique per tenant, e.g. "crowdstrike_alerts"
-	Request    Request    `json:"request"`    // which URL to call
-	Auth       Auth       `json:"auth"`       // how to log in
-	Pagination Pagination `json:"pagination"` // how to get the next page
-	ItemsPath  string     `json:"items_path"` // where the record list sits in the JSON, "" = the whole response is the list
-	Limits     Limits     `json:"limits"`     // safety caps
-	Retry      Retry      `json:"retry"`      // retry behaviour
+	TenantID       string          `json:"tenant_id"`
+	ID             string          `json:"id"`                        // unique per tenant, e.g. "crowdstrike_alerts"
+	Request        Request         `json:"request"`                   // which URL to call
+	Auth           Auth            `json:"auth"`                      // how to log in
+	Pagination     Pagination      `json:"pagination"`                // how to get the next page
+	ItemsPath      string          `json:"items_path"`                // where the record list sits in the JSON, "" = the whole response is the list
+	ResponseChecks []ResponseCheck `json:"response_checks,omitempty"` // explicit vendor success/completeness conditions
+	Limits         Limits          `json:"limits"`                    // safety caps
+	Retry          Retry           `json:"retry"`                     // retry behaviour
+}
+
+// ResponseCheck refuses HTTP-200 error/partial envelopes before emitting rows.
+// Equals is a non-null JSON scalar; an absent path always fails the check.
+type ResponseCheck struct {
+	Path   string `json:"path"`
+	Equals any    `json:"equals"`
 }
 
 // Request describes the HTTP call (FR-2).
@@ -50,13 +60,14 @@ type Request struct {
 // Auth says how to log in (FR-1). It holds the secret's NAME, never its value;
 // the value is fetched from the SecretStore at run time.
 type Auth struct {
-	Type     string   `json:"type"`      // none | static | api_key | bearer | basic | oauth2_client_credentials
-	Secret   string   `json:"secret"`    // secret NAME in the secret store, e.g. "crowdstrike"
-	Header   string   `json:"header"`    // api_key only: header name, e.g. "X-API-Key"
-	Username string   `json:"username"`  // basic only: e.g. the Jira account email
-	TokenURL string   `json:"token_url"` // oauth2 only: where to get access tokens
-	ClientID string   `json:"client_id"` // oauth2 only: the API client's ID (not secret); "" = take it from secret field "client_id"
-	Scopes   []string `json:"scopes"`    // oauth2 only: optional permission scopes
+	Type             string   `json:"type"`                         // none | static | api_key | bearer | basic | oauth2_client_credentials
+	Secret           string   `json:"secret"`                       // secret NAME in the secret store, e.g. "crowdstrike"
+	Header           string   `json:"header"`                       // api_key only: header name, e.g. "X-API-Key"
+	Username         string   `json:"username"`                     // basic only: e.g. the Jira account email
+	TokenURL         string   `json:"token_url"`                    // oauth2 only: where to get access tokens
+	ClientID         string   `json:"client_id"`                    // oauth2 only: the API client's ID (not secret); "" = take it from secret field "client_id"
+	ClientAuthMethod string   `json:"client_auth_method,omitempty"` // client_secret_basic (default) or client_secret_post
+	Scopes           []string `json:"scopes"`                       // oauth2 only: optional permission scopes
 
 	// static only: headers built from secret fields, e.g. Cortex XSIAM:
 	//   {"name": "x-xdr-auth-id", "value": "{{secret.key_id}}"}
@@ -77,14 +88,15 @@ type HeaderTemplate struct {
 
 // Pagination says how to walk through all pages of results (FR-3).
 type Pagination struct {
-	Type        string `json:"type"`                 // none | page | offset | link | cursor
-	PageParam   string `json:"page_param"`           // page:   name of the page-number param, e.g. "page"
-	StartPage   *int   `json:"start_page,omitempty"` // page: first page number (default 1; 0 for zero-based APIs)
-	OffsetParam string `json:"offset_param"`         // offset: name of the offset param, e.g. "startAt"
-	SizeParam   string `json:"size_param"`           // page/offset/cursor: name of the page-size param, e.g. "limit"
-	PageSize    int    `json:"page_size"`            // records per page we ask for
-	CursorParam string `json:"cursor_param"`         // cursor: param to send the cursor in, e.g. "after"
-	CursorPath  string `json:"cursor_path"`          // cursor: where the next cursor is in the JSON, e.g. "meta.next"
+	Type        string `json:"type"`                    // none | page | offset | link | cursor | next_url
+	PageParam   string `json:"page_param"`              // page:   name of the page-number param, e.g. "page"
+	StartPage   *int   `json:"start_page,omitempty"`    // page: first page number (default 1; 0 for zero-based APIs)
+	OffsetParam string `json:"offset_param"`            // offset: name of the offset param, e.g. "startAt"
+	SizeParam   string `json:"size_param"`              // page/offset/cursor: name of the page-size param, e.g. "limit"
+	PageSize    int    `json:"page_size"`               // records per page we ask for
+	CursorParam string `json:"cursor_param"`            // cursor: param to send the cursor in, e.g. "after"
+	CursorPath  string `json:"cursor_path"`             // cursor: where the next cursor is in the JSON, e.g. "meta.next"
+	NextURLPath string `json:"next_url_path,omitempty"` // next_url: JSON path to the next-page URL
 	// link: no fields needed; the next URL comes from the HTTP "Link" header.
 }
 
@@ -276,8 +288,39 @@ func (c Connector) validate(allowHTTP bool) error {
 	if a.Type != "none" && a.Secret == "" {
 		bad("auth.secret (the secret name) is required for %s", a.Type)
 	}
+	if a.ClientAuthMethod != "" {
+		if a.Type != "oauth2_client_credentials" || (a.ClientAuthMethod != "client_secret_basic" && a.ClientAuthMethod != "client_secret_post") {
+			bad("auth.client_auth_method: client_secret_basic or client_secret_post requires oauth2_client_credentials")
+		}
+	}
 
 	// --- pagination: required fields per style ---
+	if len(c.ResponseChecks) > 10 {
+		bad("response_checks: at most 10 checks")
+	}
+	for _, check := range c.ResponseChecks {
+		_, pathOK := jsonvalue.Tokens(check.Path)
+		if !pathOK || check.Path == "" || len(check.Path) > 256 {
+			bad("response_checks.path: nonempty valid path of at most 256 bytes required")
+		}
+		switch v := check.Equals.(type) {
+		case bool, json.Number, float64, int, int64:
+		case string:
+			if len(v) > 256 {
+				bad("response_checks.equals: string is too long")
+			}
+		default:
+			bad("response_checks.equals: non-null JSON scalar required")
+		}
+		if _, err := json.Marshal(check.Equals); err != nil {
+			bad("response_checks.equals: valid JSON scalar required")
+		}
+	}
+	for field, path := range map[string]string{"items_path": c.ItemsPath, "pagination.cursor_path": c.Pagination.CursorPath} {
+		if _, ok := jsonvalue.Tokens(path); !ok {
+			bad("%s: invalid JSON Pointer escape", field)
+		}
+	}
 	p := c.Pagination
 	switch p.Type {
 	case "none", "link":
@@ -292,6 +335,10 @@ func (c Connector) validate(allowHTTP bool) error {
 	case "cursor":
 		if p.CursorParam == "" || p.CursorPath == "" {
 			bad("pagination.cursor_param and cursor_path are required for cursor")
+		}
+	case "next_url":
+		if _, ok := jsonvalue.Tokens(p.NextURLPath); !ok || p.NextURLPath == "" || len(p.NextURLPath) > 256 {
+			bad("pagination.next_url_path: nonempty valid path of at most 256 bytes required")
 		}
 	default:
 		bad("pagination.type %q is not supported", p.Type)

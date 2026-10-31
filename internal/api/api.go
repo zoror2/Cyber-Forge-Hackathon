@@ -87,6 +87,7 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("POST /ai/draft", a.aiDraft)
 	mux.HandleFunc("GET /ai/audit", a.aiAudit)
 	mux.HandleFunc("GET /ai/usage", a.aiUsage)
+	mux.HandleFunc("GET /ai/consumption", a.aiConsumption)
 	mux.HandleFunc("POST /siem/refresh", a.siemRefresh)
 	mux.HandleFunc("GET /siem/findings", a.siemFindings)
 	mux.HandleFunc("POST /siem/ask", a.siemAsk)
@@ -110,6 +111,35 @@ func New(a *API) (http.Handler, error) {
 		ip := clientIP(r)
 		if !sameOrigin(r) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/operator/ai/") {
+			if ok, retry := lim.peek("fail:"+ip, rl.FailedPerIP); !ok {
+				limited(w, retry)
+				return
+			}
+			if ok, retry := lim.take("ip:"+ip, rl.PerIP); !ok {
+				limited(w, retry)
+				return
+			}
+			if !a.authorizeAIReportOperator(w, r) {
+				lim.take("fail:"+ip, rl.FailedPerIP)
+				return
+			}
+			if ok, retry := lim.take("operator-ai", rl.RunPerKey); !ok {
+				limited(w, retry)
+				return
+			}
+			if r.URL.Path != "/operator/ai/consumption" {
+				fail(w, 404, "not_found")
+				return
+			}
+			if r.Method != http.MethodGet {
+				w.Header().Set("Allow", "GET")
+				fail(w, 405, "method_not_allowed")
+				return
+			}
+			a.operatorAIConsumption(w, r)
 			return
 		}
 		// Public: sign-up and sign-in. Per-IP limits; failures lock the IP out
@@ -529,7 +559,8 @@ func (a *API) listSecrets(w http.ResponseWriter, r *http.Request) {
 }
 
 // aiDraft returns an UNSAVED config drafted by the model and already passed
-// through the platform validator. Only secret names/hosts reach the model.
+// through the platform validator and documentation/contract checks. Customer
+// notes, credential metadata and credential values stay out of the prompt.
 func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	var req ai.Request
 	if !jsonBody(w, r, &req) {
@@ -544,6 +575,12 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "ai_not_configured")
 		return
 	}
+	prepared, prepErr := a.AI.Prepare(r.Context(), req)
+	if prepErr != nil {
+		write(w, 422, map[string]string{"error": "documentation_unavailable", "detail": prepErr.Error()})
+		return
+	}
+	req = prepared
 	id := make([]byte, 16)
 	rand.Read(id)
 	in, _ := json.Marshal(req)
@@ -561,7 +598,7 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var secrets []ai.Secret
-	if a.Secrets != nil {
+	if a.Secrets != nil && len(req.DocumentationURLs) == 0 {
 		list, e := a.Secrets.List(r.Context(), a.scope(r).Tenant, 200, 0)
 		if e != nil {
 			fail(w, 503, "secret_backend_unavailable")

@@ -1,0 +1,6 @@
+[
+  {"id": 9007199254740993, "profile": {"login": "  Ada  ", "email": "ada@example.test"}, "is_admin": false, "last_login": "2026-11-01T10:00:00+05:30"},
+  {"id": "user-2", "profile": {"login": "Grace", "email": null}, "is_admin": true, "last_login": null},
+  {"profile": {"login": "Missing ID"}, "is_admin": false},
+  {"id": "bad-date", "profile": {"login": "Bad date"}, "is_admin": false, "last_login": "not-a-date"}
+]

@@ -162,6 +162,10 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 	if clientID == "" || clientSecret == "" {
 		return "", s.id, authErr(StatusIncomplete, a.Secret, s.id, errors.New("oauth2 needs a client_id and a client_secret"))
 	}
+	if a.ClientAuthMethod == "client_secret_post" {
+		form.Set("client_id", clientID)
+		form.Set("client_secret", clientSecret)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL.String(), strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", s.id, errors.New("build token request failed")
@@ -170,7 +174,9 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 	req.Header.Set("Accept", "application/json")
 	// RFC 6749 §2.3.1: client id and secret are form-encoded, then sent as
 	// HTTP Basic auth. (Encoding matters if the secret contains ":" or "%".)
-	req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
+	if a.ClientAuthMethod != "client_secret_post" {
+		req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
+	}
 
 	resp, err := client.Do(req) // same egress-guarded client as API calls
 	if err != nil {

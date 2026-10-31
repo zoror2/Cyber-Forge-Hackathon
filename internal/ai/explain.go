@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"configbridge/internal/insights"
+	"configbridge/pkg/config"
 )
 
 // ExplainPromptVersion is recorded in ai_audit for SIEM explanations.
@@ -42,7 +43,7 @@ func (c *Client) Explain(ctx context.Context, e insights.Evidence) (insights.Ans
 	var a insights.Answer
 	d := json.NewDecoder(bytes.NewReader([]byte(raw)))
 	d.DisallowUnknownFields()
-	if d.Decode(&a) != nil || a.Validate(e) != nil {
+	if config.CheckJSON([]byte(raw)) != nil || d.Decode(&a) != nil || a.Validate(e) != nil {
 		return insights.Answer{}, used.total(), insights.ErrEvidence
 	}
 	return a, used.total(), nil

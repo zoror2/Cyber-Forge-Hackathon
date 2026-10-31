@@ -56,6 +56,9 @@ var migrationSessions string
 //go:embed migrations/012_siem.sql
 var migrationSIEM string
 
+//go:embed migrations/013_ai_reports.sql
+var migrationAIReports string
+
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
 // 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
@@ -77,6 +80,7 @@ var migrations = []struct {
 	{11, migrationSessions, []string{"iam_sessions"}},
 	// 12 was 006_siem on main (member-b); renumbered after this branch's 6-11.
 	{12, migrationSIEM, []string{"siem_snapshots", "siem_findings", "ai_requests"}},
+	{13, migrationAIReports, nil},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -144,6 +148,19 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version integer PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())`); e != nil {
 		return e
 	}
+	// member-b shipped SIEM as migration 6 before the OCSF branch allocated
+	// 6-11. Identify that exact historical schema and preserve its applied SIEM
+	// version as 12 before applying OCSF. All changes stay in this transaction.
+	var oldSIEM bool
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)
+ AND to_regclass('siem_snapshots') IS NOT NULL AND to_regclass('ocsf_records') IS NULL`).Scan(&oldSIEM); e != nil {
+		return e
+	}
+	if oldSIEM {
+		if _, e = tx.Exec(ctx, "UPDATE schema_migrations SET version=12 WHERE version=6"); e != nil {
+			return e
+		}
+	}
 	for _, m := range migrations {
 		var exists bool
 		if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", m.version).Scan(&exists); e != nil {
@@ -168,6 +185,20 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
+	// Archived records retain their original tenant RLS policies, but are an
+	// operator-only recovery source rather than a second public data store.
+	for _, table := range []string{"legacy_users", "legacy_devices", "legacy_events"} {
+		name := pgx.Identifier{schema, table}.Sanitize()
+		var present bool
+		if e = tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", name).Scan(&present); e != nil {
+			return e
+		}
+		if present {
+			if _, e = tx.Exec(ctx, "REVOKE ALL ON "+name+" FROM "+role); e != nil {
+				return e
+			}
+		}
+	}
 	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage,"+sch+".ai_requests TO "+role); e != nil {
 		return e
 	}
@@ -197,7 +228,8 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 		return e
 	}
 	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()",
-		"authenticate_api_key_user(bytea)", "iam_login_lookup(text,text)", "iam_create_account(text,text,text,text,text)"} {
+		"authenticate_api_key_user(bytea)", "iam_login_lookup(text,text)", "iam_create_account(text,text,text,text,text)",
+		"ai_consumption_report(date,date,text,integer,integer)", "operator_ai_consumption_report(date,date,text,integer,integer)"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e
 		}

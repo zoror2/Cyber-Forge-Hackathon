@@ -1,5 +1,9 @@
 # KEV matching and AI drafts
 
+> Historical handoff. The current implementation uses OCSF and `internal/ai`;
+> see [AI_DRAFTS.md](AI_DRAFTS.md) and [VERIFICATION.md](VERIFICATION.md).
+> CISA's exact official GitHub mirror is now also accepted as KEV provenance.
+
 ## What changed
 
 Mohit's CISA feed already worked. It discarded vendor/product during mapping.

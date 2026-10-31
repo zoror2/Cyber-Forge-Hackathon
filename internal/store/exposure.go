@@ -50,7 +50,8 @@ func (s Scope) Exposure(ctx context.Context, connector string, limit, offset int
    JOIN configs src ON src.tenant_id=r.tenant_id AND src.id=r.connector AND src.version=r.config_version
    WHERE c.tenant_id=$1 AND c.status='live' AND ($2='' OR c.id=$2)
     AND e.external_id ~ '^CVE-[0-9]{4}-[0-9]{4,}$'
-    AND src.body#>>'{request,url}'='https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+    AND src.body#>>'{request,url}' IN ('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
+     'https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json')
     AND src.body#>>'{auth,type}'='none' AND src.body->>'items_path'='vulnerabilities'
     AND src.body#>>'{destination,class}'='vulnerability_finding'
     AND src.body->'destination'->'mapping'->'finding_info.uid'->>'path'='cveID'

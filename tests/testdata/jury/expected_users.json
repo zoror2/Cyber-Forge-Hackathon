@@ -1,0 +1,4 @@
+[
+  {"user.uid": "9007199254740993", "user.name": "Ada", "user.email_addr": "ada@example.test", "user.type_id": 1, "user.ldap_person.last_login_time": 1793507400000},
+  {"user.uid": "user-2", "user.name": "Grace", "user.email_addr": null, "user.type_id": 2, "user.ldap_person.last_login_time": null}
+]

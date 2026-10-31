@@ -96,9 +96,9 @@ Both config drafting and SIEM explanations reserve daily call/token budget in
 one PostgreSQL transaction before calling a provider. Reservations work across
 replicas and persist across restart. Finalization is idempotently fenced.
 
-`CB_AI_DAILY_LIMIT` defaults to 20 calls per tenant/UTC day.
-`CB_AI_DAILY_TOKEN_LIMIT` defaults to 400000 tokens per tenant/UTC day, shared
-by both operations. A call reserves 40000 tokens conservatively for the bounded
+`CB_AI_DAILY_LIMIT` and `CB_AI_DAILY_TOKEN_LIMIT` must be explicitly configured
+when AI is enabled (the example configuration uses 20 calls and 400000 tokens
+per tenant/UTC day), shared by both operations. A call reserves 40000 tokens conservatively for the bounded
 prompt/output contract. Valid provider-reported input/output/total replaces the
 reservation, including when output fails validation. Missing usage, errors and
 timeouts retain the reservation. This protects the application budget but is
@@ -106,10 +106,12 @@ not a guaranteed monetary billing cap or a provider billing reconciliation.
 
 `GET /ai/usage` and `/insights` show the authenticated tenant's current UTC-day
 totals and latest 30 tracked requests. Unknown usage is distinct from zero.
-Historical calls before migration 006 cannot be reconstructed. Monthly billing,
-per-model cost estimates, editable customer-specific plans and a separately
-authorized operator view across tenants are future work. Existing credentials
-never grant cross-customer dashboard access.
+Historical calls before the SIEM ledger migration cannot be reconstructed.
+The dedicated `/ui/#/ai-usage` page adds date ranges, daily charts, model breakdown
+and paginated request logs. `/ui/#/platform-ai` provides cross-customer comparisons
+only with the separate platform operator credential. Customer keys/roles do not
+grant that access. Monthly billing, price estimates and editable per-customer
+plans remain future work. See [AI_USAGE.md](AI_USAGE.md) for setup and tests.
 
 ## Local setup: native app, Docker test dependencies
 

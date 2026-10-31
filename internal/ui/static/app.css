@@ -150,6 +150,19 @@ pre.code { margin: 0; padding: 14px; background: var(--sunken); border-radius: 6
 .bar span { display: block; height: 100%; }
 .bar .a { background: var(--ok); } .bar .q { background: var(--bad); } .bar .s { background: var(--faint); }
 
+.operator-main { max-width: 1600px; margin: auto; padding: 30px 24px 60px; }
+.usage-filters { align-items: end; margin-bottom: 12px; }
+.usage-filters .f { min-width: 160px; }
+.usage-track { display: flex; height: 12px; min-width: 150px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
+.usage-track span { height: 100%; }
+.usage-reported { background: var(--ok); }
+.usage-held { background: #c99b35; }
+.usage-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.usage-kpis { grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 0; }
+.usage-error:empty { display: none; }
+@media (max-width: 760px) { .usage-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 420px) { .usage-kpis { grid-template-columns: 1fr; } }
+
 @media (max-width: 1100px) { .builder { grid-template-columns: 1fr; } .builder .aside { position: static; } }
 @media (max-width: 760px) {
   .shell { grid-template-columns: 1fr; }

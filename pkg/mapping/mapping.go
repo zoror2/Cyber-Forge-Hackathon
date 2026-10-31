@@ -13,33 +13,13 @@ import (
 	_ "time/tzdata"
 
 	"configbridge/pkg/config"
+	"configbridge/pkg/jsonvalue"
 	"configbridge/pkg/model"
 	"configbridge/pkg/ocsf"
 )
 
 func Path(value any, path string) (any, bool) {
-	if path == "" {
-		return value, true
-	}
-	for _, part := range strings.Split(path, ".") {
-		switch v := value.(type) {
-		case map[string]any:
-			var ok bool
-			value, ok = v[part]
-			if !ok {
-				return nil, false
-			}
-		case []any:
-			n, err := strconv.Atoi(part)
-			if err != nil || n < 0 || n >= len(v) {
-				return nil, false
-			}
-			value = v[n]
-		default:
-			return nil, false
-		}
-	}
-	return value, true
+	return jsonvalue.Path(value, path)
 }
 func Items(payload any, path string) ([]any, error) {
 	v, ok := Path(payload, path)

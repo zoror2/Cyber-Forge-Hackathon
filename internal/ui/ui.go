@@ -1,7 +1,8 @@
 // Package ui serves the bundled web console. It is static files only: no data
 // and no secrets are served here. Every data call the page makes goes through
-// the authenticated API with the tenant key the user pastes, which lives only
-// in the page's memory (never localStorage or cookies).
+// the authenticated API. Browser sign-in uses HttpOnly session cookies; the
+// JavaScript cannot read those cookies; the API never returns stored vendor
+// secret values. Login and credential forms submit locally entered values.
 package ui
 
 import (
