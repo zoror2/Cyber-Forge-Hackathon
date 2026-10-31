@@ -951,13 +951,13 @@ function renderWizard(v) {
   const profile = datasets.length ? h('label', { class: 'f' }, h('span', {}, 'Dataset / scope'), h('select', { 'aria-label': 'Dataset / scope', onchange: (e) => { W.profile = e.target.value; W.draft = null; re(); } }, datasets.map(([id, text]) => h('option', { value: id, selected: id === (W.profile || datasets[0][0]) }, text))), github ? h('span', { class: 'small faint' }, 'Reviewed examples collect users, not repository objects. Choose contributors explicitly for a public repository. No Enterprise plan is required.') : null) : null;
   // name only by default: the server finds the official docs by web search and
   // verifies every setting against them. Supplying them yourself is optional.
-  const documentation = generic ? h('details', { open: !!W.documentation.trim() }, h('summary', {}, 'Point to the documentation yourself', optTag()), h('div', { class: 'stack' },
+  const documentation = generic ? h('details', { open: !!W.documentation.trim() || !!W.askRefs }, h('summary', {}, 'Point to the documentation yourself', optTag()), h('div', { class: 'stack' },
     h('label', { class: 'f' }, h('span', {}, 'Requested dataset (public description only)'), h('input', { 'aria-label': 'Requested dataset', value: W.dataset, placeholder: 'e.g. users, login events, vulnerability findings', oninput: (e) => { W.dataset = e.target.value; } })),
     h('label', { class: 'f' }, h('span', {}, 'Access scope'), h('select', { 'aria-label': 'Access scope', onchange: (e) => { W.scope = e.target.value; } }, ['public', 'repository', 'organization', 'account', 'enterprise'].map((x) => h('option', { value: x, selected: W.scope === x }, x)))),
     h('label', { class: 'f' }, h('span', {}, 'Official public API documentation URLs (one per line, up to 3)'), h('textarea', { 'aria-label': 'Public documentation URLs', rows: 3, value: W.documentation, placeholder: 'https://vendor.example/developers/api', oninput: (e) => { W.documentation = e.target.value; } })),
     h('span', { class: 'small faint' }, 'Only needed if the automatic search picks the wrong page. Fill all three together. Only the product, public dataset/scope and retrieved public documentation go to the hosted AI; never customer names, private URLs, keys or records.'))) : null;
   // a vendor spec the search cannot reach (e.g. behind the vendor's login)
-  const specBox = generic ? h('details', { open: !!(W.specUrl || W.specText) }, h('summary', {}, 'Use the vendor\'s OpenAPI spec', optTag()), h('div', { class: 'stack' },
+  const specBox = generic ? h('details', { open: !!(W.specUrl || W.specText || W.askRefs) }, h('summary', {}, 'Use the vendor\'s OpenAPI spec', optTag()), h('div', { class: 'stack' },
     h('label', { class: 'f' }, h('span', {}, 'Spec URL (public JSON or YAML, or a docs page that embeds it)'), h('input', { 'aria-label': 'OpenAPI spec URL', value: W.specUrl || '', placeholder: 'https://vendor.example/openapi.yaml', oninput: (e) => { W.specUrl = e.target.value.trim(); } })),
     h('label', { class: 'f' }, h('span', {}, 'Or upload the spec file'), h('input', { type: 'file', accept: '.json,.yaml,.yml', 'aria-label': 'OpenAPI spec file', onchange: async (e) => { const f = e.target.files[0]; if (!f) return; if (f.size > 16 << 20) { say('Spec file is larger than 16 MiB.', true); return; } W.specText = await f.text(); say('Spec loaded: ' + f.name); } })),
     h('span', { class: 'small faint' }, 'Used instead of web search. The chosen operation from the spec goes to the hosted AI; every setting is checked against the spec.'))) : null;
@@ -969,6 +969,11 @@ function renderWizard(v) {
     say('');
     if (r.ok) loadDraft(r.data, false);
     else if (r.status === 503 && r.data && r.data.error === 'ai_not_configured') say('AI is not set up on this server. Use "Fill in manually".', true);
+    else if (r.status === 422 && generic && !urls.length && !W.specUrl && !W.specText) {
+      // name only: nothing was guessed; ask for the reference instead
+      W.askRefs = true; W.pasteIssues = (r.data && r.data.issues) || [];
+      say('Couldn\'t find an exact, verifiable setup for ' + W.product.trim() + '. Give me the vendor\'s API documentation link or its OpenAPI spec below and I\'ll build the template from that.', true);
+    }
     else if (r.status === 422) { say((r.data && r.data.detail) || 'The public references do not support a usable setup. Supply focused API docs or fill in manually.', true); W.pasteIssues = (r.data && r.data.issues) || []; }
     else if (r.status === 429) say('Too many drafts in a row. Wait a few seconds.', true);
     else say('AI request failed: ' + ((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status), true);
