@@ -183,7 +183,7 @@ and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 | # | Source | Config | Auth | Paging | Status |
 |---|---|---|---|---|---|
 | 1 | CISA KEV | [configs/cisa_kev.json](configs/cisa_kev.json) | none | none | ✅ live: 1766 received / 1766 accepted / 0 quarantined; re-run upserts (no duplicates) |
-| 2 | GitHub REST (OWASP public members) | [configs/github_members.json](configs/github_members.json) | bearer | Link header | ⏳ config live, waiting for a read-only token (`github_token`, bound to `api.github.com`) |
+| 2 | GitHub REST (OWASP public members) | [configs/github_members.json](configs/github_members.json) | bearer | Link header | ✅ live: 4 pages, 36 / 36 / 0; re-run upserts; token never in logs or DB |
 | 3 | NVD CVE or Jira | not yet | api_key / basic | offset | ⏳ not started |
 
 Evidence (config hash, UTC time, counts, outcome) is in [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md).
