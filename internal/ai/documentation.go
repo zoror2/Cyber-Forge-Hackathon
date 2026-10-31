@@ -57,6 +57,11 @@ var documentationSlots = make(chan struct{}, 4)
 
 const maxDocumentationBytes = 8 << 20
 
+// maxDocumentationText bounds the excerpt sent to the model per reference.
+// API references put auth, paging and response examples far down the page;
+// 6000 characters cut them off, so evidence checks failed on real vendors.
+const maxDocumentationText = 40000
+
 func compact(s string) string { return strings.Join(strings.Fields(s), " ") }
 func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
 	if !publicDocURL(raw) {
@@ -109,8 +114,8 @@ func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
 	}
 	// Bound prompt size as well as download size. Evidence can only cite the
 	// transmitted excerpt; a later section needs a more focused reference.
-	if len(text) > 6000 {
-		text = strings.Clone(text[:6000])
+	if len(text) > maxDocumentationText {
+		text = strings.Clone(text[:maxDocumentationText])
 	}
 	return text, nil
 }
@@ -135,6 +140,10 @@ func focusedSection(body, fragment string) string {
 // Prepare retrieves public references before reserving paid AI tokens.
 func (c *Client) Prepare(ctx context.Context, r Request) (Request, error) {
 	if len(r.DocumentationURLs) == 0 {
+		// name-only needs web search; refuse before any budget is reserved
+		if p, _ := selectProfile(r); p == nil && r.nameOnly() && !c.gemini {
+			return r, ErrSearchRequired
+		}
 		return r, nil
 	}
 	if e := r.checkDocumentation(); e != nil {
@@ -154,8 +163,8 @@ func (c *Client) Prepare(ctx context.Context, r Request) (Request, error) {
 			return r, e
 		}
 		text = compact(text)
-		if len(text) > 6000 {
-			text = strings.Clone(text[:6000])
+		if len(text) > maxDocumentationText {
+			text = strings.Clone(text[:maxDocumentationText])
 		}
 		r.documents[source] = text
 	}

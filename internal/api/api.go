@@ -634,6 +634,8 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "ai_not_configured")
 	case errors.As(e, &bad):
 		write(w, 422, map[string]any{"error": "ai_draft_invalid", "issues": bad.Issues, "config": bad.Last})
+	case errors.Is(e, ai.ErrDocumentation):
+		write(w, 422, map[string]string{"error": "documentation_unavailable", "detail": e.Error()})
 	default:
 		write(w, 502, map[string]string{"error": "ai_provider_failed", "detail": strings.TrimPrefix(e.Error(), ai.ErrUpstream.Error()+": ")})
 	}

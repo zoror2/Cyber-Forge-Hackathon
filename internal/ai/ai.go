@@ -66,6 +66,8 @@ type Client struct {
 	// FetchDocumentation is a test seam. Production uses the public-only,
 	// HTTPS, no-redirect reader in documentation.go.
 	FetchDocumentation func(context.Context, string) (string, error)
+	// debugDiscovery: test-only view of the raw web-search answer.
+	debugDiscovery func(string)
 }
 
 // Provider names the backend for ai_audit.
@@ -179,7 +181,9 @@ func (r Request) Check() error {
 			return fmt.Errorf("%w: this dataset produces %s", ErrProfileInput, base.Destination.Class)
 		}
 	}
-	if p == nil || len(r.DocumentationURLs) > 0 {
+	// A bare product name is allowed: Draft discovers the references by web
+	// search. A partial request (dataset or scope without links) still fails.
+	if (p == nil && !r.nameOnly()) || len(r.DocumentationURLs) > 0 {
 		if err := r.checkDocumentation(); err != nil {
 			return err
 		}
@@ -207,6 +211,9 @@ func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft
 	}
 	if p != nil {
 		return c.reviewedDraft(ctx, r, p, secrets)
+	}
+	if r.nameOnly() {
+		return c.discoveredDraft(ctx, r)
 	}
 	return nil, ErrDocumentation
 }
@@ -237,6 +244,18 @@ func (c *Client) generate(ctx context.Context, r Request, secrets []Secret) (*Dr
 		out, e := c.callWithSchema(ctx, msgs, s, &used)
 		if e != nil {
 			return nil, e
+		}
+		// An empty config is the model's deliberate refusal (the references do
+		// not support the request). Repair rounds cannot change the documents,
+		// so stop and return its stated reason instead of "not valid JSON".
+		if strings.TrimSpace(out.ConfigJSON) == "" {
+			issues = []config.Issue{{Field: "documentation", Message: "the model found the references insufficient"}}
+			for _, n := range out.Notes {
+				if n = strings.TrimSpace(trunc(n, 300)); n != "" && len(issues) < 6 {
+					issues = append(issues, config.Issue{Field: "documentation", Message: n})
+				}
+			}
+			return nil, &InvalidDraft{Issues: issues, Usage: used.total()}
 		}
 		cfg, decoded := []byte(out.ConfigJSON), config.Config{}
 		decoded, issues = config.Decode(cfg)

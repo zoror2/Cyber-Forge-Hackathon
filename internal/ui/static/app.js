@@ -949,15 +949,18 @@ function renderWizard(v) {
   if (datasets.length) datasets.push(['custom', 'Another dataset: use public API documentation']);
   const generic = !datasets.length || W.profile === 'custom';
   const profile = datasets.length ? h('label', { class: 'f' }, h('span', {}, 'Dataset / scope'), h('select', { 'aria-label': 'Dataset / scope', onchange: (e) => { W.profile = e.target.value; W.draft = null; re(); } }, datasets.map(([id, text]) => h('option', { value: id, selected: id === (W.profile || datasets[0][0]) }, text))), github ? h('span', { class: 'small faint' }, 'Reviewed examples collect users, not repository objects. Choose contributors explicitly for a public repository. No Enterprise plan is required.') : null) : null;
-  const documentation = generic ? h('div', { class: 'stack' },
+  // name only by default: the server finds the official docs by web search and
+  // verifies every setting against them. Supplying them yourself is optional.
+  const documentation = generic ? h('details', { open: !!W.documentation.trim() }, h('summary', {}, 'Point to the documentation yourself', optTag()), h('div', { class: 'stack' },
     h('label', { class: 'f' }, h('span', {}, 'Requested dataset (public description only)'), h('input', { 'aria-label': 'Requested dataset', value: W.dataset, placeholder: 'e.g. users, login events, vulnerability findings', oninput: (e) => { W.dataset = e.target.value; } })),
     h('label', { class: 'f' }, h('span', {}, 'Access scope'), h('select', { 'aria-label': 'Access scope', onchange: (e) => { W.scope = e.target.value; } }, ['public', 'repository', 'organization', 'account', 'enterprise'].map((x) => h('option', { value: x, selected: W.scope === x }, x)))),
     h('label', { class: 'f' }, h('span', {}, 'Official public API documentation URLs (one per line, up to 3)'), h('textarea', { 'aria-label': 'Public documentation URLs', rows: 3, value: W.documentation, placeholder: 'https://vendor.example/developers/api', oninput: (e) => { W.documentation = e.target.value; } })),
-    h('span', { class: 'small faint' }, 'Only the product, public dataset/scope and retrieved public documentation go to the hosted AI. Do not put customer names, private URLs, keys or records here. You choose the trusted publisher; the backend checks citations. If documentation is insufficient, the draft stops with clear errors.')) : null;
+    h('span', { class: 'small faint' }, 'Only needed if the automatic search picks the wrong page. Fill all three together. Only the product, public dataset/scope and retrieved public documentation go to the hosted AI; never customer names, private URLs, keys or records.'))) : null;
   const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
-    W.draft = null; W.progress = []; W.pasteIssues = []; say('Drafting…'); re();
-    const r = await api('POST', '/ai/draft', { product: W.product.trim(), profile: generic ? '' : (W.profile || datasets[0][0]), data: W.data, ...(generic ? { dataset: W.dataset.trim(), scope: W.scope, documentation_urls: W.documentation.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) } : {}) });
+    W.draft = null; W.progress = []; W.pasteIssues = []; say(generic && !W.documentation.trim() ? 'Finding the official API docs and drafting… (up to a minute)' : 'Drafting…'); re();
+    const urls = W.documentation.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    const r = await api('POST', '/ai/draft', { product: W.product.trim(), profile: generic ? '' : (W.profile || datasets[0][0]), data: W.data, ...(generic && urls.length ? { dataset: W.dataset.trim(), scope: W.scope, documentation_urls: urls } : {}) });
     say('');
     if (r.ok) loadDraft(r.data, false);
     else if (r.status === 503 && r.data && r.data.error === 'ai_not_configured') say('AI is not set up on this server. Use "Fill in manually".', true);
