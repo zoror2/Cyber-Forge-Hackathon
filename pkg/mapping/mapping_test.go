@@ -110,6 +110,46 @@ func TestKEVRecordMapsToOCSF(t *testing.T) {
 	}
 }
 
+// Real NVD CVE API page (3 public CVEs, hasKev), recorded 2026-10-31.
+func TestNVDPageMapsToOCSF(t *testing.T) {
+	b, _ := os.ReadFile("../../configs/nvd_kev_cves.json")
+	c, issues := config.Decode(b)
+	if len(issues) > 0 {
+		t.Fatal(issues)
+	}
+	raw, _ := os.ReadFile("testdata/nvd_kev_page.json")
+	var p any
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatal(err)
+	}
+	items, err := Items(p, c.ItemsPath)
+	if err != nil || len(items) != 3 {
+		t.Fatal(err, len(items))
+	}
+	want := []struct {
+		id       string
+		severity float64
+		score    float64
+	}{{"CVE-2026-68820", 4, 7.0}, {"CVE-2026-71362", 5, 9.1}, {"CVE-2026-66384", 3, 5.3}}
+	for i, row := range items {
+		r, q := Map(row, c, "tenant-a", time.Now(), i)
+		if q != nil {
+			t.Fatal(q)
+		}
+		v := decode(t, r.Payload)
+		if r.ID != want[i].id || v["severity_id"] != want[i].severity || ocsf.Get(v, "vulnerabilities.0.cve.cvss.0.base_score") != want[i].score ||
+			ocsf.Get(v, "vulnerabilities.0.cve.cvss.0.version") != "3.1" || ocsf.Get(v, "finding_info.title") == "untitled" ||
+			ocsf.Get(v, "unmapped.kev_date_added") == nil || ocsf.Get(v, "metadata.product.vendor_name") != "NIST" {
+			t.Fatalf("%d: %v", i, v)
+		}
+	}
+	// published "2026-08-11T17:19:06.357" is naive; the config pins it to UTC
+	r, _ := Map(items[0], c, "tenant-a", time.Now(), 0)
+	if decode(t, r.Payload)["time"] != float64(time.Date(2026, 8, 11, 17, 19, 6, 357e6, time.UTC).UnixMilli()) {
+		t.Fatal("published time wrong")
+	}
+}
+
 func TestUserInventoryNestedDefaultsAndDates(t *testing.T) {
 	c := config.Config{ID: "source", Name: "Vendor", Destination: config.Destination{Class: "user_inventory", Mapping: map[string]config.Field{
 		"user.uid": {Path: ptr("id"), Required: true, Transform: "string"}, "user.email_addr": {Path: ptr("profile.contacts.0.email")},

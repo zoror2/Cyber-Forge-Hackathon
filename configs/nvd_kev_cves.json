@@ -1,0 +1,32 @@
+{
+ "version":1,"id":"nvd_kev_cves","name":"NVD CVE API - CVEs in CISA KEV, with CVSS (live)",
+ "request":{"method":"GET","url":"https://services.nvd.nist.gov/rest/json/cves/2.0","timeout_seconds":30,
+  "params":{"hasKev":""},
+  "headers":{"Accept":"application/json"}},
+ "auth":{"type":"api_key","secret":"nvd","header":"apiKey"},
+ "items_path":"vulnerabilities",
+ "pagination":{"type":"offset","offset_param":"startIndex","size_param":"resultsPerPage","page_size":200},
+ "schedule":{"enabled":false,"interval_seconds":86400},
+ "destination":{"class":"vulnerability_finding","mapping":{
+  "finding_info.uid":{"path":"cve.id","required":true,"transform":"trim"},
+  "finding_info.title":{"path":"cve.cisaVulnerabilityName","default":"untitled","transform":"trim"},
+  "finding_info.desc":{"path":"cve.descriptions.0.value","transform":"string"},
+  "time":{"path":"cve.published","required":true,"transform":"datetime","format":"2006-01-02T15:04:05.000","timezone":"UTC"},
+  "severity_id":{"path":"cve.metrics.cvssMetricV31.0.cvssData.baseSeverity","transform":"lookup",
+   "lookup":{"NONE":"1","LOW":"2","MEDIUM":"3","HIGH":"4","CRITICAL":"5"}},
+  "vulnerabilities.0.cve.uid":{"path":"cve.id","required":true,"transform":"trim"},
+  "vulnerabilities.0.cve.cvss.0.version":{"path":"cve.metrics.cvssMetricV31.0.cvssData.version","transform":"string"},
+  "vulnerabilities.0.cve.cvss.0.base_score":{"path":"cve.metrics.cvssMetricV31.0.cvssData.baseScore"},
+  "vulnerabilities.0.cve.cvss.0.vector_string":{"path":"cve.metrics.cvssMetricV31.0.cvssData.vectorString","transform":"string"},
+  "vulnerabilities.0.cwe.uid":{"path":"cve.weaknesses.0.description.0.value","transform":"trim"},
+  "vulnerabilities.0.is_exploit_available":{"constant":true},
+  "vulnerabilities.0.remediation.desc":{"path":"cve.cisaRequiredAction","transform":"string"},
+  "unmapped.kev_date_added":{"path":"cve.cisaExploitAdd","transform":"string"},
+  "unmapped.kev_due_date":{"path":"cve.cisaActionDue","transform":"string"},
+  "unmapped.nvd_status":{"path":"cve.vulnStatus","transform":"string"},
+  "metadata.product.name":{"constant":"National Vulnerability Database"},
+  "metadata.product.vendor_name":{"constant":"NIST"}
+ }},
+ "limits":{"max_pages":15,"max_records":3000,"max_response_bytes":20971520,"max_run_seconds":240},
+ "retry":{"max_attempts":4,"base_delay_ms":2000,"max_retry_after_seconds":60}
+}

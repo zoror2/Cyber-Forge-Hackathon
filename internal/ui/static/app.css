@@ -122,6 +122,7 @@ label.f .hint { font-weight: 400; color: var(--faint); }
 .issues { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .issues li { padding: 8px 10px; border-radius: 6px; background: var(--bad-bg); color: var(--bad); font-size: 12.5px; }
 .issues li code { color: inherit; font-weight: 600; }
+.issues.warns li { background: var(--warn-bg); color: var(--warn); }
 .ok-box { padding: 8px 10px; border-radius: 6px; background: var(--ok-bg); color: var(--ok); font-size: 12.5px; }
 .json { height: 380px; }
 .classinfo { display: grid; gap: 6px; padding: 10px 12px; background: var(--sunken); border-radius: 6px; font-size: 12.5px; margin-bottom: 12px; }

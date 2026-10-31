@@ -17,6 +17,7 @@ The file holds the **name** of a secret, never its value. Values are stored sepa
 |---|---|---|---|---|
 | [cisa_kev.json](cisa_kev.json) | CISA Known Exploited Vulnerabilities (**live**) | none | none (one document) | Vulnerability Finding (2002) |
 | [github_members.json](github_members.json) | GitHub org public members (**live**) | bearer | Link header | User Inventory Info (5003) |
+| [nvd_kev_cves.json](nvd_kev_cves.json) | NVD CVE API 2.0, KEV subset with CVSS (**live**) | api_key | offset | Vulnerability Finding (2002) |
 | [mock_users.json](mock_users.json) | Local TLS mock (synthetic) | none | page number | User Inventory Info (5003) |
 | [fixture_events.json](fixture_events.json) | Test fixture (synthetic) | none | none | Vulnerability Finding (2002) |
 

@@ -456,6 +456,26 @@ func TestCombinedSecretsAndAuthentication(t *testing.T) {
 	if e.callsCount("/secure") != before {
 		t.Fatal("bound secret sent to wrong host")
 	}
+	// /validate warns about both mismatches before anything runs
+	warn := func(id string) string {
+		var v struct {
+			Warnings []config.Issue `json:"warnings"`
+		}
+		json.Unmarshal(e.request(t, "tenant-a", "POST", "/configs/"+id+"/validate", nil, 200), &v)
+		if len(v.Warnings) != 1 || v.Warnings[0].Field != "auth.secret" {
+			t.Fatal("expected one auth.secret warning", id, v.Warnings)
+		}
+		return v.Warnings[0].Message
+	}
+	if m := warn(blocked.ID); !strings.Contains(m, "bound to other.example.com") || !strings.Contains(m, "credential_binding_mismatch") {
+		t.Fatal(m)
+	}
+	typo := userConfig("typo", e.vendor.URL+"/secure")
+	typo.Auth = engine.Auth{Type: "bearer", Secret: "shared_key"}
+	e.save(t, "tenant-a", typo, false)
+	if m := warn(typo.ID); !strings.Contains(m, `"shared_key" is not stored`) || !strings.Contains(m, `"shared"`) {
+		t.Fatal(m)
+	}
 	for _, tenant := range []string{"tenant-a", "tenant-b"} {
 		for _, path := range []string{"/secrets", "/runs", "/quarantine"} {
 			raw := e.request(t, tenant, "GET", path, nil, 200)

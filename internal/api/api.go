@@ -199,7 +199,51 @@ func (a *API) validate(w http.ResponseWriter, r *http.Request) {
 		dbFail(w, e)
 		return
 	}
-	write(w, 200, map[string]any{"errors": s.Config.Validate()})
+	write(w, 200, map[string]any{"errors": s.Config.Validate(), "warnings": a.secretWarnings(r, s.Config)})
+}
+
+// secretWarnings catches the config/secret mismatches that otherwise only show
+// up at run time as credential_missing or credential_binding_mismatch. Warnings,
+// not errors: a config may legitimately be written before its secret is stored.
+func (a *API) secretWarnings(r *http.Request, c config.Config) []config.Issue {
+	out := []config.Issue{}
+	if c.Auth.Type == "" || c.Auth.Type == "none" || a.Secrets == nil {
+		return out
+	}
+	list, e := a.Secrets.List(r.Context(), a.scope(r).Tenant, 500, 0)
+	if e != nil {
+		return append(out, config.Issue{Field: "auth.secret", Message: "secret store unavailable; could not check"})
+	}
+	hosts := map[string]string{}
+	for _, m := range list {
+		hosts[m.Name] = m.AllowedHost
+	}
+	host := func(raw string) string {
+		u, e := url.Parse(raw)
+		if e != nil {
+			return ""
+		}
+		return u.Host
+	}
+	want := host(c.Request.URL)
+	if c.Auth.Type == "oauth2_client_credentials" {
+		want = host(c.Auth.TokenURL) // the client secret is only ever sent to the token endpoint
+	}
+	bound, ok := hosts[c.Auth.Secret]
+	switch {
+	case !ok:
+		msg := "secret " + strconv.Quote(c.Auth.Secret) + " is not stored"
+		for name, h := range hosts {
+			if h == want {
+				msg += "; stored secret " + strconv.Quote(name) + " is bound to " + want + ", did you mean it?"
+				break
+			}
+		}
+		out = append(out, config.Issue{Field: "auth.secret", Message: msg})
+	case bound != want:
+		out = append(out, config.Issue{Field: "auth.secret", Message: "secret " + strconv.Quote(c.Auth.Secret) + " is bound to " + bound + " but this config calls " + want + "; the run would fail with credential_binding_mismatch"})
+	}
+	return out
 }
 func (a *API) activate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -226,9 +270,19 @@ func (a *API) putSecret(w http.ResponseWriter, r *http.Request) {
 	if !jsonBody(w, r, &body) {
 		return
 	}
-	if !config.ValidID(r.PathValue("name")) || !config.ValidHost(body.Host) || body.Value == "" || len(body.Value) > 32768 {
-		fail(w, 422, "invalid_secret_input")
-		return
+	// Name the bad field (never echo the value).
+	for _, c := range []struct {
+		bad   bool
+		field string
+	}{
+		{!config.ValidID(r.PathValue("name")), "name: lowercase a-z 0-9 _ - only, e.g. nvd_key"},
+		{!config.ValidHost(body.Host), "allowed_host: bare lowercase host only, e.g. services.nvd.nist.gov (no https://, path or spaces)"},
+		{body.Value == "" || len(body.Value) > 32768, "value: required, at most 32768 bytes"},
+	} {
+		if c.bad {
+			write(w, 422, map[string]string{"error": "invalid_secret_input", "detail": c.field})
+			return
+		}
 	}
 	e := a.Secrets.Put(r.Context(), a.scope(r).Tenant, r.PathValue("name"), body.Value, body.Host)
 	if errors.Is(e, secrets.ErrBinding) {

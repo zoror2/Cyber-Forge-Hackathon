@@ -135,7 +135,11 @@ function loginView(msg) {
   const form = h('form', { class: 'bd', onsubmit: async (e) => {
     e.preventDefault();
     const k = input.value.trim();
-    if (k.length < 32) { err.textContent = 'That is not a tenant API key.'; return; }
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)) {
+      err.textContent = 'That looks like a vendor key (e.g. NVD). Vendor keys go on the Secrets page. Sign in with the tenant key from .env (CB_BOOTSTRAP_API_KEY).';
+      input.value = ''; return;
+    }
+    if (k.length < 32) { err.textContent = 'That is not a tenant API key (CB_BOOTSTRAP_API_KEY in .env).'; return; }
     S.key = k; input.value = '';
     await busy(go, async () => {
       try {
@@ -388,12 +392,16 @@ async function secrets(v) {
   const save = h('button', { class: 'primary', type: 'submit' }, 'Store secret');
   const form = h('form', { class: 'bd stack', onsubmit: async (e) => {
     e.preventDefault();
+    // Accept a pasted URL: keep only the lowercase host.
+    host.value = host.value.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split(/[/?#]/)[0];
+    name.value = name.value.trim();
     if (!name.value || !host.value || !val.value) { toast('Name, host and value are all required', true); return; }
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name.value)) { toast('Name: lowercase a-z, 0-9, _ and - only (e.g. nvd_key)', true); return; }
     await busy(save, async () => {
-      const r = await api('PUT', '/secrets/' + encodeURIComponent(name.value.trim()), { value: val.value, allowed_host: host.value.trim() });
-      val.value = '';
-      if (r.status === 204) { toast('Stored ' + name.value + ' (bound to ' + host.value + ')'); route(); }
-      else toast(((r.data && r.data.error) || 'HTTP ' + r.status).replace(/_/g, ' '), true);
+      const r = await api('PUT', '/secrets/' + encodeURIComponent(name.value), { value: val.value.trim(), allowed_host: host.value });
+      if (r.status === 204) { val.value = ''; toast('Stored ' + name.value + ' (bound to ' + host.value + ')'); route(); return; }
+      const d = r.data || {};
+      toast(d.detail || (d.error || 'HTTP ' + r.status).replace(/_/g, ' '), true);
     });
   } },
   h('div', { class: 'grid3' }, h('label', { class: 'f' }, 'Name', name), h('label', { class: 'f' }, 'Allowed host', host), h('label', { class: 'f' }, 'Value', val)),
@@ -488,9 +496,9 @@ function serialize(f) {
   return c;
 }
 
-const B = { f: null, saved: null, steps: {}, issues: [], secretNames: [] };
+const B = { f: null, saved: null, steps: {}, issues: [], warnings: [], secretNames: [] };
 async function builder(v, id) {
-  B.saved = null; B.steps = {}; B.issues = [];
+  B.saved = null; B.steps = {}; B.issues = []; B.warnings = [];
   const [sec, existing] = await Promise.all([must('GET', '/secrets?limit=500'), id ? must('GET', '/configs/' + encodeURIComponent(id)) : null]);
   B.secretNames = sec.map((s) => [s.name, s.allowed_host]);
   B.f = existing ? parse(existing.config) : blank();
@@ -500,7 +508,31 @@ async function builder(v, id) {
 function renderBuilder(v) {
   const f = B.f;
   const json = h('textarea', { class: 'json', spellcheck: 'false', 'aria-label': 'Config JSON' });
-  const refreshJSON = () => { json.value = JSON.stringify(serialize(f), null, 2); };
+  const secretHint = h('div', { class: 'small' });
+  let secretInput = null;
+  // checkSecret: auto-fill the secret when exactly one stored secret is bound to
+  // the host this config calls, and flag a missing secret or a host mismatch.
+  const checkSecret = () => {
+    const a = f.auth;
+    if (a.type === 'none') { secretHint.textContent = ''; return; }
+    let want = '';
+    try { want = new URL(a.type === 'oauth2_client_credentials' ? a.token_url : f.url).host; } catch { /* not a URL yet */ }
+    const forHost = B.secretNames.filter(([, h2]) => h2 === want);
+    if (!a.secret.trim() && forHost.length === 1) {
+      a.secret = forHost[0][0];
+      if (secretInput) secretInput.value = a.secret;
+      json.value = JSON.stringify(serialize(f), null, 2);
+    }
+    const name = a.secret.trim(), bound = (B.secretNames.find(([n]) => n === name) || [])[1];
+    const say = (ok, ...msg) => { secretHint.replaceChildren(...msg); secretHint.style.color = ok ? 'var(--ok)' : 'var(--bad)'; };
+    if (!name) say(false, want ? `No stored secret is bound to ${want}. Store one on the Secrets page first.` : 'Enter the URL first.');
+    else if (!bound) {
+      say(false, `"${name}" is not stored.`, forHost.length ? [' Stored for ', want, ': ',
+        forHost.map(([n]) => h('button', { class: 'sm', type: 'button', style: 'margin-left:6px', onclick: () => { a.secret = n; secretInput.value = n; checkSecret(); json.value = JSON.stringify(serialize(f), null, 2); } }, 'use ' + n))] : ' Store it on the Secrets page.');
+    } else if (want && bound !== want) say(false, `"${name}" is bound to ${bound}, but this config calls ${want}. The run would fail (credential_binding_mismatch).`);
+    else say(true, `✓ "${name}" is stored and bound to ${bound}.`);
+  };
+  const refreshJSON = () => { json.value = JSON.stringify(serialize(f), null, 2); checkSecret(); };
   const rerender = () => renderBuilder(v);
   // inp binds an input to obj[key]; changes update the JSON preview without re-rendering (keeps focus).
   const inp = (o, k, attrs = {}) => h('input', { value: o[k], spellcheck: 'false', autocomplete: 'off', ...attrs, oninput: (e) => { o[k] = e.target.value; refreshJSON(); } });
@@ -516,7 +548,10 @@ function renderBuilder(v) {
   const a = f.auth, at = a.type;
   const secretList = h('datalist', { id: 'secret-names' }, B.secretNames.map(([n, host]) => h('option', { value: n }, n + ' → ' + host)));
   const authBody = [field('Type', sel(a, 'type', [['none'], ['api_key'], ['bearer'], ['basic'], ['oauth2_client_credentials'], ['static']]))];
-  if (at !== 'none') authBody.push(field('Secret name', inp(a, 'secret', { list: 'secret-names', placeholder: 'stored with Secrets → never the value' }), 'stored on the Secrets page'));
+  if (at !== 'none') {
+    secretInput = inp(a, 'secret', { list: 'secret-names', placeholder: 'auto-filled from Secrets when one matches the URL host' });
+    authBody.push(field('Secret name', secretInput, 'the name only, never the value'), secretHint);
+  }
   if (at === 'api_key') authBody.push(field('Header', inp(a, 'header', { placeholder: 'X-API-Key' })));
   if (at === 'basic') authBody.push(field('Username', inp(a, 'username', { placeholder: 'me@company.com' })));
   if (at === 'oauth2_client_credentials') authBody.push(field('Token URL', inp(a, 'token_url', { placeholder: 'https://auth.vendor.com/oauth2/token' })),
@@ -612,6 +647,7 @@ function renderBuilder(v) {
         h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Pipeline'), B.saved ? h('code', { class: 'faint' }, 'rev ' + B.saved.revision + ' · ' + short(B.saved.hash, 8)) : null),
           h('div', { class: 'bd stack' }, h('div', { class: 'steps' }, steps.map(stepNode)), all,
             B.issues.length ? h('ul', { class: 'issues' }, B.issues.map((x) => h('li', {}, h('code', {}, x.field), ': ', x.message))) : null,
+            B.warnings.length ? h('ul', { class: 'issues warns' }, B.warnings.map((x) => h('li', {}, h('code', {}, x.field), ': ', x.message))) : null,
             B.steps.run && B.steps.run.ok ? h('a', { class: 'btn', href: `#/records?class=${f.cls}&source=${encodeURIComponent(f.id)}` }, 'View stored OCSF records') : null)),
         h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Config JSON'),
           h('div', { class: 'row' },
@@ -638,8 +674,9 @@ async function doStep(k, btn) {
     if (k === 'validate') {
       const r = await api('POST', `/configs/${id}/validate`);
       if (!r.ok) return set(false, (r.data && r.data.error) || 'HTTP ' + r.status);
-      const errs = r.data.errors || [];
-      return set(!errs.length, errs.length ? errs.length + ' problem(s)' : 'no problems', errs);
+      const errs = r.data.errors || [], warns = r.data.warnings || [];
+      B.warnings = warns;
+      return set(!errs.length, (errs.length ? errs.length + ' problem(s)' : 'no problems') + (warns.length ? ', ' + warns.length + ' warning(s)' : ''), errs);
     }
     if (k === 'activate') {
       const rev = (B.saved || B.existing).revision;

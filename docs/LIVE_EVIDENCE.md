@@ -15,7 +15,8 @@ Redacted: no secrets, no raw responses. Runs through the unchanged engine via th
 | 1e | KEV **filter demo** (`knownRansomwareCampaignUse = Known`) | `cisa_kev_ransomware` rev 1 | `5e7cbb2d…fb4aac` | 2026-10-31 13:16:17 | same | none | none | 1 | 1766 / 361 / 0, **1405 skipped** | success: matches the 361 ransomware-linked entries in the catalog |
 | 2c | GitHub as **OCSF** User Inventory Info | `configs/github_members.json` rev 2 | `9c950aed…ef3cd2` | 2026-10-31 13:16:02 | same | bearer | Link header | 4 | 36 / 36 / 0 | success: class 5003 = 36 rows |
 | 2d | GitHub OCSF re-run | same | same | 2026-10-31 13:16:04 | same | bearer | Link header | 4 | 36 / 36 / 0 | success: upsert |
-| 3 | NVD CVE or Jira | pending | | | | api_key / basic | offset | ≥2 required | | |
+| 3 | NVD CVE API 2.0 (`hasKev`) as **OCSF** Vulnerability Finding | `configs/nvd_kev_cves.json` rev 2 | `480e5597…e8eae6` | 2026-10-31 14:08:54 | CVE database, KEV subset (CVSS severity) | api_key (header `apiKey`, free NVD key) | offset (`startIndex`/`resultsPerPage`, 200) | 9 | 1765 / 1765 / 0 | success, 9.2 s; severity: 628 Critical, 916 High, 205 Medium, 10 Low, 6 Unknown (no CVSS 3.1) |
+| 3b | NVD re-run | same | same | 2026-10-31 14:09:03 | same | api_key | offset | 9 | 1765 / 1765 / 0 | success: `ocsf_records` nvd_kev_cves still 1765 (upsert) |
 
 Notes
 - Rows 1/1b/2/2b ran on the earlier User/Device/Event schema; 1c onwards are OCSF 1.9.0 (`metadata.version`).
@@ -25,3 +26,6 @@ Notes
 - GitHub: `email`, `status`, `last_login` are not in the members endpoint and are stored as `null`, not inferred (PRD §14).
 - Secret check after the GitHub runs: 0 occurrences of a GitHub token prefix in API logs, `users` / `ocsf_records`, `runs` or `configs`;
   `credentials_values` holds only AES-GCM ciphertext (188 bytes, no plaintext prefix). `GET /secrets` returns metadata only.
+- NVD: key stored as tenant secret `nvd` bound to `services.nvd.nist.gov` (138-byte AES-GCM ciphertext). After the runs:
+  0 UUID-shaped strings (NVD key format) in API logs, `ocsf_records` (nvd), `runs.error` or `configs`.
+- NVD supplies the CVSS severity KEV lacks: same 1765 CVE IDs, joinable on `vulnerabilities[0].cve.uid`.

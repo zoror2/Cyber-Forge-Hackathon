@@ -192,7 +192,7 @@ CDNs); every vendor value is rendered as text. Same-origin browser calls are all
 |---|---|---|---|---|---|
 | 1 | CISA KEV → OCSF Vulnerability Finding (2002) | [configs/cisa_kev.json](configs/cisa_kev.json) | none | none | ✅ live: 1766 received / 1766 accepted / 0 quarantined; re-run upserts (no duplicates); filter demo: ransomware-linked only = 361 accepted / 1405 skipped |
 | 2 | GitHub REST (OWASP public members) → OCSF User Inventory Info (5003) | [configs/github_members.json](configs/github_members.json) | bearer | Link header | ✅ live: 4 pages, 36 / 36 / 0; re-run upserts; token never in logs or DB |
-| 3 | NVD CVE or Jira | not yet | api_key / basic | offset | ⏳ not started |
+| 3 | NVD CVE API (KEV subset, with CVSS) → OCSF Vulnerability Finding (2002) | [configs/nvd_kev_cves.json](configs/nvd_kev_cves.json) | api_key | offset | ✅ live: 9 pages, 1765 / 1765 / 0; re-run upserts; key never in logs or DB |
 
 Evidence (config hash, UTC time, counts, outcome) is in [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md).
 How to write a config, with every field explained: [configs/README.md](configs/README.md).
@@ -201,9 +201,9 @@ How to write a config, with every field explained: [configs/README.md](configs/R
 
 | FR | Implementation and evidence | Remaining |
 |---|---|---|
-| 1 Auth | A's `internal/engine/auth.go`, tenant-scoped secrets, unit + integrated auth tests; credential failures classified, never retried | Live bearer (GitHub) + api_key/basic (NVD or Jira) evidence |
+| 1 Auth | A's `internal/engine/auth.go`, tenant-scoped secrets, unit + integrated auth tests; credential failures classified, never retried; `/validate` warns on a missing or wrongly bound secret | ✅ live: bearer (GitHub), api_key (NVD); basic/oauth2 tested against the mock |
 | 2 URL/method/params | Shared A contract + strict `pkg/config`; invalid-config tests | Additional protocols deferred |
-| 3 Paging | A engine; page/offset/link/cursor tests and real local page-to-DB runs | Live Link (GitHub, 4 pages) + offset evidence |
+| 3 Paging | A engine; page/offset/link/cursor tests and real local page-to-DB runs | ✅ live: Link (GitHub, 4 pages), offset (NVD, 9 pages) |
 | 4 Schedule | `internal/runner`, PG locks and two-tenant scheduling tests | 60-second live-provider demo |
 | 5 Mapping | `pkg/mapping` → `pkg/ocsf`: every mapping key checked against the pinned OCSF 1.9.0 schema at validate time; nested/index/default/date/enum/trim/exact-number tests; client-side `filter` block | None for tested capabilities |
 | 6 Secrets | RLS + per-tenant encrypted/AWS backends, binding/redaction/isolation tests | Live KMS/IAM review |
