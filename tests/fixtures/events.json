@@ -1,0 +1,9 @@
+{
+  "vulnerabilities": [
+    {"cveID": "CVE-2026-1001", "shortDescription": "Valid fixture record one", "dates": {"added": "2026-10-01"}},
+    {"cveID": "CVE-2026-1002", "shortDescription": "Valid fixture record two", "dates": {"added": "2026-10-02"}},
+    {"cveID": "CVE-2026-1003", "shortDescription": "Valid fixture record three", "dates": {"added": "2026-10-03"}},
+    {"shortDescription": "Missing required ID", "dates": {"added": "2026-10-04"}}
+  ]
+}
+
