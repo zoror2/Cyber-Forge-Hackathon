@@ -12,7 +12,7 @@ $null=Invoke-RestMethod "$base/configs/mock_users/activate" -Method Post -Header
 $test=Invoke-RestMethod "$base/connectors/mock_users/test" -Method Post -Headers $headers
 if($test.accepted -ne 10 -or $test.mode -ne 'test'){throw 'Connection sample failed'}
 foreach($attempt in 1..2){$result=Invoke-RestMethod "$base/connectors/mock_users/run" -Method Post -Headers $headers;if($result.accepted -ne 25 -or $result.pages -ne 3 -or $result.outcome -ne 'success'){throw 'Paginated run failed'}}
-$records=Invoke-RestMethod "$base/records/users?source=mock_users" -Headers $headers
+$records=Invoke-RestMethod "$base/records/user_inventory?source=mock_users" -Headers $headers
 if($records.Count -ne 25){throw 'Upsert uniqueness failed'}
 $config.id='mock_malformed';$config.name='Malformed synthetic users';$config.request.url=$config.request.url.Replace('/users','/malformed');$config.pagination=@{type='none'}
 $saved=Invoke-RestMethod "$base/configs" -Method Post -Headers $headers -ContentType 'application/json' -Body ($config | ConvertTo-Json -Depth 15)

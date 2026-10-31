@@ -73,13 +73,13 @@ type Connector struct {
 func (c Connector) Validate() error  // returns ALL problems via errors.Join
 ```
 
-Your full config adds what the engine doesn't own: **name, entity type (user/device/event), field mapping, schedule, status (draft/approved/live), version.** Suggested shape:
+Your full config adds what the engine doesn't own: **name, OCSF class (was entity type user/device/event), field mapping, schedule, status (draft/approved/live), version.** Suggested shape:
 
 ```go
 type ConnectionConfig struct {
     engine.Connector            // request side (A)
     Name     string
-    Entity   string             // user | device | event
+    Class    string             // OCSF class, e.g. user_inventory (was Entity)
     Mapping  map[string]Field   // common-schema field -> path/transform
     Schedule Schedule           // interval
     Status   string             // draft | approved | live
@@ -101,7 +101,7 @@ res, err := eng.Fetch(ctx, cfg.Connector, func(p engine.Page) error {
             quarantine(cfg.ID, runID, p.Number, i, mapErr) // keep going (FR-9)
             continue
         }
-        upsert(rec)                              // keyed by source + entity + external id (B3)
+        upsert(rec)                              // keyed by tenant + source + external id in ocsf_records (B3)
     }
     return nil // returning an error stops the run
 })
@@ -296,19 +296,26 @@ lists threat detection as not required), but it is the product's showcase:
 *"which tools we are connected to are under active exploitation, and which stored keys belong to them?"*
 Full design and AI guardrails: [AI.md §7](AI.md).
 
-**Where we are:** `configs/cisa_kev.json` is live: 1766 KEV entries land as `events`
-(`id`=cveID, `type`=`known_exploited_vulnerability`, `severity`=`unknown`, `timestamp`=dateAdded,
-`description`=vulnerabilityName). **The mapping drops `vendorProject` and `product`**, so nothing
-can be matched yet.
+**Where we are (updated 2026-10-31, OCSF):** `configs/cisa_kev.json` is live as OCSF Vulnerability
+Finding (2002): 1766 rows in `ocsf_records`. `vulnerabilities[0].vendor_name` = vendorProject (trimmed),
+`unmapped.product` = product (trimmed; OCSF `affected_package` needs a version KEV lacks),
+`vulnerabilities[0].cve.uid`, `cwe.uid`, `unmapped.ransomware_use`, `unmapped.due_date`.
 
-### B9: Event schema gets `vendor` and `product` (optional)
+> **OCSF migration note for Member B.** Branch `feat/ocsf` replaced User/Device/Event with OCSF 1.9.0.
+> It touches your code: `pkg/model` (Record has Class/ClassUID; User/Device/Event types removed),
+> `pkg/config` (`destination.class`, `filter`), `pkg/mapping` (OCSF paths), `internal/store`
+> (migration `002_ocsf.sql` drops users/devices/events and adds `ocsf_records` + `runs.skipped`;
+> migrations are now an ordered list), `internal/api` (`/records/{ocsf_class}`), Postman and tests.
+> Please review that branch before building on the old tables.
+
+### B9: Event schema gets `vendor` and `product` ✅ done via OCSF (`vulnerabilities[0].vendor_name`, `unmapped.product`)
 - `pkg/config.Fields["event"]` += `vendor`, `product`; `pkg/model.Event` += `Vendor, Product *string`; mapper writes them.
 - Records are `jsonb payload`, so **no migration** is needed. Add an expression index on
-  `(payload->>'vendor')` only when the exposure query needs it (SYSTEM_DESIGN O6).
+  `(payload->'vulnerabilities'->0->>'vendor_name')` only when the exposure query needs it (SYSTEM_DESIGN O6).
 - Then update `configs/cisa_kev.json`: `"vendor":{"path":"vendorProject","transform":"string"}`,
   `"product":{"path":"product","transform":"string"}`.
 
-### B10: Mapping must normalise strings
+### B10: Mapping must normalise strings ✅ done (`"transform":"trim"`, used by the KEV config)
 Real KEV data has dirty names: `" Endpoint Manager (EPM)"` (leading space), both
 `"Cloud Services Appliance"` and `"Cloud Services Appliance (CSA)"`, 291 distinct vendors.
 The `string` transform doesn't trim today. Add `"transform":"trim"` (or trim inside `string`;

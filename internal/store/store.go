@@ -21,6 +21,20 @@ import (
 
 //go:embed migrations/001_initial.sql
 var migration string
+
+//go:embed migrations/002_ocsf.sql
+var migrationOCSF string
+
+// migrations run in order, once each, inside the migration transaction. Each
+// lists the tables it creates so they get forced row-level security.
+var migrations = []struct {
+	version int
+	sql     string
+	tables  []string
+}{
+	{1, migration, []string{"tenants", "api_keys", "configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"}},
+	{2, migrationOCSF, []string{"ocsf_records"}},
+}
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
 
@@ -87,22 +101,25 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version integer PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())`); e != nil {
 		return e
 	}
-	var exists bool
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=1)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
+	for _, m := range migrations {
+		var exists bool
+		if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", m.version).Scan(&exists); e != nil {
+			return e
+		}
+		if exists {
+			continue
+		}
 		policies := ""
-		for _, table := range []string{"tenants", "api_keys", "configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"} {
+		for _, table := range m.tables {
 			quoted := pgx.Identifier{schema, table}.Sanitize()
 			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", quoted, quoted, quoted, literal(owner), literal(owner))
 		}
-		sql := strings.ReplaceAll(migration, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
+		sql := strings.ReplaceAll(m.sql, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
 		sql = strings.Replace(sql, "__RLS_POLICIES__", policies, 1)
 		if _, e = tx.Exec(ctx, sql); e != nil {
 			return e
 		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(1)"); e != nil {
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES($1)", m.version); e != nil {
 			return e
 		}
 	}
@@ -111,7 +128,7 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, table := range []string{"configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"} {
+	for _, table := range []string{"configs", "credentials_meta", "credentials_values", "runs", "ocsf_records", "quarantine", "sync_state"} {
 		if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+pgx.Identifier{schema, table}.Sanitize()+" TO "+role); e != nil {
 			return e
 		}
@@ -365,18 +382,10 @@ func (s Scope) SavePage(ctx context.Context, runID, source string, records []mod
 			if r.TenantID != s.Tenant || r.Source != source {
 				return errors.New("record_scope_mismatch")
 			}
-			var query string
-			switch r.Entity {
-			case "user":
-				query = `INSERT INTO users(tenant_id,source,external_id,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`
-			case "device":
-				query = `INSERT INTO devices(tenant_id,source,external_id,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`
-			case "event":
-				query = `INSERT INTO events(tenant_id,source,external_id,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`
-			default:
-				return errors.New("invalid_entity")
+			if r.ClassUID < 1 {
+				return errors.New("invalid_class")
 			}
-			if _, e := tx.Exec(ctx, query, s.Tenant, source, r.ID, []byte(r.Payload), r.FetchedAt, runID); e != nil {
+			if _, e := tx.Exec(ctx, `INSERT INTO ocsf_records(tenant_id,source,external_id,class_uid,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET class_uid=excluded.class_uid,payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`, s.Tenant, source, r.ID, r.ClassUID, []byte(r.Payload), r.FetchedAt, runID); e != nil {
 				return e
 			}
 		}
@@ -390,7 +399,7 @@ func (s Scope) SavePage(ctx context.Context, runID, source string, records []mod
 }
 func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
-		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error)
+		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10,skipped=$11 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error, r.Skipped)
 		if e != nil {
 			return e
 		}
@@ -461,14 +470,14 @@ func (s Scope) IsDue(ctx context.Context, id string) (due bool, err error) {
 func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []model.Run, err error) {
 	out = []model.Run{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
-		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
+		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error,skipped FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var r model.Run
-			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error); e != nil {
+			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error, &r.Skipped); e != nil {
 				return e
 			}
 			out = append(out, r)
@@ -477,21 +486,13 @@ func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []mo
 	})
 	return
 }
-func (s Scope) Records(ctx context.Context, entity, source string, limit, offset int) (out []json.RawMessage, err error) {
-	var q string
-	switch entity {
-	case "user":
-		q = "SELECT payload FROM users WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
-	case "device":
-		q = "SELECT payload FROM devices WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
-	case "event":
-		q = "SELECT payload FROM events WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
-	default:
-		return nil, ErrNotFound
-	}
+
+// Records returns stored OCSF events of one class (by class_uid), optionally for one source.
+func (s Scope) Records(ctx context.Context, classUID int, source string, limit, offset int) (out []json.RawMessage, err error) {
+	q := "SELECT payload FROM ocsf_records WHERE tenant_id=$1 AND class_uid=$5 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
 	out = []json.RawMessage{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
-		rows, e := tx.Query(ctx, q, s.Tenant, source, limit, offset)
+		rows, e := tx.Query(ctx, q, s.Tenant, source, limit, offset, classUID)
 		if e != nil {
 			return e
 		}

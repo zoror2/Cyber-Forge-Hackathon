@@ -5,40 +5,16 @@ import (
 	"time"
 )
 
-type Provenance struct {
-	TenantID  string    `json:"tenant_id"`
-	ID        string    `json:"id"`
-	Source    string    `json:"source"`
-	FetchedAt time.Time `json:"fetched_at"`
-}
-type User struct {
-	Provenance
-	Name      *string    `json:"name"`
-	Email     *string    `json:"email"`
-	Status    *string    `json:"status"`
-	LastLogin *time.Time `json:"last_login"`
-}
-type Device struct {
-	Provenance
-	Hostname *string    `json:"hostname"`
-	IP       *string    `json:"ip"`
-	OS       *string    `json:"os"`
-	Owner    *string    `json:"owner"`
-	LastSeen *time.Time `json:"last_seen"`
-}
-type Event struct {
-	Provenance
-	Type               string    `json:"type"`
-	Severity           string    `json:"severity"`
-	Timestamp          time.Time `json:"timestamp"`
-	Description        string    `json:"description"`
-	TimestampPrecision string    `json:"timestamp_precision,omitempty"`
-}
+// Record is one stored OCSF event. Payload is the full OCSF JSON; the other
+// fields are the columns used for tenant isolation, upsert and lookups.
 type Record struct {
-	TenantID           string
-	Entity, ID, Source string
-	FetchedAt          time.Time
-	Payload            json.RawMessage
+	TenantID  string
+	Class     string // OCSF class name, e.g. "vulnerability_finding"
+	ClassUID  int    // OCSF class_uid, e.g. 2002
+	ID        string // the class identity field (finding_info.uid, user.uid, ...)
+	Source    string // connector id
+	FetchedAt time.Time
+	Payload   json.RawMessage
 }
 type Rejection struct {
 	Page   int    `json:"page"`
@@ -63,5 +39,6 @@ type Run struct {
 	Received      int        `json:"received"`
 	Accepted      int        `json:"accepted"`
 	Quarantined   int        `json:"quarantined"`
+	Skipped       int        `json:"skipped"`
 	Error         string     `json:"error"`
 }

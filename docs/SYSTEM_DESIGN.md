@@ -29,8 +29,8 @@ flowchart LR
 | Edge | `internal/api` | tenant auth (hashed API keys), config submit/validate/activate, run/test, health, records |
 | Orchestration | `internal/runner` | concurrency slots, per-connector PG advisory lock, run lifecycle, outcome categories |
 | Request | `internal/engine` + `internal/egress` | one generic HTTP loop for every vendor; SSRF/egress guard |
-| Data | `pkg/mapping`, `pkg/model` | vendor JSON → User/Device/Event; bad rows → quarantine |
-| Storage | `internal/store` | configs (versioned), runs, records (upsert), quarantine, sync_state, RLS |
+| Data | `pkg/mapping`, `pkg/ocsf`, `pkg/model` | filter → vendor JSON → OCSF 1.9.0 event validated against the embedded pinned schema; bad rows → quarantine |
+| Storage | `internal/store` | configs (versioned), runs, `ocsf_records` (upsert, keyed tenant+source+id, indexed by class_uid), quarantine, sync_state, RLS |
 | Secrets | `pkg/secrets` | per-tenant encrypted values bound to one host |
 
 ## 2. One run, step by step
@@ -55,7 +55,7 @@ orphaned `running` rows on startup; the upsert key `(tenant, source, external_id
 | O3 | `internal/runner/runner.go:35` | Concurrency is hard-coded: 2 global slots, 1 run per tenant. A run waiting on a long `Retry-After` holds a slot, so two slow vendors stall all scheduled work | Make slots configurable (`CB_MAX_RUNS`); later per-vendor-host limits | Throughput under rate limits | S | Before multi-source demo |
 | O4 | `internal/engine/engine.go:100`, `internal/egress/egress.go:279` | New `http.Transport` per run → fresh TCP + TLS handshake every run; no keep-alive across scheduled runs | Cache one client per (policy, timeout) on `Engine`; transports are goroutine-safe | ~1 handshake per run saved; matters only at high frequency | S | Later |
 | O5 | `internal/runner/runner.go:201`, `store.Jobs` | Scheduler polls `due_connectors()` every second across all tenants; a single process owns scheduling | Index `sync_state(next_due)`, `LIMIT` + `FOR UPDATE SKIP LOCKED` so several API replicas can share work | Horizontal scale, less idle DB load | M | Scale-out |
-| O6 | `001_initial.sql` (users/devices/events) | Records are `jsonb payload` with only the PK index; "find user by email across sources" is a seq scan | Expression index on `(payload->>'email')` or GIN, added when a query needs it | Query latency on large tables | S | When queried |
+| O6 | `002_ocsf.sql` (`ocsf_records`) | Records are `jsonb payload` with PK + `(tenant, class_uid, source)` index; "find user by email across sources" is a seq scan | Expression index on `(payload->'user'->>'email_addr')` or GIN, added when a query needs it | Query latency on large tables | S | When queried |
 | O7 | `runs`, `quarantine` tables | Grow forever | Retention job (e.g. keep 30 days of runs, 7 of quarantine) | Bounded storage | S | Later |
 | O8 | `cmd/api/main.go:85` | API, scheduler and workers share one process | Same binary, `-mode=api|worker`; scale workers separately | Isolation of HTTP latency from heavy syncs | M | Scale-out |
 

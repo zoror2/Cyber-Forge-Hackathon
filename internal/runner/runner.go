@@ -115,6 +115,10 @@ func (r *Runner) Run(ctx context.Context, tenant, id string, test, scheduled boo
 			if e := ctx.Err(); e != nil {
 				return e
 			}
+			if !mapping.Keep(row, c.Filter, now) {
+				run.Skipped++
+				continue
+			}
 			rec, q := mapping.Map(row, c, tenant, now, run.Received+i)
 			if q != nil {
 				q.Page = page.Number

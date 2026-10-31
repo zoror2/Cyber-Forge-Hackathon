@@ -14,6 +14,7 @@ import (
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
+	"configbridge/pkg/ocsf"
 	"configbridge/pkg/secrets"
 )
 
@@ -48,7 +49,7 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("POST /connectors/{id}/run", a.run)
 	mux.HandleFunc("GET /runs", a.runs)
 	mux.HandleFunc("GET /health", a.health)
-	mux.HandleFunc("GET /records/{entity}", a.records)
+	mux.HandleFunc("GET /records/{class}", a.records)
 	mux.HandleFunc("GET /quarantine", a.quarantine)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -249,10 +250,9 @@ func (a *API) runs(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, data)
 }
 func (a *API) records(w http.ResponseWriter, r *http.Request) {
-	entities := map[string]string{"users": "user", "devices": "device", "events": "event"}
-	entity, ok := entities[r.PathValue("entity")]
+	class, ok := ocsf.Lookup(r.PathValue("class"))
 	if !ok {
-		fail(w, 404, "unknown_entity")
+		fail(w, 404, "unknown_ocsf_class")
 		return
 	}
 	l, o, ok := paging(w, r)
@@ -263,7 +263,7 @@ func (a *API) records(w http.ResponseWriter, r *http.Request) {
 	if !a.checkFilter(w, r, source) {
 		return
 	}
-	data, e := a.scope(r).Records(r.Context(), entity, source, l, o)
+	data, e := a.scope(r).Records(r.Context(), class.UID, source, l, o)
 	if e != nil {
 		dbFail(w, e)
 		return

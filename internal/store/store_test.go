@@ -6,6 +6,7 @@ import (
 	"configbridge/pkg/config"
 	"configbridge/pkg/mapping"
 	"configbridge/pkg/model"
+	"configbridge/pkg/ocsf"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,20 +50,20 @@ func TestTenantRLSAndUpsert(t *testing.T) {
 				t.Fatal(e)
 			}
 		}
-		rows, e := scope.Records(ctx, "event", "", 100, 0)
+		rows, e := scope.Records(ctx, 2002, "", 100, 0)
 		if e != nil || len(rows) != 1 {
 			t.Fatal("upsert failed", e, len(rows))
 		}
 		var payload map[string]any
 		json.Unmarshal(rows[0], &payload)
-		if payload["tenant_id"] != tenant || payload["description"] != tenant {
+		if ocsf.Get(payload, "metadata.tenant_uid") != tenant || ocsf.Get(payload, "finding_info.title") != tenant {
 			t.Fatal("cross-tenant record")
 		}
 	}
 	a := db.Store.ForTenant("tenant-a")
 	e := a.WithTx(ctx, func(tx pgx.Tx) error {
 		var n int
-		if e := tx.QueryRow(ctx, "SELECT COUNT(*) FROM events").Scan(&n); e != nil {
+		if e := tx.QueryRow(ctx, "SELECT COUNT(*) FROM ocsf_records").Scan(&n); e != nil {
 			return e
 		}
 		if n != 1 {
@@ -100,7 +101,7 @@ func TestTenantRLSAndUpsert(t *testing.T) {
 		t.Fatal("cross-tenant config visible")
 	}
 	var n int
-	if e = db.Store.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM events").Scan(&n); e != nil || n != 0 {
+	if e = db.Store.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM ocsf_records").Scan(&n); e != nil || n != 0 {
 		t.Fatal("tenant setting leaked into pooled session", n, e)
 	}
 	tenant, e := db.Store.Authenticate(ctx, "tenant-a-key-tenant-a-key-tenant-a-key-tenant-a-key-")

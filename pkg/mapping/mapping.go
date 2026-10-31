@@ -1,8 +1,10 @@
-// Package mapping converts provider JSON into exact common record schemas.
+// Package mapping turns one vendor record into one OCSF event (the common schema),
+// and decides which vendor records a config's filter keeps.
 package mapping
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"configbridge/pkg/config"
 	"configbridge/pkg/model"
+	"configbridge/pkg/ocsf"
 )
 
 func Path(value any, path string) (any, bool) {
@@ -58,6 +61,12 @@ func transform(v any, s config.Field) (any, error) {
 			return nil, fmt.Errorf("unmapped lookup value")
 		}
 		return v, nil
+	case "trim":
+		text, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("string required")
+		}
+		return strings.TrimSpace(text), nil
 	case "string":
 		switch v.(type) {
 		case string, bool, float64, int, int64, json.Number:
@@ -106,6 +115,61 @@ func transform(v any, s config.Field) (any, error) {
 	}
 	return nil, fmt.Errorf("unknown transform")
 }
+
+// Keep reports whether a vendor record passes every filter condition (AND).
+// A missing field fails every condition except exists:false.
+func Keep(row any, filters []config.Condition, now time.Time) bool {
+	for _, f := range filters {
+		v, found := Path(row, f.Path)
+		found = found && v != nil
+		switch f.Op {
+		case "exists":
+			want := f.Value != false
+			if found != want {
+				return false
+			}
+		case "equals":
+			if !found || fmt.Sprint(v) != fmt.Sprint(f.Value) {
+				return false
+			}
+		case "not_equals":
+			if found && fmt.Sprint(v) == fmt.Sprint(f.Value) {
+				return false
+			}
+		case "in":
+			list, _ := f.Value.([]any)
+			hit := false
+			for _, x := range list {
+				if found && fmt.Sprint(v) == fmt.Sprint(x) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				return false
+			}
+		case "within_days":
+			days, err := json.Number(fmt.Sprint(f.Value)).Int64()
+			text, ok := v.(string)
+			if err != nil || !found || !ok {
+				return false
+			}
+			t, err := time.Parse(time.RFC3339Nano, text)
+			if err != nil {
+				t, err = time.Parse("2006-01-02", text)
+			}
+			if err != nil || t.Before(now.AddDate(0, 0, -int(days))) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// Map converts one vendor record into one OCSF event. Any problem becomes a
+// Rejection naming the OCSF field; the record is quarantined, the run continues.
 func Map(row any, c config.Config, tenant string, fetched time.Time, index int) (model.Record, *model.Rejection) {
 	bad := func(field, reason string) (model.Record, *model.Rejection) {
 		return model.Record{}, &model.Rejection{Index: index, Field: field, Reason: reason}
@@ -116,89 +180,54 @@ func Map(row any, c config.Config, tenant string, fetched time.Time, index int) 
 	if !config.ValidID(tenant) {
 		return bad("tenant_id", "trusted tenant identity is required")
 	}
-	values := map[string]any{}
-	for _, name := range config.Fields[c.Destination.Entity] {
-		values[name] = nil
+	class, ok := ocsf.Lookup(c.Destination.Class)
+	if !ok {
+		return bad("destination.class", "unsupported OCSF class")
 	}
-	for name, spec := range c.Destination.Mapping {
+	values := map[string]any{}
+	for path, spec := range c.Destination.Mapping {
 		v := spec.Constant
 		if spec.Path != nil {
 			v, _ = Path(row, *spec.Path)
 		}
 		if v == nil {
 			if spec.Required {
-				return bad(name, "required value is missing")
+				return bad(path, "required value is missing")
 			}
 			v = spec.Default
 		}
-		if v != nil {
-			var err error
-			v, err = transform(v, spec)
-			if err != nil {
-				return bad(name, "value cannot be converted with configured transform")
-			}
+		if v == nil {
+			continue // optional and absent: the OCSF field is simply not set
 		}
-		values[name] = v
+		v, err := transform(v, spec)
+		if err != nil {
+			return bad(path, "value cannot be converted with configured transform")
+		}
+		attr, err := ocsf.Resolve(class, path)
+		if err != nil {
+			return bad(path, "not a mappable OCSF field")
+		}
+		if v, err = ocsf.Coerce(attr, v); err != nil {
+			return bad(path, "value does not fit OCSF type: "+err.Error())
+		}
+		values[path] = v
 	}
-	id, ok := values["id"].(string)
+	product := c.Name
+	doc, err := ocsf.Build(class, values, ocsf.Context{Tenant: tenant, Source: c.ID, Product: product, Fetched: fetched.UTC(), ActivityID: c.Destination.ActivityID})
+	if err != nil {
+		var fe *ocsf.FieldError
+		if errors.As(err, &fe) {
+			return bad(fe.Field, fe.Reason)
+		}
+		return bad("record", "not a valid OCSF event")
+	}
+	id, ok := ocsf.Get(doc, ocsf.Identity[class.Name]).(string)
 	if !ok || strings.TrimSpace(id) == "" || len(id) > 512 {
-		return bad("id", "nonempty string ID (at most 512 bytes) required")
+		return bad(ocsf.Identity[class.Name], "nonempty string ID (at most 512 bytes) required")
 	}
-	values["source"] = c.ID
-	values["tenant_id"] = tenant
-	values["fetched_at"] = fetched.UTC()
-	// Optional timestamps still require explicit conversion and timezone rules.
-	for _, name := range []string{"timestamp", "last_login", "last_seen"} {
-		if v, exists := values[name]; exists && v != nil {
-			if _, ok := v.(time.Time); !ok {
-				return bad(name, "configure the datetime transform")
-			}
-		}
-	}
-	if c.Destination.Entity == "event" {
-		for _, field := range []string{"type", "description"} {
-			v, ok := values[field].(string)
-			if !ok || strings.TrimSpace(v) == "" {
-				return bad(field, "nonempty string required")
-			}
-		}
-		if values["timestamp"] == nil {
-			return bad("timestamp", "timestamp is required")
-		}
-		if values["severity"] == nil {
-			values["severity"] = "unknown"
-		}
-		switch values["severity"] {
-		case "critical", "high", "medium", "low", "info", "unknown":
-		default:
-			return bad("severity", "unsupported severity")
-		}
-		if c.Destination.Mapping["timestamp"].Precision == "date" {
-			values["timestamp_precision"] = "date"
-		}
-	}
-	raw, err := json.Marshal(values)
+	raw, err := json.Marshal(doc)
 	if err != nil {
-		return bad("record", "invalid normalized value")
+		return bad("record", "cannot encode OCSF event")
 	}
-	// Typed models reject numbers/objects in string fields and establish exact schemas.
-	var normalized any
-	switch c.Destination.Entity {
-	case "user":
-		normalized = &model.User{}
-	case "device":
-		normalized = &model.Device{}
-	case "event":
-		normalized = &model.Event{}
-	default:
-		return bad("entity", "unsupported entity")
-	}
-	if err = json.Unmarshal(raw, normalized); err != nil {
-		return bad("record", "normalized field has an invalid type")
-	}
-	raw, err = json.Marshal(normalized)
-	if err != nil {
-		return bad("record", "cannot encode normalized record")
-	}
-	return model.Record{TenantID: tenant, Entity: c.Destination.Entity, ID: id, Source: c.ID, FetchedAt: fetched.UTC(), Payload: raw}, nil
+	return model.Record{TenantID: tenant, Class: class.Name, ClassUID: class.UID, ID: id, Source: c.ID, FetchedAt: fetched.UTC(), Payload: raw}, nil
 }

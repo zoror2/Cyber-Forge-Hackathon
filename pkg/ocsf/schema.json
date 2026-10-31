@@ -1,0 +1,8656 @@
+{
+ "classes": {
+  "authentication": {
+   "attributes": {
+    "account_switch_type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "account_switch_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Substitute User",
+      "2": "Impersonate",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "activity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Logon",
+      "2": "Logoff",
+      "3": "Authentication Ticket",
+      "4": "Service Ticket Request",
+      "5": "Service Ticket Renew",
+      "6": "Preauth",
+      "7": "Account Switch",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "activity_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "actor": {
+     "object_type": "actor",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "auth_factors": {
+     "is_array": true,
+     "object_type": "auth_factor",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "auth_protocol": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "auth_protocol_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "NTLM",
+      "10": "RADIUS",
+      "11": "Basic Authentication",
+      "12": "LDAP",
+      "2": "Kerberos",
+      "3": "Digest",
+      "4": "OpenID",
+      "5": "SAML",
+      "6": "OAUTH 2.0",
+      "7": "PAP",
+      "8": "CHAP",
+      "9": "EAP",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "authentication_token": {
+     "object_type": "authentication_token",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "category_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_uid": {
+     "enum": {
+      "3": "Identity & Access Management"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "certificate": {
+     "object_type": "certificate",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "class_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "class_uid": {
+     "enum": {
+      "3002": "Authentication"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "dst_endpoint": {
+     "object_type": "network_endpoint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "duration": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "end_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "enrichments": {
+     "is_array": true,
+     "object_type": "enrichment",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "http_request": {
+     "object_type": "http_request",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "http_response": {
+     "object_type": "http_response",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "is_cleartext": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_mfa": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "is_new_logon": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_remote": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "logon_process": {
+     "object_type": "process",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "logon_type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "logon_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "System",
+      "10": "Remote Interactive",
+      "11": "Cached Interactive",
+      "12": "Cached Remote Interactive",
+      "13": "Cached Unlock",
+      "2": "Interactive",
+      "3": "Network",
+      "4": "Batch",
+      "5": "OS Service",
+      "7": "Unlock",
+      "8": "Network Cleartext",
+      "9": "New Credentials",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "metadata": {
+     "object_type": "metadata",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "observables": {
+     "is_array": true,
+     "object_type": "observable",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "raw_data": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "raw_data_hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "raw_data_size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "service": {
+     "object_type": "service",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "session": {
+     "object_type": "session",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "src_endpoint": {
+     "object_type": "network_endpoint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "start_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "status": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_code": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_detail": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Success",
+      "2": "Failure",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "time": {
+     "requirement": "required",
+     "type": "timestamp_t"
+    },
+    "timezone_offset": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_uid": {
+     "enum": {
+      "300200": "Authentication: Unknown",
+      "300201": "Authentication: Logon",
+      "300202": "Authentication: Logoff",
+      "300203": "Authentication: Authentication Ticket",
+      "300204": "Authentication: Service Ticket Request",
+      "300205": "Authentication: Service Ticket Renew",
+      "300206": "Authentication: Preauth",
+      "300207": "Authentication: Account Switch",
+      "300299": "Authentication: Other"
+     },
+     "requirement": "required",
+     "type": "long_t"
+    },
+    "unmapped": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "required",
+     "type": "object_t"
+    }
+   },
+   "caption": "Authentication",
+   "category_name": "Identity & Access Management",
+   "category_uid": 3,
+   "uid": 3002
+  },
+  "detection_finding": {
+   "attributes": {
+    "activity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Create",
+      "2": "Update",
+      "3": "Close",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "activity_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "anomaly_analyses": {
+     "is_array": true,
+     "object_type": "anomaly_analysis",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "category_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_uid": {
+     "enum": {
+      "2": "Findings"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "class_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "class_uid": {
+     "enum": {
+      "2004": "Detection Finding"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "comment": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "confidence": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "confidence_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "confidence_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "device": {
+     "object_type": "device",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "duration": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "end_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "enrichments": {
+     "is_array": true,
+     "object_type": "enrichment",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "evidences": {
+     "is_array": true,
+     "object_type": "evidences",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "finding_info": {
+     "object_type": "finding_info",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "impact": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "impact_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "4": "Critical",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "impact_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "is_alert": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "malware": {
+     "is_array": true,
+     "object_type": "malware",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "malware_scan_info": {
+     "object_type": "malware_scan_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "metadata": {
+     "object_type": "metadata",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "notes": {
+     "is_array": true,
+     "object_type": "note",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "observables": {
+     "is_array": true,
+     "object_type": "observable",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "raw_data": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "raw_data_hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "raw_data_size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "remediation": {
+     "object_type": "remediation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "resources": {
+     "is_array": true,
+     "object_type": "resource_details",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "risk_details": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "risk_level": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "risk_level_id": {
+     "enum": {
+      "0": "Info",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "4": "Critical",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "risk_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "start_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "status": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "status_code": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_detail": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "New",
+      "2": "In Progress",
+      "3": "Suppressed",
+      "4": "Resolved",
+      "5": "Archived",
+      "6": "Deleted",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "time": {
+     "requirement": "required",
+     "type": "timestamp_t"
+    },
+    "timezone_offset": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_uid": {
+     "enum": {
+      "200400": "Detection Finding: Unknown",
+      "200401": "Detection Finding: Create",
+      "200402": "Detection Finding: Update",
+      "200403": "Detection Finding: Close",
+      "200499": "Detection Finding: Other"
+     },
+     "requirement": "required",
+     "type": "long_t"
+    },
+    "unmapped": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "vendor_attributes": {
+     "object_type": "vendor_attributes",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "vulnerabilities": {
+     "is_array": true,
+     "object_type": "vulnerability",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   },
+   "caption": "Detection Finding",
+   "category_name": "Findings",
+   "category_uid": 2,
+   "uid": 2004
+  },
+  "inventory_info": {
+   "attributes": {
+    "activity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Log",
+      "2": "Collect",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "activity_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "actor": {
+     "object_type": "actor",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "category_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_uid": {
+     "enum": {
+      "5": "Discovery"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "class_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "class_uid": {
+     "enum": {
+      "5001": "Device Inventory Info"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "device": {
+     "object_type": "device",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "duration": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "end_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "enrichments": {
+     "is_array": true,
+     "object_type": "enrichment",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "metadata": {
+     "object_type": "metadata",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "observables": {
+     "is_array": true,
+     "object_type": "observable",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "raw_data": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "raw_data_hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "raw_data_size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "start_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "status": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_code": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_detail": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Success",
+      "2": "Failure",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "time": {
+     "requirement": "required",
+     "type": "timestamp_t"
+    },
+    "timezone_offset": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_uid": {
+     "enum": {
+      "500100": "Device Inventory Info: Unknown",
+      "500101": "Device Inventory Info: Log",
+      "500102": "Device Inventory Info: Collect",
+      "500199": "Device Inventory Info: Other"
+     },
+     "requirement": "required",
+     "type": "long_t"
+    },
+    "unmapped": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   },
+   "caption": "Device Inventory Info",
+   "category_name": "Discovery",
+   "category_uid": 5,
+   "uid": 5001
+  },
+  "user_inventory": {
+   "attributes": {
+    "activity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Log",
+      "2": "Collect",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "activity_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "actor": {
+     "object_type": "actor",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "category_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_uid": {
+     "enum": {
+      "5": "Discovery"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "class_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "class_uid": {
+     "enum": {
+      "5003": "User Inventory Info"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "duration": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "end_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "enrichments": {
+     "is_array": true,
+     "object_type": "enrichment",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "metadata": {
+     "object_type": "metadata",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "observables": {
+     "is_array": true,
+     "object_type": "observable",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "raw_data": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "raw_data_hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "raw_data_size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "start_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "status": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_code": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_detail": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Success",
+      "2": "Failure",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "time": {
+     "requirement": "required",
+     "type": "timestamp_t"
+    },
+    "timezone_offset": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_uid": {
+     "enum": {
+      "500300": "User Inventory Info: Unknown",
+      "500301": "User Inventory Info: Log",
+      "500302": "User Inventory Info: Collect",
+      "500399": "User Inventory Info: Other"
+     },
+     "requirement": "required",
+     "type": "long_t"
+    },
+    "unmapped": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "required",
+     "type": "object_t"
+    }
+   },
+   "caption": "User Inventory Info",
+   "category_name": "Discovery",
+   "category_uid": 5,
+   "uid": 5003
+  },
+  "vulnerability_finding": {
+   "attributes": {
+    "activity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Create",
+      "2": "Update",
+      "3": "Close",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "activity_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_uid": {
+     "enum": {
+      "2": "Findings"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "class_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "class_uid": {
+     "enum": {
+      "2002": "Vulnerability Finding"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "comment": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "confidence": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "confidence_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "confidence_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "device": {
+     "object_type": "device",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "duration": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "end_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "enrichments": {
+     "is_array": true,
+     "object_type": "enrichment",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "finding_info": {
+     "object_type": "finding_info",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "metadata": {
+     "object_type": "metadata",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "notes": {
+     "is_array": true,
+     "object_type": "note",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "observables": {
+     "is_array": true,
+     "object_type": "observable",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "raw_data": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "raw_data_hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "raw_data_size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "resource": {
+     "object_type": "resource_details",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "resources": {
+     "is_array": true,
+     "object_type": "resource_details",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "start_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "status": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "status_code": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_detail": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "status_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "New",
+      "2": "In Progress",
+      "3": "Suppressed",
+      "4": "Resolved",
+      "5": "Archived",
+      "6": "Deleted",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "time": {
+     "requirement": "required",
+     "type": "timestamp_t"
+    },
+    "timezone_offset": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_uid": {
+     "enum": {
+      "200200": "Vulnerability Finding: Unknown",
+      "200201": "Vulnerability Finding: Create",
+      "200202": "Vulnerability Finding: Update",
+      "200203": "Vulnerability Finding: Close",
+      "200299": "Vulnerability Finding: Other"
+     },
+     "requirement": "required",
+     "type": "long_t"
+    },
+    "unmapped": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "vendor_attributes": {
+     "object_type": "vendor_attributes",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "vulnerabilities": {
+     "is_array": true,
+     "object_type": "vulnerability",
+     "requirement": "required",
+     "type": "object_t"
+    }
+   },
+   "caption": "Vulnerability Finding",
+   "category_name": "Findings",
+   "category_uid": 2,
+   "uid": 2002
+  }
+ },
+ "objects": {
+  "account": {
+   "attributes": {
+    "is_disabled": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_locked": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_on_premises_sync_enabled": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "LDAP Account",
+      "10": "AWS Account",
+      "11": "GCP Project",
+      "12": "OCI Compartment",
+      "13": "Azure Subscription",
+      "14": "Salesforce Account",
+      "15": "Google Workspace",
+      "16": "Servicenow Instance",
+      "17": "M365 Tenant",
+      "18": "Email Account",
+      "19": "ActiveDirectory Account",
+      "2": "Windows Account",
+      "3": "AWS IAM User",
+      "4": "AWS IAM Role",
+      "5": "GCP Account",
+      "6": "Azure AD Account",
+      "7": "Mac OS Account",
+      "8": "Apple Account",
+      "9": "Linux Account",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "actor": {
+   "attributes": {
+    "app_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "app_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "application": {
+     "object_type": "application",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "authorizations": {
+     "is_array": true,
+     "object_type": "authorization",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "iam_role": {
+     "object_type": "iam_role",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "idp": {
+     "object_type": "idp",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "invoked_by": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "process": {
+     "object_type": "process",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "session": {
+     "object_type": "session",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    }
+   }
+  },
+  "advisory": {
+   "attributes": {
+    "avg_timespan": {
+     "object_type": "timespan",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "bulletin": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "classification": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "install_state": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "install_state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Installed",
+      "2": "Not Installed",
+      "3": "Installed Pending Reboot",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "is_superseded": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "os": {
+     "object_type": "os",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "references": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "related_cves": {
+     "is_array": true,
+     "object_type": "cve",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "related_cwes": {
+     "is_array": true,
+     "object_type": "cwe",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "title": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "affected_code": {
+   "attributes": {
+    "end_column": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "end_line": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "file": {
+     "object_type": "file",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "remediation": {
+     "object_type": "remediation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "rule": {
+     "object_type": "rule",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "start_column": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "start_line": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    }
+   }
+  },
+  "affected_package": {
+   "attributes": {
+    "architecture": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "cpe_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "epoch": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "fixed_in_version": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "license": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "license_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "package_manager": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "package_manager_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "path": {
+     "requirement": "optional",
+     "type": "file_path_t"
+    },
+    "purl": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "release": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "remediation": {
+     "object_type": "remediation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Application",
+      "2": "Operating System",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "agent": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "policies": {
+     "is_array": true,
+     "object_type": "policy",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Endpoint Detection and Response",
+      "2": "Data Loss Prevention",
+      "3": "Backup & Recovery",
+      "4": "Performance Monitoring & Observability",
+      "5": "Vulnerability Management",
+      "6": "Log Forwarding",
+      "7": "Mobile Device Management",
+      "8": "Configuration Management",
+      "9": "Remote Access",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "ai_agent": {
+   "attributes": {
+    "ai_model": {
+     "object_type": "ai_model",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "charter": {
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "instance_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Native",
+      "2": "LangChain",
+      "3": "AutoGen",
+      "4": "CrewAI",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "ai_model": {
+   "attributes": {
+    "ai_provider": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "analysis_target": {
+   "attributes": {
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "analytic": {
+   "attributes": {
+    "algorithm": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "related_analytics": {
+     "is_array": true,
+     "object_type": "analytic",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "sensor_info_list": {
+     "is_array": true,
+     "object_type": "sensor_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "state": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Active",
+      "2": "Suppressed",
+      "3": "Experimental",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Rule",
+      "10": "Partial Data Match",
+      "11": "Indexed Data Match",
+      "2": "Behavioral",
+      "3": "Statistical",
+      "4": "Learning (ML/DL)",
+      "5": "Fingerprinting",
+      "6": "Tagging",
+      "7": "Keyword Match",
+      "8": "Regular Expressions",
+      "9": "Exact Data Match",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "anomaly": {
+   "attributes": {
+    "observation_parameter": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "observation_type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "observations": {
+     "is_array": true,
+     "object_type": "observation",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "observed_pattern": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "anomaly_analysis": {
+   "attributes": {
+    "analysis_targets": {
+     "is_array": true,
+     "object_type": "analysis_target",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "anomalies": {
+     "is_array": true,
+     "object_type": "anomaly",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "baselines": {
+     "is_array": true,
+     "object_type": "baseline",
+     "requirement": "recommended",
+     "type": "object_t"
+    }
+   }
+  },
+  "api": {
+   "attributes": {
+    "group": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "operation": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "request": {
+     "object_type": "request",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "response": {
+     "object_type": "response",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "service": {
+     "object_type": "service",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "token": {
+     "object_type": "token",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "application": {
+   "attributes": {
+    "criticality": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "group": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hostname": {
+     "requirement": "optional",
+     "type": "hostname_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "resource_relationship": {
+     "object_type": "graph",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "risk_level": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "risk_level_id": {
+     "enum": {
+      "0": "Info",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "4": "Critical",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "risk_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "sbom": {
+     "object_type": "sbom",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "url": {
+     "object_type": "url",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "attack": {
+   "attributes": {
+    "mitigation": {
+     "object_type": "mitigation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "sub_technique": {
+     "object_type": "sub_technique",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "tactic": {
+     "object_type": "tactic",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "tactics": {
+     "is_array": true,
+     "object_type": "tactic",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "technique": {
+     "object_type": "technique",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "auth_factor": {
+   "attributes": {
+    "device": {
+     "object_type": "device",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "email_addr": {
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "factor_type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "factor_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "SMS",
+      "10": "WebAuthn",
+      "11": "Password",
+      "2": "Security Question",
+      "3": "Phone Call",
+      "4": "Biometric",
+      "5": "Push Notification",
+      "6": "Hardware Token",
+      "7": "OTP",
+      "8": "Email",
+      "9": "U2F",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "is_hotp": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "is_totp": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "phone_number": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "provider": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "security_questions": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "authentication_token": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "encryption_details": {
+     "object_type": "encryption_details",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "expiration_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "is_renewable": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "kerberos_flags": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tenant_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Ticket Granting Ticket",
+      "2": "Service Ticket",
+      "3": "Identity Token",
+      "4": "Refresh Token",
+      "5": "SAML Assertion",
+      "6": "Client Token",
+      "7": "API Token",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "zone": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "authorization": {
+   "attributes": {
+    "decision": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "policy": {
+     "object_type": "policy",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   }
+  },
+  "autonomous_system": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "number": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    }
+   }
+  },
+  "baseline": {
+   "attributes": {
+    "observation_parameter": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "observation_type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "observations": {
+     "is_array": true,
+     "object_type": "observation",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "observed_pattern": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "certificate": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "expiration_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "fingerprints": {
+     "is_array": true,
+     "object_type": "fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "is_self_signed": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "issuer": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "sans": {
+     "is_array": true,
+     "object_type": "san",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "serial_number": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "subject": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "cis_control": {
+   "attributes": {
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "container": {
+   "attributes": {
+    "hash": {
+     "object_type": "fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "image": {
+     "object_type": "image",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "network_driver": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "orchestrator": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "pod_uuid": {
+     "requirement": "optional",
+     "type": "uuid_t"
+    },
+    "runtime": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "size": {
+     "requirement": "recommended",
+     "type": "long_t"
+    },
+    "tag": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "cpu_info": {
+   "attributes": {
+    "cores": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_architecture": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cpu_architecture_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "x86",
+      "2": "ARM",
+      "3": "RISC-V",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_bits": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "model": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "speed_mhz": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "vendor_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "cve": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "cvss": {
+     "is_array": true,
+     "object_type": "cvss",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "cwe": {
+     "object_type": "cwe",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "cwe_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cwe_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "epss": {
+     "object_type": "epss",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "references": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "related_cwes": {
+     "is_array": true,
+     "object_type": "cwe",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "title": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "cvss": {
+   "attributes": {
+    "base_score": {
+     "requirement": "required",
+     "type": "float_t"
+    },
+    "depth": {
+     "enum": {
+      "Base": "Base",
+      "Environmental": "Environmental",
+      "Temporal": "Temporal"
+     },
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "metrics": {
+     "is_array": true,
+     "object_type": "metric",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "overall_score": {
+     "requirement": "recommended",
+     "type": "float_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "vector_string": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "cwe": {
+   "attributes": {
+    "caption": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "d3f_tactic": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "d3f_technique": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "d3fend": {
+   "attributes": {
+    "d3f_tactic": {
+     "object_type": "d3f_tactic",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "d3f_technique": {
+     "object_type": "d3f_technique",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "database": {
+   "attributes": {
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "embedding_model": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "groups": {
+     "is_array": true,
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Relational",
+      "2": "Network",
+      "3": "Object Oriented",
+      "4": "Centralized",
+      "5": "Operational",
+      "6": "NoSQL",
+      "7": "Vector",
+      "8": "Knowledge Graph",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "databucket": {
+   "attributes": {
+    "agent_list": {
+     "is_array": true,
+     "object_type": "agent",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "criticality": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "encryption_details": {
+     "object_type": "encryption_details",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "file": {
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "group": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "groups": {
+     "is_array": true,
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "ip": {
+     "requirement": "recommended",
+     "type": "ip_t"
+    },
+    "is_backed_up": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_encrypted": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_public": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "namespace": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "resource_relationship": {
+     "object_type": "graph",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "S3",
+      "2": "Azure Blob",
+      "3": "GCP Bucket",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "resource_uid_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "resource_uid_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "device": {
+   "attributes": {
+    "agent_list": {
+     "is_array": true,
+     "object_type": "agent",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "autoscale_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "boot_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "boot_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "eid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "first_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "groups": {
+     "is_array": true,
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "hw_info": {
+     "object_type": "device_hw_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hypervisor": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "iccid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "image": {
+     "object_type": "image",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "imei": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "imei_list": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "instance_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "interface_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "interface_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "ip": {
+     "requirement": "optional",
+     "type": "ip_t"
+    },
+    "is_backed_up": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_compliant": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_managed": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_mobile_account_active": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_personal": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_shared": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_supervised": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_trusted": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "last_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "location": {
+     "object_type": "location",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "mac": {
+     "requirement": "optional",
+     "type": "mac_t"
+    },
+    "mac_vendor": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "meid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "model": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "network_interfaces": {
+     "is_array": true,
+     "object_type": "network_interface",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "org": {
+     "object_type": "organization",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "os": {
+     "object_type": "os",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "os_machine_uuid": {
+     "requirement": "optional",
+     "type": "uuid_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "peripheral_devices": {
+     "is_array": true,
+     "object_type": "peripheral_device",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "pool": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "region": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "risk_level": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "risk_level_id": {
+     "enum": {
+      "0": "Info",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "4": "Critical",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "risk_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "subnet": {
+     "requirement": "optional",
+     "type": "subnet_t"
+    },
+    "subnet_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Server",
+      "10": "Switch",
+      "11": "Hub",
+      "12": "Router",
+      "13": "IDS",
+      "14": "IPS",
+      "15": "Load Balancer",
+      "2": "Desktop",
+      "3": "Laptop",
+      "4": "Tablet",
+      "5": "Mobile",
+      "6": "Virtual",
+      "7": "IOT",
+      "8": "Browser",
+      "9": "Firewall",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "udid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "vendor_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "vlan_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vpc_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "zone": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "device_hw_info": {
+   "attributes": {
+    "bios_date": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "bios_manufacturer": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "bios_ver": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "chassis": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cores": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_architecture": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cpu_architecture_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "x86",
+      "2": "ARM",
+      "3": "RISC-V",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_bits": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_cores": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_info_list": {
+     "is_array": true,
+     "object_type": "cpu_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "cpu_speed": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cpu_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "desktop_display": {
+     "object_type": "display",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "gpu_count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "gpu_info_list": {
+     "is_array": true,
+     "object_type": "gpu_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "keyboard_info": {
+     "object_type": "keyboard_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "ram_size": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "serial_number": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uuid": {
+     "requirement": "optional",
+     "type": "uuid_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "digital_signature": {
+   "attributes": {
+    "algorithm": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "algorithm_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "DSA",
+      "2": "RSA",
+      "3": "ECDSA",
+      "4": "Authenticode",
+      "5": "Code Signing",
+      "6": "App Package",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "certificate": {
+     "object_type": "certificate",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "developer_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "digest": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "serialization": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "serialization_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Flat",
+      "2": "JCS",
+      "3": "JWS",
+      "4": "COSE",
+      "5": "DSSE",
+      "6": "Authenticode",
+      "7": "Code Signing",
+      "8": "App Package",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "state": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Valid",
+      "10": "Broken",
+      "2": "Expired",
+      "3": "Revoked",
+      "4": "Suspended",
+      "5": "Pending",
+      "6": "Untrusted",
+      "7": "Distrusted",
+      "8": "WrongUsage",
+      "9": "Bad",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    }
+   }
+  },
+  "display": {
+   "attributes": {
+    "color_depth": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "physical_height": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "physical_orientation": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "physical_width": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "scale_factor": {
+     "requirement": "optional",
+     "type": "integer_t"
+    }
+   }
+  },
+  "dns_query": {
+   "attributes": {
+    "class": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "hostname": {
+     "requirement": "required",
+     "type": "hostname_t"
+    },
+    "opcode": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "opcode_id": {
+     "enum": {
+      "0": "Query",
+      "1": "Inverse Query",
+      "2": "Status",
+      "3": "Reserved",
+      "4": "Notify",
+      "5": "Update",
+      "6": "DSO Message",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "packet_uid": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "download_info": {
+   "attributes": {
+    "referrer": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "src_endpoint": {
+     "object_type": "network_endpoint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "src_url": {
+     "requirement": "recommended",
+     "type": "url_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Local Machine",
+      "2": "Intranet",
+      "3": "Trusted",
+      "4": "Internet",
+      "5": "Untrusted",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    }
+   }
+  },
+  "edge": {
+   "attributes": {
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "is_directed": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "relation": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "source": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "target": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "email": {
+   "attributes": {
+    "bcc": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "bcc_mailboxes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cc": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "cc_mailboxes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "delivered_to": {
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "delivered_to_list": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "files": {
+     "is_array": true,
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "from": {
+     "requirement": "recommended",
+     "type": "email_t"
+    },
+    "from_list": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "from_mailbox": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "from_mailboxes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "http_headers": {
+     "is_array": true,
+     "object_type": "http_header",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "is_read": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "message_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "raw_header": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "reply_to": {
+     "requirement": "recommended",
+     "type": "email_t"
+    },
+    "reply_to_list": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "reply_to_mailboxes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "return_path": {
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "sender": {
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "sender_mailbox": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "size": {
+     "requirement": "recommended",
+     "type": "long_t"
+    },
+    "smtp_from": {
+     "requirement": "recommended",
+     "type": "email_t"
+    },
+    "smtp_to": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "email_t"
+    },
+    "subject": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "to": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "email_t"
+    },
+    "to_mailboxes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "urls": {
+     "is_array": true,
+     "object_type": "url",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "x_originating_ip": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "ip_t"
+    }
+   }
+  },
+  "encryption_details": {
+   "attributes": {
+    "algorithm": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "algorithm_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "DES",
+      "2": "TripleDES",
+      "3": "AES",
+      "4": "RSA",
+      "5": "ECC",
+      "6": "SM2",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "key_length": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "key_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "enrichment": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "data": {
+     "requirement": "required",
+     "type": "json_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "provider": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "reputation": {
+     "object_type": "reputation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "short_desc": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "recommended",
+     "type": "url_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "environment_variable": {
+   "attributes": {
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "epss": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "percentile": {
+     "requirement": "optional",
+     "type": "float_t"
+    },
+    "score": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "evidences": {
+   "attributes": {
+    "actor": {
+     "object_type": "actor",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "ai_agent": {
+     "object_type": "ai_agent",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "api": {
+     "object_type": "api",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "connection_info": {
+     "object_type": "network_connection_info",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "container": {
+     "object_type": "container",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "database": {
+     "object_type": "database",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "databucket": {
+     "object_type": "databucket",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "device": {
+     "object_type": "device",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "dst_endpoint": {
+     "object_type": "network_endpoint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "email": {
+     "object_type": "email",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "file": {
+     "object_type": "file",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "http_request": {
+     "object_type": "http_request",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "http_response": {
+     "object_type": "http_response",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "ja4_fingerprint_list": {
+     "is_array": true,
+     "object_type": "ja4_fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "job": {
+     "object_type": "job",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "process": {
+     "object_type": "process",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "query": {
+     "object_type": "dns_query",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "reg_key": {
+     "object_type": "win/reg_key",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "reg_value": {
+     "object_type": "win/reg_value",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "resources": {
+     "is_array": true,
+     "object_type": "resource_details",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "script": {
+     "object_type": "script",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "src_endpoint": {
+     "object_type": "network_endpoint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "tls": {
+     "object_type": "tls",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "url": {
+     "object_type": "url",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "verdict": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "verdict_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "False Positive",
+      "10": "Duplicate",
+      "2": "True Positive",
+      "3": "Disregard",
+      "4": "Suspicious",
+      "5": "Benign",
+      "6": "Test",
+      "7": "Insufficient Data",
+      "8": "Security Risk",
+      "9": "Managed Externally",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "win_service": {
+     "object_type": "win/win_service",
+     "requirement": "recommended",
+     "type": "object_t"
+    }
+   }
+  },
+  "extension": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "feature": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "file": {
+   "attributes": {
+    "accessed_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "accessor": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "attributes": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "company_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "confidentiality": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "confidentiality_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Not Confidential",
+      "2": "Confidential",
+      "3": "Secret",
+      "4": "Top Secret",
+      "5": "Private",
+      "6": "Restricted",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "creator": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "download_info": {
+     "object_type": "download_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "drive_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "drive_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Removable",
+      "2": "Fixed",
+      "3": "Remote",
+      "4": "CD-ROM",
+      "5": "RAM Disk",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "encryption_details": {
+     "object_type": "encryption_details",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "ext": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "hashes": {
+     "is_array": true,
+     "object_type": "fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "imported_symbols": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "internal_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "is_deleted": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_encrypted": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_readonly": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_system": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "mime_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "modifier": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "file_name_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "parent_folder": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "path": {
+     "requirement": "recommended",
+     "type": "file_path_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "security_descriptor": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "signature": {
+     "object_type": "digital_signature",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "signatures": {
+     "is_array": true,
+     "object_type": "digital_signature",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Regular File",
+      "2": "Folder",
+      "3": "Character Device",
+      "4": "Block Device",
+      "5": "Local Socket",
+      "6": "Named Pipe",
+      "7": "Symbolic Link",
+      "8": "Executable File",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "uri": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "url": {
+     "object_type": "url",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "volume": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "xattributes": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   }
+  },
+  "finding_info": {
+   "attributes": {
+    "analytic": {
+     "object_type": "analytic",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "attack_graph": {
+     "object_type": "graph",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "attacks": {
+     "is_array": true,
+     "object_type": "attack",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "data_sources": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "first_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "kill_chain": {
+     "is_array": true,
+     "object_type": "kill_chain_phase",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "last_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "product_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "related_analytics": {
+     "is_array": true,
+     "object_type": "analytic",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "related_events": {
+     "is_array": true,
+     "object_type": "related_event",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "related_events_count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "title": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "traits": {
+     "is_array": true,
+     "object_type": "trait",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "types": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "fingerprint": {
+   "attributes": {
+    "algorithm": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "algorithm_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "MD5",
+      "10": "SHA-512/224",
+      "11": "SHA-512/256",
+      "12": "SHA3-224",
+      "13": "SHA3-256",
+      "14": "SHA3-384",
+      "15": "SHA3-512",
+      "16": "xxHash H3 64-bit",
+      "17": "xxHash H3 128-bit",
+      "18": "Imphash",
+      "19": "NPF",
+      "2": "SHA-1",
+      "20": "HASSH",
+      "3": "SHA-256",
+      "4": "SHA-512",
+      "5": "CTPH",
+      "6": "TLSH",
+      "7": "quickXorHash",
+      "8": "SHA-224",
+      "9": "SHA-384",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "encoding": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "encoding_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Hex",
+      "2": "Base64",
+      "3": "Base64URL",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "serialization": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "serialization_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Flat",
+      "2": "JCS",
+      "3": "JWS",
+      "4": "COSE",
+      "5": "DSSE",
+      "6": "Authenticode",
+      "7": "Code Signing",
+      "8": "App Package",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "file_hash_t"
+    }
+   }
+  },
+  "gpu_info": {
+   "attributes": {
+    "bus_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "bus_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Onboard",
+      "2": "PCIe x16",
+      "3": "PCIe x8",
+      "4": "MXM Type A",
+      "5": "MXM Type B",
+      "6": "M.2",
+      "7": "CXL",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "cores": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "model": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "vram_mode": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "vram_mode_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Shared",
+      "2": "Dedicated",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "vram_size": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    }
+   }
+  },
+  "graph": {
+   "attributes": {
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "edges": {
+     "is_array": true,
+     "object_type": "edge",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "is_directed": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "nodes": {
+     "is_array": true,
+     "object_type": "node",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "query_language": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "query_language_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Cypher",
+      "2": "GraphQL",
+      "3": "Gremlin",
+      "4": "GQL",
+      "5": "G-CORE",
+      "6": "PGQL",
+      "7": "SPARQL",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "group": {
+   "attributes": {
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "privileges": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "http_header": {
+   "attributes": {
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "http_request": {
+   "attributes": {
+    "args": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "body_length": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "http_headers": {
+     "is_array": true,
+     "object_type": "http_header",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "http_method": {
+     "enum": {
+      "ACL": "ACL",
+      "BASELINE-CONTROL": "Baseline Control",
+      "BIND": "Bind",
+      "CHECKIN": "Check In",
+      "CHECKOUT": "Check Out",
+      "CONNECT": "Connect",
+      "COPY": "Copy",
+      "DELETE": "Delete",
+      "GET": "Get",
+      "HEAD": "Head",
+      "LABEL": "Label",
+      "LINK": "Link",
+      "LOCK": "Lock",
+      "MERGE": "Merge",
+      "MKACTIVITY": "Make Activity",
+      "MKCALENDAR": "Make Calendar",
+      "MKCOL": "Make Collection",
+      "MKREDIRECTREF": "Make Redirect Reference",
+      "MKWORKSPACE": "Make Workspace",
+      "MOVE": "Move",
+      "OPTIONS": "Options",
+      "ORDERPATCH": "Order Patch",
+      "PATCH": "Patch",
+      "POST": "Post",
+      "PRI": "PRI",
+      "PROPFIND": "Property Find",
+      "PROPPATCH": "Property Patch",
+      "PUT": "Put",
+      "QUERY": "Query",
+      "REBIND": "Rebind",
+      "REPORT": "Report",
+      "SEARCH": "Search",
+      "TRACE": "Trace",
+      "UNBIND": "Unbind",
+      "UNCHECKOUT": "Un-Check Out",
+      "UNLINK": "Unlink",
+      "UNLOCK": "Unlock",
+      "UPDATE": "Update",
+      "UPDATEREDIRECTREF": "Update Redirect Reference",
+      "VERSION-CONTROL": "Version Control"
+     },
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "length": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "referrer": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "url": {
+     "object_type": "url",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "user_agent": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "x_forwarded_for": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "ip_t"
+    }
+   }
+  },
+  "http_response": {
+   "attributes": {
+    "body_length": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "code": {
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "content_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "http_headers": {
+     "is_array": true,
+     "object_type": "http_header",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "latency": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "length": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "message": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "status": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "iam_role": {
+   "attributes": {
+    "account": {
+     "object_type": "account",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "policies": {
+     "is_array": true,
+     "object_type": "policy",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "privileges": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "programmatic_credentials": {
+     "is_array": true,
+     "object_type": "programmatic_credential",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "resources": {
+     "is_array": true,
+     "object_type": "resource_details",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "session": {
+     "object_type": "session",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "idp": {
+   "attributes": {
+    "auth_factors": {
+     "is_array": true,
+     "object_type": "auth_factor",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "fingerprint": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "has_mfa": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "issuer": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "protocol_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "scim": {
+     "object_type": "scim",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "sso": {
+     "object_type": "sso",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "state": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Active",
+      "2": "Suspended",
+      "3": "Deprecated",
+      "4": "Deleted",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "tenant_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "url_string": {
+     "requirement": "optional",
+     "type": "url_t"
+    }
+   }
+  },
+  "image": {
+   "attributes": {
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "path": {
+     "requirement": "optional",
+     "type": "file_path_t"
+    },
+    "tag": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "ja4_fingerprint": {
+   "attributes": {
+    "section_a": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "section_b": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "section_c": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "section_d": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "JA4",
+      "2": "JA4Server",
+      "3": "JA4HTTP",
+      "4": "JA4Latency",
+      "5": "JA4X509",
+      "6": "JA4SSH",
+      "7": "JA4TCP",
+      "8": "JA4TCPServer",
+      "9": "JA4TCPScan",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "job": {
+   "attributes": {
+    "cmd_line": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "desc": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "file": {
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "job_actions": {
+     "is_array": true,
+     "object_type": "job_action",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "job_triggers": {
+     "is_array": true,
+     "object_type": "job_trigger",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "last_run_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "next_run_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "run_state": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "run_state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Ready",
+      "2": "Queued",
+      "3": "Running",
+      "4": "Stopped",
+      "5": "Disabled",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Task Scheduler",
+      "2": "Cron",
+      "3": "Systemd",
+      "4": "Launchd",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   }
+  },
+  "job_action": {
+   "attributes": {
+    "cmd_line": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "com_class_uuid": {
+     "requirement": "optional",
+     "type": "uuid_t"
+    },
+    "file": {
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "properties": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "COM Handler",
+      "2": "Execute",
+      "3": "E-mail",
+      "4": "Show Message",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "working_directory": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "job_trigger": {
+   "attributes": {
+    "event_codes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "last_run_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "log_sources": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "next_run_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "properties": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Boot",
+      "2": "Schedule",
+      "3": "Event",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   }
+  },
+  "kb_article": {
+   "attributes": {
+    "avg_timespan": {
+     "object_type": "timespan",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "bulletin": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "classification": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "install_state": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "install_state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Installed",
+      "2": "Not Installed",
+      "3": "Installed Pending Reboot",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "is_superseded": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "os": {
+     "object_type": "os",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "severity": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "title": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "key_value_object": {
+   "attributes": {
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "value": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "values": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "keyboard_info": {
+   "attributes": {
+    "function_keys": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "ime": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "keyboard_layout": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "keyboard_subtype": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "keyboard_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "kill_chain_phase": {
+   "attributes": {
+    "phase": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "phase_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Reconnaissance",
+      "2": "Weaponization",
+      "3": "Delivery",
+      "4": "Exploitation",
+      "5": "Installation",
+      "6": "Command & Control",
+      "7": "Actions on Objectives",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    }
+   }
+  },
+  "ldap_person": {
+   "attributes": {
+    "cost_center": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "deleted_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "department": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "display_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "email_addrs": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "employee_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "given_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "hire_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "job_title": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "last_login_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "ldap_cn": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "ldap_dn": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "leave_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "location": {
+     "object_type": "location",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "manager": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "office_location": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "phone_number": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "surname": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   }
+  },
+  "location": {
+   "attributes": {
+    "aerial_height": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "city": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "continent": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "coordinates": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "float_t"
+    },
+    "country": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "geodetic_altitude": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "geodetic_vertical_accuracy": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "geohash": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "horizontal_accuracy": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "is_on_premises": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "isp": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "lat": {
+     "requirement": "optional",
+     "type": "float_t"
+    },
+    "long": {
+     "requirement": "optional",
+     "type": "float_t"
+    },
+    "postal_code": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "pressure_altitude": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "provider": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "region": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "logger": {
+   "attributes": {
+    "device": {
+     "object_type": "device",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "event_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "is_truncated": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "log_format": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_level": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "log_provider": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "log_version": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "logged_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "transmit_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "untruncated_size": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "long_string": {
+   "attributes": {
+    "is_truncated": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "untruncated_size": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "malware": {
+   "attributes": {
+    "classification_ids": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Adware",
+      "10": "Ransomware",
+      "11": "Remote-Access-Trojan",
+      "13": "Resource-Exploitation",
+      "14": "Rogue-Security-Software",
+      "15": "Rootkit",
+      "16": "Screen-Capture",
+      "17": "Spyware",
+      "18": "Trojan",
+      "19": "Virus",
+      "2": "Backdoor",
+      "20": "Webshell",
+      "21": "Wiper",
+      "22": "Worm",
+      "3": "Bot",
+      "4": "Bootkit",
+      "5": "DDOS",
+      "6": "Downloader",
+      "7": "Dropper",
+      "8": "Exploit-Kit",
+      "9": "Keylogger",
+      "99": "Other"
+     },
+     "is_array": true,
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "classifications": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cves": {
+     "is_array": true,
+     "object_type": "cve",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "files": {
+     "is_array": true,
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "num_infected": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "path": {
+     "requirement": "recommended",
+     "type": "file_path_t"
+    },
+    "provider": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "malware_scan_info": {
+   "attributes": {
+    "end_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "num_files": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "num_infected": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "num_volumes": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "size": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "start_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Manual",
+      "2": "Scheduled",
+      "3": "Updated Content",
+      "4": "Quarantined Items",
+      "5": "Attached Media",
+      "6": "User Logon",
+      "7": "ELAM",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "unique_malware_count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    }
+   }
+  },
+  "metadata": {
+   "attributes": {
+    "correlation_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "debug": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "event_code": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "extension": {
+     "object_type": "extension",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "extensions": {
+     "is_array": true,
+     "object_type": "extension",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "is_truncated": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_format": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_level": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "log_provider": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_source": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "log_version": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "logged_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "loggers": {
+     "is_array": true,
+     "object_type": "logger",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "original_event_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "original_time": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "processed_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "profiles": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "reporter": {
+     "object_type": "reporter",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "sequence": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "source": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "tenant_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "total_queued_duration": {
+     "object_type": "timespan",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "transformation_info_list": {
+     "is_array": true,
+     "object_type": "transformation_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "transmit_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "untruncated_size": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "metric": {
+   "attributes": {
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "mitigation": {
+   "attributes": {
+    "countermeasures": {
+     "is_array": true,
+     "object_type": "d3fend",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "network_connection_info": {
+   "attributes": {
+    "boundary": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "boundary_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Localhost",
+      "10": "Gateway VPC",
+      "11": "Internet Gateway",
+      "2": "Internal",
+      "3": "External",
+      "4": "Same VPC",
+      "5": "Internet/VPC Gateway",
+      "6": "Virtual Private Gateway",
+      "7": "Intra-region VPC",
+      "8": "Inter-region VPC",
+      "9": "Local Gateway",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "community_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "direction": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "direction_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Inbound",
+      "2": "Outbound",
+      "3": "Lateral",
+      "4": "Local",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "flag_history": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "protocol_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "protocol_num": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "protocol_ver": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "protocol_ver_id": {
+     "enum": {
+      "0": "Unknown",
+      "4": "Internet Protocol version 4 (IPv4)",
+      "6": "Internet Protocol version 6 (IPv6)",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "session": {
+     "object_type": "session",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "tcp_flags": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "network_endpoint": {
+   "attributes": {
+    "agent_list": {
+     "is_array": true,
+     "object_type": "agent",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "autonomous_system": {
+     "object_type": "autonomous_system",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "fingerprints": {
+     "is_array": true,
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "hw_info": {
+     "object_type": "device_hw_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "instance_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "interface_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "interface_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "intermediate_ips": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "ip_t"
+    },
+    "ip": {
+     "requirement": "recommended",
+     "type": "ip_t"
+    },
+    "isp": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "isp_org": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "location": {
+     "object_type": "location",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "mac": {
+     "requirement": "optional",
+     "type": "mac_t"
+    },
+    "mac_vendor": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "network_scope": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "network_scope_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Internal",
+      "2": "External",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "os": {
+     "object_type": "os",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "pool": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "port": {
+     "requirement": "recommended",
+     "type": "port_t"
+    },
+    "proxy_endpoint": {
+     "object_type": "network_proxy",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "subnet_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "svc_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Server",
+      "10": "Switch",
+      "11": "Hub",
+      "12": "Router",
+      "13": "IDS",
+      "14": "IPS",
+      "15": "Load Balancer",
+      "2": "Desktop",
+      "3": "Laptop",
+      "4": "Tablet",
+      "5": "Mobile",
+      "6": "Virtual",
+      "7": "IOT",
+      "8": "Browser",
+      "9": "Firewall",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "vlan_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vpc_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "zone": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "network_interface": {
+   "attributes": {
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "ip": {
+     "requirement": "recommended",
+     "type": "ip_t"
+    },
+    "mac": {
+     "requirement": "recommended",
+     "type": "mac_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "namespace": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "open_ports": {
+     "is_array": true,
+     "object_type": "port_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "subnet_prefix": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Wired",
+      "2": "Wireless",
+      "3": "Mobile",
+      "4": "Tunnel",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "network_proxy": {
+   "attributes": {
+    "agent_list": {
+     "is_array": true,
+     "object_type": "agent",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "autonomous_system": {
+     "object_type": "autonomous_system",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "fingerprints": {
+     "is_array": true,
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "hw_info": {
+     "object_type": "device_hw_info",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "instance_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "interface_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "interface_uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "intermediate_ips": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "ip_t"
+    },
+    "ip": {
+     "requirement": "recommended",
+     "type": "ip_t"
+    },
+    "isp": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "isp_org": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "location": {
+     "object_type": "location",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "mac": {
+     "requirement": "optional",
+     "type": "mac_t"
+    },
+    "mac_vendor": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "network_scope": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "network_scope_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Internal",
+      "2": "External",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "os": {
+     "object_type": "os",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "pool": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "port": {
+     "requirement": "recommended",
+     "type": "port_t"
+    },
+    "proxy_endpoint": {
+     "object_type": "network_proxy",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "subnet_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "svc_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Server",
+      "10": "Switch",
+      "11": "Hub",
+      "12": "Router",
+      "13": "IDS",
+      "14": "IPS",
+      "15": "Load Balancer",
+      "2": "Desktop",
+      "3": "Laptop",
+      "4": "Tablet",
+      "5": "Mobile",
+      "6": "Virtual",
+      "7": "IOT",
+      "8": "Browser",
+      "9": "Firewall",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "vlan_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vpc_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "zone": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "node": {
+   "attributes": {
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "note": {
+   "attributes": {
+    "comment": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "modified_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "title": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "object": {
+   "attributes": {}
+  },
+  "observable": {
+   "attributes": {
+    "event_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "reputation": {
+     "object_type": "reputation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Hostname",
+      "10": "Resource UID",
+      "11": "Port",
+      "12": "Subnet",
+      "13": "Command Line",
+      "14": "Country",
+      "15": "Process ID",
+      "16": "HTTP User-Agent",
+      "17": "CWE Object: uid",
+      "18": "CVE Object: uid",
+      "19": "User Credential ID",
+      "2": "IP Address",
+      "20": "Endpoint",
+      "21": "User",
+      "22": "Email",
+      "23": "Uniform Resource Locator",
+      "24": "File",
+      "25": "Process",
+      "26": "Geo Location",
+      "27": "Container",
+      "28": "Registry Key",
+      "29": "Registry Value",
+      "3": "MAC Address",
+      "30": "Fingerprint",
+      "31": "User Object: uid",
+      "32": "Group Object: name",
+      "33": "Group Object: uid",
+      "34": "Account Object: name",
+      "35": "Account Object: uid",
+      "36": "Script Content",
+      "37": "Serial Number",
+      "38": "Resource Details Object: name",
+      "39": "Process Entity Object: uid",
+      "4": "User Name",
+      "40": "Email Object: subject",
+      "41": "Email Object: uid",
+      "42": "Message UID",
+      "43": "Registry Value Object: name",
+      "44": "Advisory Object: uid",
+      "45": "File Path",
+      "46": "Registry Key Path",
+      "47": "Device Object: uid",
+      "48": "Network Endpoint Object: uid",
+      "49": "IAM Role Object: name",
+      "5": "Email Address",
+      "50": "IAM Role Object: uid",
+      "6": "URL String",
+      "7": "File Name",
+      "8": "Hash",
+      "9": "Process Name",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "type_uid": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "value": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "observation": {
+   "attributes": {
+    "count": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "timespan": {
+     "object_type": "timespan",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "value": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "organization": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "ou_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "ou_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "os": {
+   "attributes": {
+    "build": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "country": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cpe_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cpu_bits": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "edition": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "kernel_release": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "lang": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "sp_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "sp_ver": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "100": "Windows",
+      "101": "Windows Mobile",
+      "200": "Linux",
+      "201": "Android",
+      "300": "macOS",
+      "301": "iOS",
+      "302": "iPadOS",
+      "400": "Solaris",
+      "401": "AIX",
+      "402": "HP-UX",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "package": {
+   "attributes": {
+    "architecture": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "cpe_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "epoch": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "license": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "license_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "package_manager": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "package_manager_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "purl": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "release": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Application",
+      "2": "Operating System",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "peripheral_device": {
+   "attributes": {
+    "class": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "model": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "serial_number": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "External Storage",
+      "2": "Keyboard",
+      "3": "Mouse",
+      "4": "Printer",
+      "5": "Monitor",
+      "6": "Microphone",
+      "7": "Webcam",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "vendor_id_list": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "policy": {
+   "attributes": {
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "group": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "is_applied": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "port_info": {
+   "attributes": {
+    "port": {
+     "requirement": "required",
+     "type": "port_t"
+    },
+    "protocol_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "protocol_num": {
+     "requirement": "optional",
+     "type": "integer_t"
+    }
+   }
+  },
+  "process": {
+   "attributes": {
+    "ancestry": {
+     "is_array": true,
+     "object_type": "process_entity",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "cmd_line": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "cpid": {
+     "requirement": "recommended",
+     "type": "uuid_t"
+    },
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "environment_variables": {
+     "is_array": true,
+     "object_type": "environment_variable",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "file": {
+     "object_type": "file",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "hosted_services": {
+     "is_array": true,
+     "object_type": "win/win_service",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "integrity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "integrity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Untrusted",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "System",
+      "6": "Protected",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "lineage": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "file_path_t"
+    },
+    "loaded_modules": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "process_name_t"
+    },
+    "parent_process": {
+     "object_type": "process",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "path": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "pid": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "ptid": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "sandbox": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "session": {
+     "object_type": "session",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "terminated_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "tid": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "working_directory": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "xattributes": {
+     "object_type": "object",
+     "requirement": "optional",
+     "type": "object_t"
+    }
+   }
+  },
+  "process_entity": {
+   "attributes": {
+    "cmd_line": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "cpid": {
+     "requirement": "recommended",
+     "type": "uuid_t"
+    },
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "process_name_t"
+    },
+    "path": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "pid": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "product": {
+   "attributes": {
+    "cpe_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "feature": {
+     "object_type": "feature",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "lang": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "path": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "url_string": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "vendor_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "programmatic_credential": {
+   "attributes": {
+    "last_used_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "related_event": {
+   "attributes": {
+    "attacks": {
+     "is_array": true,
+     "object_type": "attack",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "first_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "kill_chain": {
+     "is_array": true,
+     "object_type": "kill_chain_phase",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "last_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "observables": {
+     "is_array": true,
+     "object_type": "observable",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "product_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "status": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "title": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "traits": {
+     "is_array": true,
+     "object_type": "trait",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_uid": {
+     "requirement": "recommended",
+     "type": "long_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "remediation": {
+   "attributes": {
+    "cis_controls": {
+     "is_array": true,
+     "object_type": "cis_control",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "desc": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "kb_article_list": {
+     "is_array": true,
+     "object_type": "kb_article",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "kb_articles": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "references": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "reporter": {
+   "attributes": {
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "ip": {
+     "requirement": "recommended",
+     "type": "ip_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "org": {
+     "object_type": "organization",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "reputation": {
+   "attributes": {
+    "base_score": {
+     "requirement": "required",
+     "type": "float_t"
+    },
+    "provider": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "score": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "score_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Very Safe",
+      "10": "Malicious",
+      "2": "Safe",
+      "3": "Probably Safe",
+      "4": "Leans Safe",
+      "5": "May not be Safe",
+      "6": "Exercise Caution",
+      "7": "Suspicious/Risky",
+      "8": "Possibly Malicious",
+      "9": "Probably Malicious",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    }
+   }
+  },
+  "request": {
+   "attributes": {
+    "containers": {
+     "is_array": true,
+     "object_type": "container",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "flags": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "resource_details": {
+   "attributes": {
+    "agent_list": {
+     "is_array": true,
+     "object_type": "agent",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "criticality": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "criticality_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "4": "Very High",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "device": {
+     "object_type": "device",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "group": {
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "ip": {
+     "requirement": "recommended",
+     "type": "ip_t"
+    },
+    "is_backed_up": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "namespace": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "owner": {
+     "object_type": "user",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "resource_relationship": {
+     "object_type": "graph",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "role": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "role_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Target",
+      "2": "Actor",
+      "3": "Affected",
+      "4": "Related",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "resource_uid_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "resource_uid_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "user": {
+     "object_type": "user",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "response": {
+   "attributes": {
+    "code": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "containers": {
+     "is_array": true,
+     "object_type": "container",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "error": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "error_message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "flags": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "message": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "rule": {
+   "attributes": {
+    "category": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "san": {
+   "attributes": {
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "sbom": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "package": {
+     "object_type": "package",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "software_components": {
+     "is_array": true,
+     "object_type": "software_component",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "SPDX",
+      "2": "CycloneDX",
+      "3": "SWID",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "scim": {
+   "attributes": {
+    "auth_protocol": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "auth_protocol_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "NTLM",
+      "10": "RADIUS",
+      "11": "Basic Authentication",
+      "12": "LDAP",
+      "2": "Kerberos",
+      "3": "Digest",
+      "4": "OpenID",
+      "5": "SAML",
+      "6": "OAUTH 2.0",
+      "7": "PAP",
+      "8": "CHAP",
+      "9": "EAP",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "error_message": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "is_group_provisioning_enabled": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_user_provisioning_enabled": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "last_run_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "protocol_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "rate_limit": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "scim_group_schema": {
+     "requirement": "recommended",
+     "type": "json_t"
+    },
+    "scim_user_schema": {
+     "requirement": "recommended",
+     "type": "json_t"
+    },
+    "state": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "state_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Pending",
+      "2": "Active",
+      "3": "Failed",
+      "4": "Deleted",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "url_string": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "script": {
+   "attributes": {
+    "file": {
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "hashes": {
+     "is_array": true,
+     "object_type": "fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "parent_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "script_content": {
+     "object_type": "long_string",
+     "requirement": "required",
+     "type": "object_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Windows Command Prompt",
+      "2": "PowerShell",
+      "3": "Python",
+      "4": "JavaScript",
+      "5": "VBScript",
+      "6": "Unix Shell",
+      "7": "VBA",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "sensor_info": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "sensor_layer": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "sensor_layer_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Network",
+      "2": "Endpoint",
+      "3": "Email",
+      "4": "IAM",
+      "5": "Proxy",
+      "6": "Threat Intel",
+      "7": "Application",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "service": {
+   "attributes": {
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  },
+  "session": {
+   "attributes": {
+    "count": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "credential_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "expiration_reason": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "expiration_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "is_mfa": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_remote": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "is_vpn": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "issuer": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "terminal": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uuid": {
+     "requirement": "optional",
+     "type": "uuid_t"
+    }
+   }
+  },
+  "software_component": {
+   "attributes": {
+    "author": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "hash": {
+     "object_type": "fingerprint",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "license": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "purl": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "related_component": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "relationship": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "relationship_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Depends On",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Framework",
+      "2": "Library",
+      "3": "Operating System",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "sso": {
+   "attributes": {
+    "auth_protocol": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "auth_protocol_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "NTLM",
+      "10": "RADIUS",
+      "11": "Basic Authentication",
+      "12": "LDAP",
+      "2": "Kerberos",
+      "3": "Digest",
+      "4": "OpenID",
+      "5": "SAML",
+      "6": "OAUTH 2.0",
+      "7": "PAP",
+      "8": "CHAP",
+      "9": "EAP",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "certificate": {
+     "object_type": "certificate",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "created_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "duration_mins": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "idle_timeout": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "login_endpoint": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "logout_endpoint": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "metadata_endpoint": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "protocol_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "scopes": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "sub_technique": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "tactic": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "technique": {
+   "attributes": {
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "src_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "timespan": {
+   "attributes": {
+    "duration": {
+     "requirement": "recommended",
+     "type": "long_t"
+    },
+    "duration_days": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "duration_hours": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "duration_mins": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "duration_months": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "duration_secs": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "duration_weeks": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "duration_years": {
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "end_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "start_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Milliseconds",
+      "2": "Seconds",
+      "3": "Minutes",
+      "4": "Hours",
+      "5": "Days",
+      "6": "Weeks",
+      "7": "Months",
+      "8": "Years",
+      "9": "Time Interval",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    }
+   }
+  },
+  "tls": {
+   "attributes": {
+    "alert": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "certificate": {
+     "object_type": "certificate",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "certificate_chain": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "cipher": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "client_ciphers": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "extension_list": {
+     "is_array": true,
+     "object_type": "tls_extension",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "handshake_dur": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "ja3_hash": {
+     "object_type": "fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "ja3s_hash": {
+     "object_type": "fingerprint",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "key_length": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "sans": {
+     "is_array": true,
+     "object_type": "san",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "server_ciphers": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "sni": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "tls_extension_list": {
+     "is_array": true,
+     "object_type": "tls_extension",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "version": {
+     "requirement": "required",
+     "type": "string_t"
+    }
+   }
+  },
+  "tls_extension": {
+   "attributes": {
+    "data": {
+     "requirement": "recommended",
+     "type": "json_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "server_name",
+      "1": "maximum_fragment_length",
+      "10": "supported_groups",
+      "13": "signature_algorithms",
+      "14": "use_srtp",
+      "15": "heartbeat",
+      "16": "application_layer_protocol_negotiation",
+      "18": "signed_certificate_timestamp",
+      "19": "client_certificate_type",
+      "20": "server_certificate_type",
+      "21": "padding",
+      "41": "pre_shared_key",
+      "42": "early_data",
+      "43": "supported_versions",
+      "44": "cookie",
+      "45": "psk_key_exchange_modes",
+      "47": "certificate_authorities",
+      "48": "oid_filters",
+      "49": "post_handshake_auth",
+      "5": "status_request",
+      "50": "signature_algorithms_cert",
+      "51": "key_share",
+      "99": "Other"
+     },
+     "requirement": "required",
+     "type": "integer_t"
+    }
+   }
+  },
+  "token": {
+   "attributes": {
+    "created_time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "expiration_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "is_renewable": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "tenant_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Ticket Granting Ticket",
+      "2": "Service Ticket",
+      "3": "Identity Token",
+      "4": "Refresh Token",
+      "5": "SAML Assertion",
+      "6": "Client Token",
+      "7": "API Token",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "zone": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "trait": {
+   "attributes": {
+    "category": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "values": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "transformation_info": {
+   "attributes": {
+    "lang": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "product": {
+     "object_type": "product",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "time": {
+     "requirement": "recommended",
+     "type": "timestamp_t"
+    },
+    "uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "url_string": {
+     "requirement": "recommended",
+     "type": "url_t"
+    }
+   }
+  },
+  "url": {
+   "attributes": {
+    "categories": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "category_ids": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Adult/Mature Content",
+      "101": "Spam",
+      "102": "Potentially Unwanted Software",
+      "103": "Dynamic DNS Host",
+      "106": "E-Card/Invitations",
+      "107": "Informational",
+      "108": "Computer/Information Security",
+      "109": "Internet Connected Devices",
+      "11": "Gambling",
+      "110": "Internet Telephony",
+      "111": "Online Meetings",
+      "112": "Media Sharing",
+      "113": "Radio/Audio Streams",
+      "114": "TV/Video Streams",
+      "118": "Piracy/Copyright Concerns",
+      "121": "Marijuana",
+      "14": "Violence/Hate/Racism",
+      "15": "Weapons",
+      "16": "Abortion",
+      "17": "Hacking",
+      "18": "Phishing",
+      "20": "Entertainment",
+      "21": "Business/Economy",
+      "22": "Alternative Spirituality/Belief",
+      "23": "Alcohol",
+      "24": "Tobacco",
+      "25": "Controlled Substances",
+      "26": "Child Pornography",
+      "27": "Education",
+      "29": "Charitable Organizations",
+      "3": "Pornography",
+      "30": "Art/Culture",
+      "31": "Financial Services",
+      "32": "Brokerage/Trading",
+      "33": "Games",
+      "34": "Government/Legal",
+      "35": "Military",
+      "36": "Political/Social Advocacy",
+      "37": "Health",
+      "38": "Technology/Internet",
+      "4": "Sex Education",
+      "40": "Search Engines/Portals",
+      "43": "Malicious Sources/Malnets",
+      "44": "Malicious Outbound Data/Botnets",
+      "45": "Job Search/Careers",
+      "46": "News/Media",
+      "47": "Personals/Dating",
+      "49": "Reference",
+      "5": "Intimate Apparel/Swimsuit",
+      "50": "Mixed Content/Potentially Adult",
+      "51": "Chat (IM)/SMS",
+      "52": "Email",
+      "53": "Newsgroups/Forums",
+      "54": "Religion",
+      "55": "Social Networking",
+      "56": "File Storage/Sharing",
+      "57": "Remote Access Tools",
+      "58": "Shopping",
+      "59": "Auctions",
+      "6": "Nudity",
+      "60": "Real Estate",
+      "61": "Society/Daily Living",
+      "63": "Personal Sites",
+      "64": "Restaurants/Dining/Food",
+      "65": "Sports/Recreation",
+      "66": "Travel",
+      "67": "Vehicles",
+      "68": "Humor/Jokes",
+      "7": "Extreme",
+      "71": "Software Downloads",
+      "83": "Peer-to-Peer (P2P)",
+      "84": "Audio/Video Clips",
+      "85": "Office/Business Applications",
+      "86": "Proxy Avoidance",
+      "87": "For Kids",
+      "88": "Web Ads/Analytics",
+      "89": "Web Hosting",
+      "9": "Scam/Questionable/Illegal",
+      "90": "Uncategorized",
+      "92": "Suspicious",
+      "93": "Sexual Expression",
+      "95": "Translation",
+      "96": "Non-Viewable/Infrastructure",
+      "97": "Content Servers",
+      "98": "Placeholders",
+      "99": "Other"
+     },
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "hostname": {
+     "requirement": "recommended",
+     "type": "hostname_t"
+    },
+    "path": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "port": {
+     "requirement": "recommended",
+     "type": "port_t"
+    },
+    "query_string": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "resource_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "scheme": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "subdomain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "url_string": {
+     "requirement": "recommended",
+     "type": "url_t"
+    }
+   }
+  },
+  "user": {
+   "attributes": {
+    "account": {
+     "object_type": "account",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "credential_uid": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "display_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "domain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "email_addr": {
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "forward_addr": {
+     "requirement": "optional",
+     "type": "email_t"
+    },
+    "full_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "groups": {
+     "is_array": true,
+     "object_type": "group",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "has_mfa": {
+     "requirement": "recommended",
+     "type": "boolean_t"
+    },
+    "ldap_person": {
+     "object_type": "ldap_person",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "name": {
+     "requirement": "recommended",
+     "type": "username_t"
+    },
+    "org": {
+     "object_type": "organization",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "phone_number": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "programmatic_credentials": {
+     "is_array": true,
+     "object_type": "programmatic_credential",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "risk_level": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "risk_level_id": {
+     "enum": {
+      "0": "Info",
+      "1": "Low",
+      "2": "Medium",
+      "3": "High",
+      "4": "Critical",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "risk_score": {
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "User",
+      "2": "Admin",
+      "3": "System",
+      "4": "Service",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_alt": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    }
+   }
+  },
+  "vendor_attributes": {
+   "attributes": {
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "severity_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Informational",
+      "2": "Low",
+      "3": "Medium",
+      "4": "High",
+      "5": "Critical",
+      "6": "Fatal",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    }
+   }
+  },
+  "vulnerability": {
+   "attributes": {
+    "advisory": {
+     "object_type": "advisory",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "affected_code": {
+     "is_array": true,
+     "object_type": "affected_code",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "affected_packages": {
+     "is_array": true,
+     "object_type": "affected_package",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "category": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "cve": {
+     "object_type": "cve",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "cwe": {
+     "object_type": "cwe",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "dependency_chain": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "desc": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "exploit_last_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "exploit_ref_url": {
+     "requirement": "optional",
+     "type": "url_t"
+    },
+    "exploit_requirement": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "exploit_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "first_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "fix_available": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "fix_coverage": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "fix_coverage_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Complete",
+      "2": "Partial",
+      "3": "None",
+      "99": "Other"
+     },
+     "requirement": "optional",
+     "type": "integer_t"
+    },
+    "is_exploit_available": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_fix_available": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "kb_article_list": {
+     "is_array": true,
+     "object_type": "kb_article",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "kb_articles": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "last_seen_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "packages": {
+     "is_array": true,
+     "object_type": "package",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "references": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "related_vulnerabilities": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "remediation": {
+     "object_type": "remediation",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "severity": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "title": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "vendor_name": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "win/reg_key": {
+   "attributes": {
+    "is_system": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "path": {
+     "requirement": "required",
+     "type": "reg_key_path_t"
+    },
+    "security_descriptor": {
+     "requirement": "optional",
+     "type": "string_t"
+    }
+   }
+  },
+  "win/reg_value": {
+   "attributes": {
+    "data": {
+     "requirement": "optional",
+     "type": "json_t"
+    },
+    "is_default": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "is_system": {
+     "requirement": "optional",
+     "type": "boolean_t"
+    },
+    "modified_time": {
+     "requirement": "optional",
+     "type": "timestamp_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "path": {
+     "requirement": "required",
+     "type": "reg_key_path_t"
+    },
+    "reg_binary_data": {
+     "requirement": "optional",
+     "type": "bytestring_t"
+    },
+    "reg_integer_data": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "reg_string_data": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "reg_string_list_data": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "REG_BINARY",
+      "10": "REG_SZ",
+      "2": "REG_DWORD",
+      "3": "REG_DWORD_BIG_ENDIAN",
+      "4": "REG_EXPAND_SZ",
+      "5": "REG_LINK",
+      "6": "REG_MULTI_SZ",
+      "7": "REG_NONE",
+      "8": "REG_QWORD",
+      "9": "REG_QWORD_LITTLE_ENDIAN",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    }
+   }
+  },
+  "win/win_service": {
+   "attributes": {
+    "cmd_line": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "hosting_process": {
+     "object_type": "process_entity",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "labels": {
+     "is_array": true,
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "load_order_group": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "name": {
+     "requirement": "required",
+     "type": "string_t"
+    },
+    "service_category": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "service_category_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Kernel Mode",
+      "2": "User Mode",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "service_dependencies": {
+     "is_array": true,
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "service_dll_file": {
+     "object_type": "file",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "service_error_control": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "service_error_control_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Ignore",
+      "2": "Normal",
+      "3": "Severe",
+      "4": "Critical",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "service_file": {
+     "object_type": "file",
+     "requirement": "recommended",
+     "type": "object_t"
+    },
+    "service_start_name": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "service_start_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "service_start_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Boot",
+      "2": "System",
+      "3": "Auto",
+      "4": "Demand",
+      "5": "Disabled",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "service_type": {
+     "requirement": "optional",
+     "type": "string_t"
+    },
+    "service_type_id": {
+     "enum": {
+      "0": "Unknown",
+      "1": "Kernel Driver",
+      "2": "File System Driver",
+      "3": "Own Process",
+      "4": "Share Process",
+      "99": "Other"
+     },
+     "requirement": "recommended",
+     "type": "integer_t"
+    },
+    "tags": {
+     "is_array": true,
+     "object_type": "key_value_object",
+     "requirement": "optional",
+     "type": "object_t"
+    },
+    "uid": {
+     "requirement": "recommended",
+     "type": "string_t"
+    },
+    "uid_numeric": {
+     "requirement": "optional",
+     "type": "long_t"
+    },
+    "version": {
+     "requirement": "recommended",
+     "type": "string_t"
+    }
+   }
+  }
+ },
+ "types": {
+  "boolean_t": "boolean_t",
+  "bytestring_t": "string_t",
+  "datetime_t": "string_t",
+  "email_t": "string_t",
+  "file_hash_t": "string_t",
+  "file_name_t": "string_t",
+  "file_path_t": "string_t",
+  "float_t": "float_t",
+  "hostname_t": "string_t",
+  "integer_t": "integer_t",
+  "ip_t": "string_t",
+  "json_t": "json_t",
+  "long_t": "long_t",
+  "mac_t": "string_t",
+  "port_t": "integer_t",
+  "process_name_t": "string_t",
+  "reg_key_path_t": "string_t",
+  "resource_uid_t": "string_t",
+  "string_t": "string_t",
+  "subnet_t": "string_t",
+  "timestamp_t": "long_t",
+  "url_t": "string_t",
+  "username_t": "string_t",
+  "uuid_t": "string_t"
+ },
+ "version": "1.9.0"
+}
