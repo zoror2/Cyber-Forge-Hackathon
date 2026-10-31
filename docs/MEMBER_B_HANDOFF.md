@@ -47,7 +47,8 @@ Rules for your backend:
 
 - **Every secret is stored with a list of exact allowed hosts**, usually one (e.g. `api.github.com`, or `mockvendor:8081` for the mock in dev). Two only when a vendor needs it (Wiz: `auth.app.wiz.io` + `api.us17.app.wiz.io`). **No wildcards**: reject `*` at write time (the engine refuses them too). No host means unusable.
 - Show the host list to the approver in the two-person review. A secret's hosts and the connector's `allowed_ports` are security decisions, not details.
-- Return secrets **only** via `engine.NewSecret(value, hosts...)`. Never put raw values in your own structs, logs or errors.
+- Return secrets **only** via `engine.NewSecret(value, hosts...)` (single value) or `engine.NewSecretFields(map[string]string{...}, hosts...)` (multi-part, e.g. `client_id` + `client_secret`), and tag them with the credential record's ID: `.WithID("cred_...")`. Never put raw values in your own structs, logs or errors.
+- **Credential problems come back typed.** `errors.As(err, &ae)` with `ae *engine.AuthError` gives `ae.Status` (`missing`, `incomplete`, `binding_mismatch`, `needs_reauth`, `insufficient_permissions`) and `ae.CredentialID`. Update that credential's status and notify its **owner**. A 5xx/429 is never an AuthError (don't ask anyone to rotate a key because the vendor is down). Log events: `event=auth_failed` with `credential_id`, `auth_status`. Full credential-record design: `docs/CONFIG_SHAPE.md` §6.
 - **Write-only API:** `PUT /secrets/{name}` accepts `{value, allowed_hosts: [..]}` and returns 204. `GET /secrets` returns names, hosts and timestamps, **never values**. No endpoint ever returns a value.
 - **Startup check:** outside dev, the API's `main()` must call `policy.ProductionSafe()` and exit if it errors.
 - **Two backends, one interface:**
@@ -246,14 +247,14 @@ Build your binary at `cmd/api/main.go`. The existing `Dockerfile` already builds
 docker compose up -d --build mockvendor
 ```
 
-From inside the compose network the mock is `http://mockvendor:8081`; from your machine it's `http://127.0.0.1:8081`. A secret for it is bound to host `mockvendor:8081`.
+From inside the compose network the mock is `https://mockvendor:8081`; from your machine it's `https://127.0.0.1:8081` (TLS, dev CA in `data/devcert/cert.pem`). A secret for it is bound to host `mockvendor:8081`.
 
 Example connector for the mock's offset endpoint:
 
 ```json
 {
   "id": "mock_issues",
-  "request": { "url": "http://mockvendor:8081/issues" },
+  "request": { "url": "https://mockvendor:8081/issues" },
   "auth": { "type": "none" },
   "items_path": "issues",
   "pagination": { "type": "offset", "offset_param": "startAt", "size_param": "maxResults", "page_size": 10 }
@@ -285,3 +286,54 @@ Per the two-person rule:
    Design the `events` storage and the API with that in mind. Analysis is in progress.
 4. **Okta OAuth:** unverified whether client-secret OAuth works for Okta APIs (may need `private_key_jwt` or an SSWS API token).
 5. **`devices` table:** none of the first sources produce devices. EDR integrations (CrowdStrike, Sophos, Trend) will.
+
+---
+
+## 7. Next data-side work: KEV vulnerability mapping and exposure (B9–B12)
+
+**When:** after the three live sources and the PRD failure tests. This is roadmap (the PRD
+lists threat detection as not required), but it is the product's showcase:
+*"which tools we are connected to are under active exploitation, and which stored keys belong to them?"*
+Full design and AI guardrails: [AI.md §7](AI.md).
+
+**Where we are:** `configs/cisa_kev.json` is live: 1766 KEV entries land as `events`
+(`id`=cveID, `type`=`known_exploited_vulnerability`, `severity`=`unknown`, `timestamp`=dateAdded,
+`description`=vulnerabilityName). **The mapping drops `vendorProject` and `product`**, so nothing
+can be matched yet.
+
+### B9: Event schema gets `vendor` and `product` (optional)
+- `pkg/config.Fields["event"]` += `vendor`, `product`; `pkg/model.Event` += `Vendor, Product *string`; mapper writes them.
+- Records are `jsonb payload`, so **no migration** is needed. Add an expression index on
+  `(payload->>'vendor')` only when the exposure query needs it (SYSTEM_DESIGN O6).
+- Then update `configs/cisa_kev.json`: `"vendor":{"path":"vendorProject","transform":"string"}`,
+  `"product":{"path":"product","transform":"string"}`.
+
+### B10: Mapping must normalise strings
+Real KEV data has dirty names: `" Endpoint Manager (EPM)"` (leading space), both
+`"Cloud Services Appliance"` and `"Cloud Services Appliance (CSA)"`, 291 distinct vendors.
+The `string` transform doesn't trim today. Add `"transform":"trim"` (or trim inside `string`;
+your call), plus a test with the leading-space fixture. Matching on untrimmed names will silently miss.
+
+### B11: Vendor identity on connectors and credentials
+- Optional top-level config field `vendor` (e.g. `"Atlassian"` for a Jira connector, `"GitHub"`),
+  validated like `name`. Without it we can't say which connected tool a CVE hits.
+- `credentials_meta` has no **owner / created_by** and no **credential_id** column. Member A's engine
+  already carries `Secret.WithID(...)` and reports `AuthError.CredentialID`. Add both columns
+  (set from the authenticated caller, never from the request body) so exposure results can name
+  *which key, created by whom* to rotate. Values never leave the secret backend.
+
+### B12: Exposure query + endpoint
+- Reviewed alias table `vendor_aliases(kev_vendor, kev_product, vendor)` (global, read-only to tenants;
+  changes go through review). The AI only *suggests* rows (Member A, later); a human approves.
+- `GET /exposure`: under the tenant's RLS, join live connectors (`vendor`) × KEV events (via aliases) ×
+  `credentials_meta` → `[{vendor, connector, kev_count, newest_date_added, cve_ids[≤20], credentials:[{id, name, owner}]}]`.
+  Deterministic SQL, no AI in the request path.
+- Tests: tenant B never sees tenant A's connectors/credentials; no secret values in the response;
+  the leading-space fixture matches after trim; a vendor with 0 KEV entries returns nothing (not an error).
+- Note: each tenant currently syncs its own KEV copy. A shared, read-only reference table
+  (synced once) is cheaper. Decide together before building B12.
+
+### Split with Member A
+| B | A |
+|---|---|
+| B9–B12: schema, trim, vendor/credential columns, alias table, `/exposure` | AI alias suggestions + "does it affect our deployment" + summary, all behind the AI gateway with the guardrails in AI.md §7; evals including injected KEV text |
