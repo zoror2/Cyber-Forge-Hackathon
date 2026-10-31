@@ -956,11 +956,16 @@ function renderWizard(v) {
     h('label', { class: 'f' }, h('span', {}, 'Access scope'), h('select', { 'aria-label': 'Access scope', onchange: (e) => { W.scope = e.target.value; } }, ['public', 'repository', 'organization', 'account', 'enterprise'].map((x) => h('option', { value: x, selected: W.scope === x }, x)))),
     h('label', { class: 'f' }, h('span', {}, 'Official public API documentation URLs (one per line, up to 3)'), h('textarea', { 'aria-label': 'Public documentation URLs', rows: 3, value: W.documentation, placeholder: 'https://vendor.example/developers/api', oninput: (e) => { W.documentation = e.target.value; } })),
     h('span', { class: 'small faint' }, 'Only needed if the automatic search picks the wrong page. Fill all three together. Only the product, public dataset/scope and retrieved public documentation go to the hosted AI; never customer names, private URLs, keys or records.'))) : null;
+  // a vendor spec the search cannot reach (e.g. behind the vendor's login)
+  const specBox = generic ? h('details', { open: !!(W.specUrl || W.specText) }, h('summary', {}, 'Use the vendor\'s OpenAPI spec', optTag()), h('div', { class: 'stack' },
+    h('label', { class: 'f' }, h('span', {}, 'Spec URL (public JSON or YAML, or a docs page that embeds it)'), h('input', { 'aria-label': 'OpenAPI spec URL', value: W.specUrl || '', placeholder: 'https://vendor.example/openapi.yaml', oninput: (e) => { W.specUrl = e.target.value.trim(); } })),
+    h('label', { class: 'f' }, h('span', {}, 'Or upload the spec file'), h('input', { type: 'file', accept: '.json,.yaml,.yml', 'aria-label': 'OpenAPI spec file', onchange: async (e) => { const f = e.target.files[0]; if (!f) return; if (f.size > 16 << 20) { say('Spec file is larger than 16 MiB.', true); return; } W.specText = await f.text(); say('Spec loaded: ' + f.name); } })),
+    h('span', { class: 'small faint' }, 'Used instead of web search. The chosen operation from the spec goes to the hosted AI; every setting is checked against the spec.'))) : null;
   const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
     W.draft = null; W.progress = []; W.pasteIssues = []; say(generic && !W.documentation.trim() ? 'Finding the official API docs and drafting… (up to a minute)' : 'Drafting…'); re();
     const urls = W.documentation.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-    const r = await api('POST', '/ai/draft', { product: W.product.trim(), profile: generic ? '' : (W.profile || datasets[0][0]), data: W.data, ...(generic && urls.length ? { dataset: W.dataset.trim(), scope: W.scope, documentation_urls: urls } : {}) });
+    const r = await api('POST', '/ai/draft', { product: W.product.trim(), profile: generic ? '' : (W.profile || datasets[0][0]), data: W.data, ...(generic && (W.specUrl || W.specText) ? { ...(W.specUrl ? { spec_url: W.specUrl } : {}), ...(W.specText ? { spec_text: W.specText } : {}) } : generic && urls.length ? { dataset: W.dataset.trim(), scope: W.scope, documentation_urls: urls } : {}) });
     say('');
     if (r.ok) loadDraft(r.data, false);
     else if (r.status === 503 && r.data && r.data.error === 'ai_not_configured') say('AI is not set up on this server. Use "Fill in manually".', true);
@@ -995,6 +1000,7 @@ function renderWizard(v) {
       h('label', { class: 'f' }, h('span', {}, 'Product'), product),
       profile,
       documentation,
+      specBox,
       h('div', { class: 'f' }, h('span', {}, 'What data', optTag()), h('div', { class: 'row' },
         ['auto'].concat(kinds).map((k) => h('button', { type: 'button', class: 'sm' + (W.data === k ? ' primary' : ''), onclick: () => { W.data = k; re(); } }, k === 'auto' ? 'Auto' : KIND[k]))),
         W.data === 'auto' ? h('span', { class: 'small faint' }, 'The AI picks this product\'s main data. Pick one only if you want something else.') : null),

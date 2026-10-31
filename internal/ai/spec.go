@@ -98,17 +98,77 @@ func parseSpec(source, text string) (*apiSpec, error) {
 	if e != nil || root == nil {
 		return nil, errNotSpec
 	}
+	return buildSpec(source, root)
+}
+
+func isSpec(root map[string]any) bool {
 	v3, v2 := strings.HasPrefix(fmt.Sprint(root["openapi"]), "3."), strings.HasPrefix(fmt.Sprint(root["swagger"]), "2.")
-	paths := obj(root["paths"])
-	if !(v2 || v3) || len(paths) == 0 {
+	return (v2 || v3) && len(obj(root["paths"])) > 0
+}
+
+var scriptBody = regexp.MustCompile(`(?is)<script\b[^>]*>(.*?)</script>`)
+
+// embeddedSpecs: docs portals often ship the OpenAPI document inside the page
+// (ReadMe's ssr-props JSON, Redoc's __redoc_state, JSON script blocks). That
+// is the vendor's own spec, read as data; nothing on the page is executed.
+func embeddedSpecs(source, page string) []*apiSpec {
+	var out []*apiSpec
+	var walk func(v any, depth int)
+	walk = func(v any, depth int) {
+		if depth > 12 || len(out) >= 5 {
+			return
+		}
+		switch t := v.(type) {
+		case map[string]any:
+			if isSpec(t) {
+				if sp, e := buildSpec(source, t); e == nil {
+					out = append(out, sp)
+				}
+				return
+			}
+			for _, x := range t {
+				walk(x, depth+1)
+			}
+		case []any:
+			for _, x := range t {
+				walk(x, depth+1)
+			}
+		}
+	}
+	for _, m := range scriptBody.FindAllStringSubmatch(page, -1) {
+		body := m[1]
+		if !strings.Contains(body, `"paths"`) {
+			continue
+		}
+		// a JSON block, or a JS assignment whose value is JSON
+		for start, tries := strings.IndexAny(body, "{["), 0; start >= 0 && tries < 20; tries++ {
+			var v any
+			if json.NewDecoder(strings.NewReader(body[start:])).Decode(&v) == nil {
+				walk(v, 0)
+				break
+			}
+			next := strings.Index(body[start+1:], "={")
+			if next < 0 {
+				break
+			}
+			start += next + 2
+		}
+	}
+	return out
+}
+
+func buildSpec(source string, root map[string]any) (*apiSpec, error) {
+	if !isSpec(root) {
 		return nil, errNotSpec
 	}
+	v3 := strings.HasPrefix(fmt.Sprint(root["openapi"]), "3.")
+	paths := obj(root["paths"])
 	s := &apiSpec{url: source, root: root, ops: map[string]*specOp{}}
 	if v3 {
 		s.version = "OpenAPI " + fmt.Sprint(root["openapi"])
 		for _, sv := range arr(root["servers"]) {
 			if u := str(obj(sv)["url"]); u != "" {
-				s.servers = append(s.servers, u)
+				s.servers = append(s.servers, serverVariants(u, obj(obj(sv)["variables"]))...)
 			}
 		}
 		s.schemes = obj(obj(root["components"])["securitySchemes"])
@@ -201,6 +261,33 @@ func parseSpec(source, text string) (*apiSpec, error) {
 		s.ops[op.key] = op
 	}
 	return s, nil
+}
+
+// serverVariants: the server as written, with its path variables set to the
+// spec's defaults (host stays customer-specific), and fully defaulted.
+func serverVariants(u string, vars map[string]any) []string {
+	out := []string{u}
+	if len(vars) == 0 {
+		return out
+	}
+	fill := func(s string) string {
+		for name, v := range vars {
+			if def, ok := obj(v)["default"]; ok {
+				s = strings.ReplaceAll(s, "{"+name+"}", fmt.Sprint(def))
+			}
+		}
+		return s
+	}
+	if i := strings.Index(u, "://"); i >= 0 {
+		host, path, _ := strings.Cut(u[i+3:], "/")
+		if mixed := u[:i+3] + host + "/" + fill(path); path != "" && mixed != u {
+			out = append(out, strings.TrimSuffix(mixed, "/"))
+		}
+	}
+	if full := fill(u); !contains(out, full) {
+		out = append(out, full)
+	}
+	return out
 }
 
 func requirements(v any) []map[string]any {
@@ -406,7 +493,7 @@ func (s *apiSpec) catalog() (string, map[string]*specOp) {
 	var b strings.Builder
 	listed := map[string]*specOp{}
 	for _, op := range s.listOps() {
-		if len(listed) == 400 {
+		if len(listed) == 1200 { // Datadog alone has 420 list operations
 			break
 		}
 		listed[op.key] = op
@@ -512,6 +599,21 @@ func (s *apiSpec) excerpt(op *specOp) string {
 	if noAuth {
 		b.WriteString("- none (no authentication)\n")
 	}
+	for _, hs := range s.headerCombos(op) { // preferred: what customers normally have
+		fmt.Fprintf(&b, "- all together, as auth static with one header each: apiKey headers %q\n", hs)
+	}
+	// API keys first: customers have them; OAuth apps need extra setup
+	rank := func(n string) int {
+		sc := s.resolve(obj(s.schemes[n]))
+		switch {
+		case str(sc["type"]) == "apiKey":
+			return 0
+		case str(sc["type"]) == "basic" || strings.EqualFold(str(sc["scheme"]), "basic"):
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(names, func(i, j int) bool { return rank(names[i]) < rank(names[j]) })
 	for _, n := range names {
 		b.WriteString("- " + s.describeScheme(n) + "\n")
 	}
@@ -709,11 +811,51 @@ func verifySpec(r Request, cfg config.Config) ([]config.Issue, []Evidence) {
 	return issues, ev
 }
 
+// headerCombos: requirements needing several apiKey headers at once.
+func (s *apiSpec) headerCombos(op *specOp) [][]string {
+	var out [][]string
+	for _, req := range op.security {
+		if len(req) < 2 {
+			continue
+		}
+		var hs []string
+		for n := range req {
+			sc := s.resolve(obj(s.schemes[n]))
+			if str(sc["type"]) != "apiKey" || str(sc["in"]) != "header" {
+				hs = nil
+				break
+			}
+			hs = append(hs, str(sc["name"]))
+		}
+		if len(hs) > 1 {
+			sort.Strings(hs)
+			out = append(out, hs)
+		}
+	}
+	return out
+}
+
 // authMatches: the configured auth is one of the operation's schemes.
 func (s *apiSpec) authMatches(op *specOp, a engine.Auth) (string, bool) {
 	names, noAuth := s.allowedSchemes(op)
 	if a.Type == "none" {
 		return "security: none", noAuth
+	}
+	// several apiKey headers required together (e.g. DD-API-KEY + DD-APPLICATION-KEY)
+	if a.Type == "static" {
+		for _, req := range s.headerCombos(op) {
+			all := true
+			for _, h := range req {
+				found := false
+				for _, x := range a.Headers {
+					found = found || (strings.EqualFold(x.Name, h) && strings.TrimSpace(secretRef.ReplaceAllString(x.Value, "")) == "")
+				}
+				all = all && found
+			}
+			if all && len(a.Headers) == len(req) {
+				return "security: all of " + strings.Join(req, " + "), true
+			}
+		}
 	}
 	for _, n := range names {
 		sc := s.resolve(obj(s.schemes[n]))
@@ -724,8 +866,19 @@ func (s *apiSpec) authMatches(op *specOp, a engine.Auth) (string, bool) {
 			h := str(sc["name"])
 			ok = a.Type == "api_key" && strings.EqualFold(a.Header, h)
 			if a.Type == "static" {
+				// e.g. "SSWS {{secret.value}}" or "accessKey={{secret.a}};secretKey={{secret.b}}":
+				// every literal part of the value must be stated by the scheme itself
+				said := str(sc["description"]) // not the scheme's name: "apiToken" must not prove "Token"
 				for _, x := range a.Headers {
-					ok = ok || strings.EqualFold(x.Name, h)
+					if !strings.EqualFold(x.Name, h) {
+						continue
+					}
+					ok = true
+					for _, lit := range secretRef.Split(x.Value, -1) {
+						if lit = strings.TrimSpace(lit); lit != "" && !strings.Contains(said, lit) {
+							ok = false
+						}
+					}
 				}
 			}
 		case t == "http" && scheme == "bearer", t == "openIdConnect":
@@ -741,6 +894,8 @@ func (s *apiSpec) authMatches(op *specOp, a engine.Auth) (string, bool) {
 	}
 	return "", false
 }
+
+var secretRef = regexp.MustCompile(`\{\{\s*secret\.[a-zA-Z0-9_]+\s*\}\}`)
 
 func contains(list []string, v string) bool {
 	for _, x := range list {

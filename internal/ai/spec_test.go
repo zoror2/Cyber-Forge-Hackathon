@@ -194,7 +194,7 @@ func specGemini(t *testing.T, pick string) (*Client, *[]string) {
 		case strings.Contains(body, "google_search"):
 			calls, text = append(calls, "search"), "URL: none"
 		case strings.Contains(body, "OPERATION CATALOG"):
-			calls, text = append(calls, "pick"), mustJSON(map[string]string{"operation": pick, "scope": "organization", "reason": "lists users"})
+			calls, text = append(calls, "pick"), mustJSON(map[string]any{"operation": pick, "class": "user_inventory", "scope": "organization", "alternatives": []string{"GET /nope"}, "reason": "lists users"})
 		default:
 			if strings.Contains(body, "PRIVATE") {
 				t.Error("private data sent to model")

@@ -78,6 +78,7 @@ func fakeGemini(t *testing.T, search string, out *modelOutput) (*Client, *[]stri
 	t.Cleanup(srv.Close)
 	c := NewGemini("k", "m")
 	c.URL, c.HTTP = srv.URL+"/", srv.Client()
+	c.FetchSpec = func(context.Context, string) (string, error) { return "", ErrDocumentation } // no network
 	return c, &calls
 }
 

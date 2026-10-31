@@ -301,7 +301,12 @@ func dbFail(w http.ResponseWriter, err error) {
 	}
 }
 func jsonBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	return jsonBodyLimit(w, r, dst, 64<<10)
+}
+
+// jsonBodyLimit: /ai/draft may carry a customer-supplied OpenAPI spec (16 MiB).
+func jsonBodyLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	body, err := io.ReadAll(r.Body)
 	if err != nil || config.CheckJSON(body) != nil {
 		fail(w, 400, "invalid_json_body")
@@ -563,7 +568,7 @@ func (a *API) listSecrets(w http.ResponseWriter, r *http.Request) {
 // notes, credential metadata and credential values stay out of the prompt.
 func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	var req ai.Request
-	if !jsonBody(w, r, &req) {
+	if !jsonBodyLimit(w, r, &req, 17<<20) {
 		return
 	}
 	if e := req.Check(); e != nil {

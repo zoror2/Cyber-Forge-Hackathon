@@ -50,6 +50,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       CB_AI_PROVIDER: ${CB_AI_PROVIDER:-}
       CB_AI_MODEL: ${CB_AI_MODEL:-}
+      CB_DOC_RENDERER: ${CB_DOC_RENDERER:-}
       CB_BEDROCK_REGION: ${CB_BEDROCK_REGION:-}
       AWS_PROFILE: ${AWS_PROFILE:-}
       AWS_CONFIG_FILE: /aws/config
@@ -73,9 +74,21 @@ services:
     volumes: ['./data/devcert/cert.pem:/certs/cert.pem:ro', '${AWS_DIR:?set AWS_DIR in .env}:/aws:ro']
     ports: ['127.0.0.1:8080:8080']
     mem_limit: 1g
+    networks: [default, render]
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       mockvendor: {condition: service_started}
+  # Headless Chrome for JavaScript-only docs pages (CB_DOC_RENDERER=http://renderer:9222).
+  # Own network: it can reach the internet and the API, not postgres or other
+  # services; the API also checks every request the browser makes.
+  # Start with: docker compose --profile render up
+  renderer:
+    image: ${CB_RENDERER_IMAGE:-}
+    networks: [render]
+    mem_limit: 1g
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    profiles: [render]
     read_only: true
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
@@ -152,6 +165,7 @@ networks:
       config: [{subnet: 172.30.0.0/24}]
   checks:
     internal: true
+  render:
 volumes:
   pgdata:
   gomod:
