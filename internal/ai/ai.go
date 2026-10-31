@@ -67,7 +67,7 @@ func New(key, model string) *Client {
 
 type Request struct {
 	Product string `json:"product"` // "Okta", "AbuseIPDB", ...
-	Data    string `json:"data"`    // OCSF class name, e.g. user_inventory
+	Data    string `json:"data"`    // OCSF class name, or "auto"/"" to let the model pick the main dataset
 	Details string `json:"details"` // optional: pasted API docs, company domain, notes
 }
 
@@ -83,7 +83,12 @@ type Draft struct {
 	Needed   []string        `json:"needed"`   // the minimum a human must supply: the key (and tenant address if any)
 	Optional []string        `json:"optional"` // may be tuned later; never needed to connect
 	Sources  []string        `json:"sources"`  // official doc pages the draft is based on (https only)
-	Rounds   int             `json:"rounds"`   // model calls used
+	// Data is the OCSF class this draft collects (what "auto" resolved to).
+	Data string `json:"data"`
+	// AlsoAvailable: other datasets this product's API offers, each one more
+	// source (OCSF class names, never including Data).
+	AlsoAvailable []string `json:"also_available"`
+	Rounds        int      `json:"rounds"` // model calls used
 }
 
 // Issues returned when the model could not produce a valid config.
@@ -98,14 +103,17 @@ func (r Request) Check() error {
 	if len(strings.TrimSpace(r.Product)) < 2 || len(r.Product) > 100 {
 		return errors.New("product: 2-100 characters")
 	}
-	if _, ok := ocsf.Lookup(r.Data); !ok {
-		return errors.New("data: unknown OCSF class")
+	if _, ok := ocsf.Lookup(r.Data); !ok && !r.Auto() {
+		return errors.New("data: auto or an OCSF class")
 	}
 	if len(r.Details) > 20000 {
 		return errors.New("details: at most 20000 characters")
 	}
 	return nil
 }
+
+// Auto: the model chooses the product's main dataset.
+func (r Request) Auto() bool { return r.Data == "" || r.Data == "auto" }
 
 // Draft asks the model for a config and repairs it against our validator.
 func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft, error) {
@@ -132,7 +140,8 @@ func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft
 			if e != nil {
 				return nil, ErrUpstream
 			}
-			return &Draft{Config: norm, Notes: out.Notes, Needed: out.Needed, Optional: out.Optional, Sources: httpsOnly(out.Sources), Rounds: round}, nil
+			return &Draft{Config: norm, Notes: out.Notes, Needed: out.Needed, Optional: out.Optional, Sources: httpsOnly(out.Sources),
+				Data: decoded.Destination.Class, AlsoAvailable: alsoAvailable(out.Also, decoded.Destination.Class), Rounds: round}, nil
 		}
 		// feed our validator's verdict back; the model fixes its own config
 		b, _ := json.Marshal(issues)
@@ -153,6 +162,19 @@ type modelOutput struct {
 	Needed     []string `json:"needed"`
 	Optional   []string `json:"optional"`
 	Sources    []string `json:"sources"`
+	Also       []string `json:"also_available"`
+}
+
+// alsoAvailable keeps known OCSF classes other than the drafted one, deduped.
+func alsoAvailable(in []string, drafted string) []string {
+	out, seen := []string{}, map[string]bool{drafted: true}
+	for _, c := range in {
+		if _, ok := ocsf.Lookup(c); ok && !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // httpsOnly keeps plain https URLs (shown as links in the console); anything
@@ -172,13 +194,15 @@ func httpsOnly(in []string) []string {
 // because its mapping keys are open-ended (strict mode needs closed objects).
 var outputSchema = map[string]any{
 	"type": "object", "additionalProperties": false,
-	"required": []string{"config_json", "notes", "needed", "optional", "sources"},
+	"required": []string{"config_json", "notes", "needed", "optional", "sources", "also_available"},
 	"properties": map[string]any{
 		"config_json": map[string]any{"type": "string", "description": "the complete connector config as a JSON document"},
 		"notes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"needed":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"optional":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"sources":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"also_available": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": ocsf.Classes()},
+			"description": "other OCSF classes this product's API also offers, excluding the one drafted"},
 	},
 }
 
@@ -252,7 +276,7 @@ func systemPrompt() string {
 	return `You write connector configs for ConfigBridge, a platform that pulls JSON from a vendor REST API and stores every record as an OCSF 1.9.0 event.
 You only write the config. You never produce data records.
 
-Output: config_json = ONE complete config document (a JSON string), notes = short reasons for each non-obvious choice (endpoint, auth, paging, mappings); needed = the MINIMUM the customer must do to connect, normally just one item: which API key/token to create, where in the vendor console, and which read-only permission it needs; add the tenant address only if the host is customer-specific; never put anything you can decide yourself in needed; optional = a few settings they MAY tune later (filters, schedule, extra fields), never required to connect; sources = 1-3 official https documentation URLs of the vendor API you based the endpoint, auth and fields on (only real vendor doc pages you are confident exist; empty if unsure). If you are unsure of an endpoint or field name, still give your best guess and say so in notes; the platform tests every draft against the real API before it can go live.
+Output: config_json = ONE complete config document (a JSON string), notes = short reasons for each non-obvious choice (endpoint, auth, paging, mappings); needed = the MINIMUM the customer must do to connect, normally just one item: which API key/token to create, where in the vendor console, and which read-only permission it needs; add the tenant address only if the host is customer-specific; never put anything you can decide yourself in needed; optional = a few settings they MAY tune later (filters, schedule, extra fields), never required to connect; also_available = other OCSF classes (from the available OCSF classes given in the request) this product's API genuinely offers besides the one you drafted, e.g. Okta drafted as user_inventory -> ["authentication"]; empty if none; sources = 1-3 official https documentation URLs of the vendor API you based the endpoint, auth and fields on (only real vendor doc pages you are confident exist; empty if unsure). If you are unsure of an endpoint or field name, still give your best guess and say so in notes; the platform tests every draft against the real API before it can go live.
 
 Config rules (the platform validator enforces them):
 - version 1; id: lowercase a-z 0-9 _ - (derive from product + data, e.g. okta_users); name: human label.
@@ -280,7 +304,12 @@ NVD CVEs (api_key header + offset paging):
 
 func userPrompt(r Request, secrets []Secret) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Product: %s\nData wanted: %s\n", strings.TrimSpace(r.Product), r.Data)
+	if r.Auto() {
+		fmt.Fprintf(&b, "Product: %s\nData wanted: auto. Pick the ONE dataset a security team most wants from this product (its main entity: e.g. an identity provider -> user_inventory, an EDR/MDM -> inventory_info, a CVE/threat feed -> vulnerability_finding, a SIEM/alerting tool -> detection_finding) and set destination.class to it. List the product's other datasets in also_available.\n", strings.TrimSpace(r.Product))
+	} else {
+		fmt.Fprintf(&b, "Product: %s\nData wanted: %s (set destination.class to exactly this)\n", strings.TrimSpace(r.Product), r.Data)
+	}
+	b.WriteString("Available OCSF classes: " + strings.Join(ocsf.Classes(), ", ") + "\n")
 	if len(secrets) > 0 {
 		b.WriteString("Stored secrets (name -> the only host it may be sent to):\n")
 		for _, s := range secrets {

@@ -858,7 +858,7 @@ function renderBuilder(v) {
   refreshJSON();
 }
 // ---------- Add source: product + data type -> AI draft -> key -> Connect ----------
-const W = { product: '', data: 'user_inventory', details: '', draft: null, msg: '', bad: false, progress: [], address: '' };
+const W = { product: '', data: 'auto', details: '', draft: null, msg: '', bad: false, progress: [], address: '' };
 const optTag = () => h('span', { class: 'tag', style: 'margin-left:6px' }, 'optional');
 async function wizard(v) {
   const [sec, cfgs] = await Promise.all([must('GET', '/secrets?limit=500'), must('GET', '/configs?limit=500')]);
@@ -894,13 +894,16 @@ function renderWizard(v) {
     header('Add source', null, h('button', { class: 'ghost', type: 'button', onclick: () => { B.advanced = true; if (!W.draft) B.f = null; route(); } }, 'Fill in manually')),
     h('div', { class: 'card' }, h('div', { class: 'bd stack' },
       h('label', { class: 'f' }, h('span', {}, 'Product'), product),
-      h('div', { class: 'f' }, h('span', {}, 'What data'), h('div', { class: 'row' },
-        kinds.map((k) => h('button', { type: 'button', class: 'sm' + (W.data === k ? ' primary' : ''), onclick: () => { W.data = k; re(); } }, KIND[k])))),
+      h('div', { class: 'f' }, h('span', {}, 'What data', optTag()), h('div', { class: 'row' },
+        ['auto'].concat(kinds).map((k) => h('button', { type: 'button', class: 'sm' + (W.data === k ? ' primary' : ''), onclick: () => { W.data = k; re(); } }, k === 'auto' ? 'Auto' : KIND[k]))),
+        W.data === 'auto' ? h('span', { class: 'small faint' }, 'The AI picks this product\'s main data. Pick one only if you want something else.') : null),
       h('label', { class: 'f' }, h('span', {}, 'Notes', optTag()), details),
       h('div', { class: 'row' }, draftBtn, W.msg ? h('span', { class: 'small', style: W.bad ? 'color:var(--bad)' : 'color:var(--muted)' }, W.msg) : null))),
   ];
   if (W.draft) parts.push(draftCard(v));
   v.replaceChildren(...parts);
+  // "Also available" on a draft asks for that dataset straight away
+  if (W.again) { W.again = false; draftBtn.click(); }
 }
 function draftCard(v) {
   const re = () => renderWizard(v);
@@ -945,7 +948,10 @@ function draftCard(v) {
   const step = (n, title, ...body) => h('div', { class: 'stack', style: 'gap:6px' }, h('div', {}, h('strong', {}, n + '. ' + title)), ...body);
   let n = 0;
   return h('div', { class: 'card' }, h('div', { class: 'bd stack' },
-    h('div', {}, h('h2', {}, c.name || c.id), h('div', { class: 'small muted' }, kind(c.destination.class) + ' from ' + (apiHost || c.request.url))),
+    h('div', {}, h('h2', {}, c.name || c.id), h('div', { class: 'small muted' }, 'Pulling ', h('strong', {}, kind(c.destination.class)), ' from ' + (apiHost || c.request.url))),
+    (W.draft.also_available || []).length ? h('div', { class: 'row small' }, h('span', { class: 'muted' }, 'Also available from ' + (W.product.trim() || 'this product') + ':'),
+      W.draft.also_available.map((k) => h('button', { type: 'button', class: 'sm', title: 'Set up ' + kind(k) + ' as another source',
+        onclick: () => { W.data = k; W.again = true; re(); } }, '+ ' + kind(k))), optTag()) : null,
     placeholder ? step(++n, 'Your ' + (W.product || 'vendor') + ' address', h('div', { class: 'row' }, addr, applyAddr)) : null,
     needsKey ? step(++n, 'API key', neededHints.length ? h('ul', { class: 'small muted', style: 'margin:0;padding-left:18px' }, neededHints.map((x) => h('li', {}, x))) : null,
       h('div', { class: 'row' }, keyInput, saveKey), h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + (keyHost || 'the vendor') + '.')) : null,

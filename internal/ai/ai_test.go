@@ -24,7 +24,7 @@ func fake(t *testing.T, answers ...string) (*Client, *[]string) {
 			w.WriteHeader(401)
 			return
 		}
-		out, _ := json.Marshal(map[string]any{"config_json": answers[min(n, len(answers)-1)], "notes": []string{"n"}, "needed": []string{"key"}, "optional": []string{}, "sources": []string{"https://docs.github.com/rest", "javascript:alert(1)", "http://x.example"}})
+		out, _ := json.Marshal(map[string]any{"config_json": answers[min(n, len(answers)-1)], "notes": []string{"n"}, "needed": []string{"key"}, "optional": []string{}, "sources": []string{"https://docs.github.com/rest", "javascript:alert(1)", "http://x.example"}, "also_available": []string{"user_inventory", "detection_finding", "nope", "detection_finding"}})
 		n++
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(out)}}}})
 	}))
@@ -40,6 +40,9 @@ func TestDraftRepairsAgainstValidator(t *testing.T) {
 	d, e := c.Draft(context.Background(), Request{Product: "GitHub", Data: "user_inventory"}, []Secret{{"github_token", "api.github.com"}})
 	if e != nil || d.Rounds != 2 || !json.Valid(d.Config) {
 		t.Fatal("repair loop", e, d)
+	}
+	if d.Data != "user_inventory" || len(d.AlsoAvailable) != 1 || d.AlsoAvailable[0] != "detection_finding" {
+		t.Fatal("data / also_available not resolved and filtered", d.Data, d.AlsoAvailable)
 	}
 	if len(d.Sources) != 1 || d.Sources[0] != "https://docs.github.com/rest" {
 		t.Fatal("sources not filtered to https", d.Sources)
@@ -79,6 +82,11 @@ func TestDraftNotConfiguredAndProviderErrors(t *testing.T) {
 }
 
 func TestRequestCheck(t *testing.T) {
+	for _, a := range []string{"auto", ""} {
+		if (Request{Product: "Okta", Data: a}).Check() != nil {
+			t.Fatal("auto rejected", a)
+		}
+	}
 	for _, r := range []Request{{Product: "", Data: "user_inventory"}, {Product: "Okta", Data: "nope"}, {Product: "Okta", Data: "user_inventory", Details: strings.Repeat("x", 20001)}} {
 		if r.Check() == nil {
 			t.Fatal("accepted", r.Product, r.Data)
