@@ -1,0 +1,80 @@
+{
+ "version": 1,
+ "id": "github_committers_incremental",
+ "name": "GitHub repo committers - incremental (B-1 demo, live)",
+ "vendor": "GitHub",
+ "request": {
+  "method": "GET",
+  "url": "https://api.github.com/repos/your-owner/your-repo/commits",
+  "timeout_seconds": 20,
+  "params": {},
+  "headers": {
+   "Accept": "application/vnd.github+json",
+   "X-GitHub-Api-Version": "2022-11-28"
+  }
+ },
+ "auth": {
+  "type": "bearer",
+  "secret": "github_token"
+ },
+ "items_path": "",
+ "pagination": {
+  "type": "page",
+  "page_param": "page",
+  "size_param": "per_page",
+  "page_size": 100
+ },
+ "schedule": {
+  "enabled": false,
+  "interval_seconds": 3600
+ },
+ "destination": {
+  "class": "user_inventory",
+  "mapping": {
+   "user.uid": {
+    "path": "commit.author.email",
+    "required": true,
+    "transform": "trim"
+   },
+   "user.name": {
+    "path": "commit.author.name",
+    "transform": "trim"
+   },
+   "user.email_addr": {
+    "path": "commit.author.email",
+    "transform": "trim"
+   },
+   "time": {
+    "path": "commit.committer.date",
+    "required": true,
+    "transform": "datetime"
+   },
+   "metadata.product.name": {
+    "constant": "GitHub"
+   },
+   "metadata.product.vendor_name": {
+    "constant": "GitHub"
+   }
+  }
+ },
+ "limits": {
+  "max_pages": 10,
+  "max_records": 500,
+  "max_response_bytes": 1048576,
+  "max_run_seconds": 60
+ },
+ "retry": {
+  "max_attempts": 4,
+  "base_delay_ms": 1000,
+  "max_retry_after_seconds": 60
+ },
+ "incremental": {
+  "type": "time_window",
+  "start_time": "2026-10-01T00:00:00Z",
+  "since_param": "since",
+  "until_param": "until",
+  "updated_at_path": "commit.committer.date",
+  "overlap_seconds": 0,
+  "safety_lag_seconds": 0
+ }
+}

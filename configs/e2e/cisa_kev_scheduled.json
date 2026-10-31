@@ -1,0 +1,104 @@
+{
+ "version": 1,
+ "id": "cisa_kev_scheduled",
+ "name": "CISA KEV - every 60 s (FR-4 schedule demo, live)",
+ "request": {
+  "method": "GET",
+  "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+  "timeout_seconds": 20
+ },
+ "auth": {
+  "type": "none"
+ },
+ "items_path": "vulnerabilities",
+ "pagination": {
+  "type": "none"
+ },
+ "schedule": {
+  "enabled": true,
+  "interval_seconds": 60
+ },
+ "destination": {
+  "class": "vulnerability_finding",
+  "mapping": {
+   "finding_info.uid": {
+    "path": "cveID",
+    "required": true,
+    "transform": "trim"
+   },
+   "finding_info.title": {
+    "path": "vulnerabilityName",
+    "required": true,
+    "transform": "trim"
+   },
+   "finding_info.desc": {
+    "path": "shortDescription",
+    "transform": "string"
+   },
+   "time": {
+    "path": "dateAdded",
+    "required": true,
+    "transform": "datetime",
+    "format": "2006-01-02",
+    "timezone": "UTC"
+   },
+   "vulnerabilities.0.cve.uid": {
+    "path": "cveID",
+    "required": true,
+    "transform": "trim"
+   },
+   "vulnerabilities.0.title": {
+    "path": "vulnerabilityName",
+    "transform": "trim"
+   },
+   "vulnerabilities.0.desc": {
+    "path": "shortDescription",
+    "transform": "string"
+   },
+   "vulnerabilities.0.vendor_name": {
+    "path": "vendorProject",
+    "transform": "trim"
+   },
+   "vulnerabilities.0.is_exploit_available": {
+    "constant": true
+   },
+   "vulnerabilities.0.remediation.desc": {
+    "path": "requiredAction",
+    "transform": "string"
+   },
+   "vulnerabilities.0.cwe.uid": {
+    "path": "cwes.0",
+    "transform": "trim"
+   },
+   "metadata.product.name": {
+    "constant": "Known Exploited Vulnerabilities Catalog"
+   },
+   "metadata.product.vendor_name": {
+    "constant": "CISA"
+   },
+   "unmapped.product": {
+    "path": "product",
+    "transform": "trim"
+   },
+   "unmapped.ransomware_use": {
+    "path": "knownRansomwareCampaignUse",
+    "transform": "string"
+   },
+   "unmapped.due_date": {
+    "path": "dueDate",
+    "transform": "string"
+   }
+  }
+ },
+ "limits": {
+  "max_pages": 1,
+  "max_records": 5000,
+  "max_response_bytes": 8388608,
+  "max_run_seconds": 60
+ },
+ "retry": {
+  "max_attempts": 4,
+  "base_delay_ms": 1000,
+  "max_retry_after_seconds": 60
+ }
+}
