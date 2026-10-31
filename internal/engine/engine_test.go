@@ -421,6 +421,24 @@ func TestValidateRejectsSecretsOutsideAuth(t *testing.T) {
 	}
 }
 
+func TestSensitiveNameDetection(t *testing.T) {
+	sensitive := []string{"Authorization", "X-API-Key", "api_key", "apiKey", "APIKey", "access_token",
+		"accessToken", "X-Auth-Token", "client_secret", "password", "Cookie", "sessionId", "sig", "jwt"}
+	for _, n := range sensitive {
+		if !looksSensitive(n) {
+			t.Errorf("%s should be flagged", n)
+		}
+	}
+	// Real vendor params that must stay allowed (NVD, Jira, GitHub).
+	allowed := []string{"keywordSearch", "startIndex", "resultsPerPage", "maxResults", "startAt",
+		"jql", "per_page", "state", "Accept", "monkey", "author_count"}
+	for _, n := range allowed {
+		if looksSensitive(n) {
+			t.Errorf("%s should be allowed", n)
+		}
+	}
+}
+
 func TestSecretNeverPrints(t *testing.T) {
 	s := NewSecret(secretValue, "api.github.com")
 	var buf bytes.Buffer

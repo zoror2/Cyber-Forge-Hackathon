@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 // Connector is the request side of a connection config. Member B owns the full
@@ -85,18 +86,50 @@ func setDefault[T comparable](field *T, value T) {
 	}
 }
 
-// Names that suggest a credential. Secrets may only enter through the auth block,
-// so a header or query parameter with one of these names is rejected outright.
-var sensitiveWords = []string{"auth", "token", "key", "secret", "password", "passwd", "cookie", "session", "signature", "credential"}
+// Words that suggest a credential. Secrets may only enter through the auth block,
+// so a header or query parameter containing one of these words is rejected.
+// Matching is per word ("apiKey" -> api, key) so "keywordSearch" is still allowed.
+var sensitiveWords = map[string]bool{
+	"auth": true, "authorization": true, "token": true, "key": true, "apikey": true,
+	"secret": true, "password": true, "passwd": true, "pwd": true, "cookie": true,
+	"session": true, "sessionid": true, "signature": true, "sig": true, "jwt": true,
+	"bearer": true, "credential": true, "credentials": true, "pass": true,
+}
 
 func looksSensitive(name string) bool {
-	n := strings.ToLower(name)
-	for _, w := range sensitiveWords {
-		if strings.Contains(n, w) {
+	for _, w := range splitWords(name) {
+		if sensitiveWords[w] {
 			return true
 		}
 	}
 	return false
+}
+
+// splitWords splits "X-API-Key", "api_key", "apiKey", "accessToken" into lowercase words.
+func splitWords(s string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	runes := []rune(s)
+	for i, r := range runes {
+		switch {
+		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
+			flush()
+		case unicode.IsUpper(r) && i > 0 && (unicode.IsLower(runes[i-1]) ||
+			(i+1 < len(runes) && unicode.IsLower(runes[i+1]) && unicode.IsUpper(runes[i-1]))):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+	}
+	flush()
+	return words
 }
 
 // Validate returns every problem at once so the UI/API can show them together.
