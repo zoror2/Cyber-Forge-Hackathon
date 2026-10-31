@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -120,7 +121,7 @@ var Checks = map[string]string{
 }
 
 func (a Answer) Validate(e Evidence) error {
-	if len(a.Summary) < 1 || len(a.Summary) > 2000 || len(a.EvidenceIDs) < 1 || len(a.EvidenceIDs) > len(e.Facts) || len(a.NextChecks) > 5 {
+	if strings.TrimSpace(a.Summary) == "" || len(a.Summary) > 2000 || len(a.EvidenceIDs) < 1 || len(a.EvidenceIDs) > len(e.Facts) || len(a.NextChecks) > 5 {
 		return ErrEvidence
 	}
 	allowed := map[string]bool{}

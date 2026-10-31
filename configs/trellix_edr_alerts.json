@@ -1,0 +1,15 @@
+{
+  "version": 1, "id": "trellix_edr_alerts", "name": "Trellix EDR raw alerts", "vendor": "Trellix EDR",
+  "request": {"method": "GET", "url": "https://your-trellix-gateway.example.com/edr/v2/alerts", "headers": {"Accept": "application/vnd.api+json", "Content-Type": "application/vnd.api+json"}, "timeout_seconds": 20},
+  "auth": {"type": "static", "secret": "trellix_edr", "headers": [{"name": "Authorization", "value": "Bearer {{secret.access_token}}"}, {"name": "x-api-key", "value": "{{secret.api_key}}"}]},
+  "items_path": "data", "pagination": {"type": "next_url", "next_url_path": "links.next"},
+  "destination": {"class": "detection_finding", "mapping": {
+    "finding_info.uid": {"path": "id", "required": true, "transform": "string"},
+    "finding_info.title": {"path": "attributes.Activity", "required": true, "transform": "string"},
+    "time": {"path": "attributes.DetectionDate", "required": true, "transform": "datetime"},
+    "metadata.product.name": {"constant": "Trellix EDR"}, "metadata.product.vendor_name": {"constant": "Trellix"}
+  }},
+  "schedule": {"enabled": false, "interval_seconds": 900},
+  "limits": {"max_response_bytes": 1048576, "max_pages": 20, "max_records": 1000, "max_run_seconds": 120},
+  "retry": {"max_attempts": 3, "base_delay_ms": 1000, "max_retry_after_seconds": 60}
+}

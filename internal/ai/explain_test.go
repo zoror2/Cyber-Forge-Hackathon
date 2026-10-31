@@ -50,6 +50,9 @@ func TestExplainValidatesAnswerAndReportsUsage(t *testing.T) {
 		`{"summary":"x","evidence_ids":["e9"],"next_checks":[]}`,
 		`{"summary":"see https://evil.invalid","evidence_ids":["e1"],"next_checks":[]}`,
 		`{"summary":"x","evidence_ids":["e1"],"next_checks":[],"action":"disable_alerts"}`,
+		good + ` {"extra":"trailing document"}`,
+		`{"summary":"first","summary":"second","evidence_ids":["e1"],"next_checks":[]}`,
+		`{"summary":"   ","evidence_ids":["e1"],"next_checks":[]}`,
 	} {
 		c, _ := groqFake(t, bad, map[string]int64{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2})
 		if _, u, err := c.Explain(context.Background(), evidence); !errors.Is(err, insights.ErrEvidence) || u.Total != 2 {

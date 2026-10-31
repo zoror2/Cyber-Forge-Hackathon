@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "elastic_security_alerts",
+  "name": "Elastic Security alerts (bounded offset search)",
+  "vendor": "Elastic Security",
+  "request": {
+    "method": "GET",
+    "url": "https://your-elasticsearch.example.com/.alerts-security.alerts-default/_search",
+    "params": {
+      "source": "{\"_source\":false,\"fields\":[\"@timestamp\",\"kibana.alert.rule.name\",\"kibana.alert.severity\"],\"sort\":[{\"@timestamp\":\"asc\"}]}",
+      "source_content_type": "application/json",
+      "allow_partial_search_results": "false"
+    },
+    "headers": {"Accept": "application/json"},
+    "timeout_seconds": 20
+  },
+  "auth": {
+    "type": "static", "secret": "elastic_security",
+    "headers": [{"name": "Authorization", "value": "ApiKey {{secret.value}}"}]
+  },
+  "items_path": "hits.hits",
+  "response_checks": [{"path": "timed_out", "equals": false}, {"path": "_shards.failed", "equals": 0}],
+  "pagination": {"type": "offset", "offset_param": "from", "size_param": "size", "page_size": 100},
+  "destination": {
+    "class": "detection_finding",
+    "mapping": {
+      "finding_info.uid": {"path": "_id", "required": true, "transform": "string"},
+      "finding_info.title": {"path": "/fields/kibana.alert.rule.name/0", "required": true, "transform": "string"},
+      "time": {"path": "/fields/@timestamp/0", "required": true, "transform": "datetime"},
+      "severity_id": {"path": "/fields/kibana.alert.severity/0", "required": true, "transform": "lookup", "lookup": {"low": "2", "medium": "3", "high": "4", "critical": "5"}},
+      "metadata.product.name": {"constant": "Elastic Security"},
+      "metadata.product.vendor_name": {"constant": "Elastic"}
+    }
+  },
+  "schedule": {"enabled": false, "interval_seconds": 900},
+  "limits": {"max_response_bytes": 1048576, "max_pages": 50, "max_records": 5000, "max_run_seconds": 120},
+  "retry": {"max_attempts": 3, "base_delay_ms": 1000, "max_retry_after_seconds": 60}
+}

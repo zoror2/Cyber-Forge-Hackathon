@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"configbridge/internal/egress"
+	"configbridge/pkg/jsonvalue"
 )
 
 // Errors callers can check with errors.Is to set the run status.
@@ -151,6 +152,14 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 		if err != nil {
 			return res, fmt.Errorf("page %d: %w", res.Pages+1, err)
 		}
+		for _, check := range c.ResponseChecks {
+			actual, found := getPath(payload, check.Path)
+			a, _ := json.Marshal(actual)
+			expected, _ := json.Marshal(check.Equals)
+			if !found || !bytes.Equal(a, expected) {
+				return res, fmt.Errorf("page %d: vendor response failed configured completeness check", res.Pages+1)
+			}
+		}
 		res.Pages++
 		res.Items += len(items)
 
@@ -200,9 +209,20 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 			}
 			cursor = s
 
-		case "link":
+		case "link", "next_url":
 			// Read rel="next" from the Link header (GitHub, Okta style).
 			link := nextLink(header.Values("Link"))
+			if c.Pagination.Type == "next_url" {
+				v, found := getPath(payload, c.Pagination.NextURLPath)
+				if !found || v == nil {
+					return res, nil
+				}
+				var ok bool
+				link, ok = v.(string)
+				if !ok {
+					return res, fmt.Errorf("page %d: next-page URL must be a string or null", res.Pages)
+				}
+			}
 			if link == "" {
 				return res, nil // no next link = last page
 			}
@@ -432,34 +452,13 @@ func decodeItems(body []byte, path string) (any, []any, error) {
 	return payload, items, nil
 }
 
-// getPath follows a dotted path through decoded JSON.
+// getPath follows a dotted path or an RFC 6901 JSON Pointer through JSON.
 //
 //	getPath(v, "data.items")    -> v["data"]["items"]
 //	getPath(v, "results.0.id")  -> v["results"][0]["id"]
 //	getPath(v, "")              -> v
 func getPath(v any, path string) (any, bool) {
-	if path == "" {
-		return v, true
-	}
-	for _, part := range strings.Split(path, ".") {
-		switch t := v.(type) {
-		case map[string]any: // JSON object: look up the key
-			next, ok := t[part]
-			if !ok {
-				return nil, false
-			}
-			v = next
-		case []any: // JSON array: the part must be a valid index
-			i, err := strconv.Atoi(part)
-			if err != nil || i < 0 || i >= len(t) {
-				return nil, false
-			}
-			v = t[i]
-		default: // string/number/bool/null: can't go deeper
-			return nil, false
-		}
-	}
-	return v, true
+	return jsonvalue.Path(v, path)
 }
 
 // nextLink finds the rel="next" URL in HTTP Link headers (RFC 8288), e.g.

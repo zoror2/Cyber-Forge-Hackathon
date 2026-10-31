@@ -9,3 +9,6 @@ var GitHubMembers []byte
 
 //go:embed nvd_kev_cves.json
 var NVDKEVCVEs []byte
+
+//go:embed cisa_kev.json
+var CISAKEV []byte

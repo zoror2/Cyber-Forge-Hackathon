@@ -20,7 +20,7 @@ func TestMount(t *testing.T) {
 		!strings.Contains(w.Header().Get("Content-Security-Policy"), "script-src 'self'") {
 		t.Fatal("console not served with CSP", w.Code)
 	}
-	for _, f := range []string{"/ui/app.js", "/ui/app.css"} {
+	for _, f := range []string{"/ui/app.js", "/ui/ai-usage.js", "/ui/app.css"} {
 		if w := get(f); w.Code != 200 {
 			t.Fatal(f, w.Code)
 		}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"configbridge/internal/engine"
+	"configbridge/pkg/jsonvalue"
 	"configbridge/pkg/ocsf"
 )
 
@@ -25,21 +26,22 @@ var identifier = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 func ValidID(s string) bool { return identifier.MatchString(s) }
 
 type Config struct {
-	Version       int               `json:"version"`
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Vendor        string            `json:"vendor,omitempty"`
-	Request       engine.Request    `json:"request"`
-	Auth          engine.Auth       `json:"auth"`
-	ItemsPath     string            `json:"items_path"`
-	Pagination    engine.Pagination `json:"pagination"`
-	Limits        Limits            `json:"limits"`
-	Retry         engine.Retry      `json:"retry"`
-	Schedule      Schedule          `json:"schedule"`
-	Filter        []Condition       `json:"filter"`
-	Destination   Destination       `json:"destination"`
-	Incremental   *Incremental      `json:"incremental,omitempty"`
-	Notifications *Notifications    `json:"notifications,omitempty"`
+	Version        int                    `json:"version"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Vendor         string                 `json:"vendor,omitempty"`
+	Request        engine.Request         `json:"request"`
+	Auth           engine.Auth            `json:"auth"`
+	ItemsPath      string                 `json:"items_path"`
+	ResponseChecks []engine.ResponseCheck `json:"response_checks,omitempty"`
+	Pagination     engine.Pagination      `json:"pagination"`
+	Limits         Limits                 `json:"limits"`
+	Retry          engine.Retry           `json:"retry"`
+	Schedule       Schedule               `json:"schedule"`
+	Filter         []Condition            `json:"filter"`
+	Destination    Destination            `json:"destination"`
+	Incremental    *Incremental           `json:"incremental,omitempty"`
+	Notifications  *Notifications         `json:"notifications,omitempty"`
 }
 type Notifications struct {
 	Enabled          bool `json:"enabled"`
@@ -174,7 +176,7 @@ func Decode(body []byte) (Config, []Issue) {
 	return c, c.Validate()
 }
 func (c Config) Connector(tenant string) engine.Connector {
-	return engine.Connector{TenantID: tenant, ID: c.ID, Request: c.Request, Auth: c.Auth, ItemsPath: c.ItemsPath, Pagination: c.Pagination, Limits: engine.Limits{MaxResponseBytes: c.Limits.MaxResponseBytes, MaxPages: c.Limits.MaxPages, MaxRunSeconds: c.Limits.MaxRunSeconds}, Retry: c.Retry}
+	return engine.Connector{TenantID: tenant, ID: c.ID, Request: c.Request, Auth: c.Auth, ItemsPath: c.ItemsPath, ResponseChecks: c.ResponseChecks, Pagination: c.Pagination, Limits: engine.Limits{MaxResponseBytes: c.Limits.MaxResponseBytes, MaxPages: c.Limits.MaxPages, MaxRunSeconds: c.Limits.MaxRunSeconds}, Retry: c.Retry}
 }
 func (c *Config) Defaults() {
 	if c.Notifications != nil && c.Notifications.Enabled {
@@ -361,6 +363,11 @@ func (c Config) validateDestination() []Issue {
 		normalized[normalize(path)] = true
 		if (spec.Path != nil) == (spec.Constant != nil) {
 			add(key, "provide exactly one path or non-null constant")
+		}
+		if spec.Path != nil {
+			if _, ok := jsonvalue.Tokens(*spec.Path); !ok {
+				add(key+".path", "invalid JSON Pointer escape; use ~0 for ~ and ~1 for /")
+			}
 		}
 		switch spec.Transform {
 		case "", "string", "trim", "integer", "datetime", "lookup":
