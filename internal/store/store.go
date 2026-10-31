@@ -53,6 +53,9 @@ var migrationIAM string
 //go:embed migrations/011_sessions.sql
 var migrationSessions string
 
+//go:embed migrations/012_siem.sql
+var migrationSIEM string
+
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
 // 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
@@ -72,6 +75,8 @@ var migrations = []struct {
 	{9, migrationExposureOCSF, nil},
 	{10, migrationIAM, []string{"iam_users"}},
 	{11, migrationSessions, []string{"iam_sessions"}},
+	// 12 was 006_siem on main (member-b); renumbered after this branch's 6-11.
+	{12, migrationSIEM, []string{"siem_snapshots", "siem_findings", "ai_requests"}},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -163,7 +168,10 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
-	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage TO "+role); e != nil {
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage,"+sch+".ai_requests TO "+role); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+sch+".siem_snapshots,"+sch+".siem_findings TO "+role); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE ON "+sch+".alert_state,"+sch+".alert_outbox TO "+role); e != nil {

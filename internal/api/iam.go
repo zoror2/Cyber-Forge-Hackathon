@@ -47,8 +47,10 @@ func action(method, path string) string {
 		return "iam:write"
 	case path == "/ai/audit":
 		return "ai:audit"
-	case path == "/ai/draft":
-		return "ai:draft"
+	case path == "/ai/draft", path == "/siem/ask":
+		return "ai:draft" // both send data to the model and spend the AI budget
+	case path == "/siem/refresh":
+		return "connectors:run"
 	case method == http.MethodGet:
 		return "read"
 	case strings.HasPrefix(path, "/connectors/") && (strings.HasSuffix(path, "/run") || strings.HasSuffix(path, "/test")),

@@ -29,7 +29,7 @@ func toolReply(v map[string]any) *bedrockruntime.ConverseOutput {
 	return &bedrockruntime.ConverseOutput{StopReason: types.StopReasonToolUse, Output: &types.ConverseOutputMemberMessage{Value: types.Message{
 		Role: types.ConversationRoleAssistant,
 		Content: []types.ContentBlock{&types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
-			Name: aws.String(toolName), ToolUseId: aws.String("t1"), Input: document.NewLazyDocument(v)}}},
+			Name: aws.String("submit_connector_draft"), ToolUseId: aws.String("t1"), Input: document.NewLazyDocument(v)}}},
 	}}}
 }
 
@@ -54,7 +54,7 @@ func TestBedrockDraftUsesForcedToolAndValidates(t *testing.T) {
 		t.Fatalf("calls=%d sources=%v also=%v", rt.calls, d.Sources, d.AlsoAvailable)
 	}
 	tc, ok := rt.in.ToolConfig.ToolChoice.(*types.ToolChoiceMemberTool)
-	if !ok || aws.ToString(tc.Value.Name) != toolName || len(rt.in.System) != 1 || aws.ToString(rt.in.ModelId) != "test-model" {
+	if !ok || aws.ToString(tc.Value.Name) != "submit_connector_draft" || len(rt.in.System) != 1 || aws.ToString(rt.in.ModelId) != "test-model" {
 		t.Fatal("request not shaped as a forced tool call with a system prompt")
 	}
 }

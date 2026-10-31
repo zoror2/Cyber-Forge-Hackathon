@@ -18,6 +18,7 @@ import (
 
 	"configbridge/internal/ai"
 	"configbridge/internal/engine"
+	"configbridge/internal/insights"
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
@@ -37,6 +38,8 @@ type API struct {
 	Limits *Limits
 	// AI drafts configs; nil or no key = POST /ai/draft answers 503.
 	AI *ai.Client
+	// SIEM: tenant-scoped findings + metered AI explanations; nil = off.
+	SIEM *SIEM
 	// SessionKey signs console session JWTs (CB_JWT_SECRET, >= 32 bytes).
 	SessionKey []byte
 	// InsecureCookies drops the Secure flag: dev over plain http only.
@@ -83,6 +86,10 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /schema/{view}", a.prdView)
 	mux.HandleFunc("POST /ai/draft", a.aiDraft)
 	mux.HandleFunc("GET /ai/audit", a.aiAudit)
+	mux.HandleFunc("GET /ai/usage", a.aiUsage)
+	mux.HandleFunc("POST /siem/refresh", a.siemRefresh)
+	mux.HandleFunc("GET /siem/findings", a.siemFindings)
+	mux.HandleFunc("POST /siem/ask", a.siemAsk)
 	mux.HandleFunc("GET /alerts", a.alerts)
 	mux.HandleFunc("GET /exposure", a.exposure)
 	mux.HandleFunc("GET /auth/me", a.me)
@@ -213,7 +220,7 @@ func New(a *API) (http.Handler, error) {
 		}
 		// runs/tests call the vendor and AI drafts call the model: both are costly
 		// (POST /configs/{id}/test previews a draft against the real vendor too)
-		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
+		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || r.URL.Path == "/siem/ask" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
 			(strings.HasSuffix(r.URL.Path, "/run") || strings.HasSuffix(r.URL.Path, "/test"))) {
 			if ok, retry := lim.take("run:"+key, rl.RunPerKey); !ok {
 				limited(w, retry)
@@ -544,7 +551,8 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		SourceHash: sha(in), Provider: a.AI.Provider(), Model: a.AI.Model, PromptVersion: ai.PromptVersion}
 	scope := a.scope(r)
 	// Reserve before calling the model: failed and cancelled drafts count too.
-	if e := scope.ReserveAI(r.Context(), a.AI.DailyLimit, audit); e != nil {
+	// Calls and tokens share one daily budget with SIEM explanations.
+	if e := scope.ReserveMeteredAI(r.Context(), a.AI.DailyLimit, a.AI.TokenLimit, audit, "config_draft"); e != nil {
 		if errors.Is(e, store.ErrAIBudget) {
 			fail(w, 429, "ai_daily_limit_reached")
 		} else {
@@ -565,14 +573,20 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	d, e := a.AI.Draft(r.Context(), req, secrets)
 	var bad *ai.InvalidDraft
+	var usage insights.Usage // unknown (provider failure): the reservation stays counted
 	switch audit.Outcome = "provider_failed"; {
 	case e == nil:
-		audit.Outcome, audit.OutputHash = "drafted", sha(d.Config)
+		audit.Outcome, audit.OutputHash, usage = "drafted", sha(d.Config), d.Usage
 	case errors.As(e, &bad):
-		audit.Outcome = "validation_rejected"
+		audit.Outcome, usage = "validation_rejected", bad.Usage
+	}
+	done := context.WithoutCancel(r.Context())
+	if e := scope.FinishTokens(done, audit.RequestID, audit.Outcome, usage); e != nil {
+		dbFail(w, e)
+		return
 	}
 	// Audit holds hashes and metadata only: never the prompt, config or secrets.
-	if e := scope.RecordAI(context.WithoutCancel(r.Context()), audit); e != nil {
+	if e := scope.RecordAI(done, audit); e != nil {
 		dbFail(w, e)
 		return
 	}

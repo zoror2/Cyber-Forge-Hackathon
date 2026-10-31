@@ -113,8 +113,9 @@ func run() error {
 	if provider := os.Getenv("CB_AI_PROVIDER"); provider != "" {
 		model := os.Getenv("CB_AI_MODEL")
 		limit, err := strconv.Atoi(os.Getenv("CB_AI_DAILY_LIMIT"))
-		if model == "" || err != nil || limit < 1 || limit > 1000 {
-			return errors.New("CB_AI_PROVIDER set: CB_AI_MODEL and CB_AI_DAILY_LIMIT (1-1000) are required")
+		tokens, err2 := strconv.ParseInt(os.Getenv("CB_AI_DAILY_TOKEN_LIMIT"), 10, 64)
+		if model == "" || err != nil || limit < 1 || limit > 100 || err2 != nil || tokens < 40000 || tokens > 100000000 {
+			return errors.New("CB_AI_PROVIDER set: CB_AI_MODEL, CB_AI_DAILY_LIMIT (1-100) and CB_AI_DAILY_TOKEN_LIMIT (40000-100000000) are required")
 		}
 		switch provider {
 		case "bedrock":
@@ -143,7 +144,7 @@ func run() error {
 		default:
 			return errors.New("CB_AI_PROVIDER must be gemini, groq, bedrock or empty")
 		}
-		drafter.DailyLimit = limit
+		drafter.DailyLimit, drafter.TokenLimit = limit, tokens
 		drafter.Resolve = ai.LookupDNS
 	}
 	if raw := strings.TrimSpace(os.Getenv("CB_AI_ENABLED_TENANTS")); raw != "" {
@@ -172,7 +173,11 @@ func run() error {
 	if operator != "" && len(operator) < 32 {
 		return errors.New("CB_OPERATOR_TOKEN must be at least 32 characters")
 	}
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, NotificationTenants: notificationTenants,
+	siem, e := app.SIEM(os.Getenv, drafter)
+	if e != nil {
+		return e
+	}
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, SIEM: siem, NotificationTenants: notificationTenants,
 		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, OperatorToken: operator})
 	if e != nil {
 		return e

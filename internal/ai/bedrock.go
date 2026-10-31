@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"configbridge/internal/insights"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -27,20 +29,20 @@ func NewBedrock(rt Converser, model string) *Client {
 	return &Client{Bedrock: rt, Model: model}
 }
 
-const toolName = "submit_connector_draft"
-
 // bedrockOnce makes one Converse call. Structured output = a forced call to a
-// single tool whose input schema is outputSchema, so the reply is the tool
+// single tool whose input schema is the schema, so the reply is the tool
 // input, already parsed as JSON by Bedrock.
-func (c *Client) bedrockOnce(ctx context.Context, msgs []message) (*modelOutput, time.Duration, error) {
+func (c *Client) bedrockOnce(ctx context.Context, msgs []message, s schema) (string, insights.Usage, time.Duration, error) {
+	none := insights.Usage{}
+	toolName := "submit_" + s.name
 	in := &bedrockruntime.ConverseInput{
 		ModelId:         aws.String(c.Model),
 		InferenceConfig: &types.InferenceConfiguration{MaxTokens: aws.Int32(12000)},
 		ToolConfig: &types.ToolConfiguration{
 			Tools: []types.Tool{&types.ToolMemberToolSpec{Value: types.ToolSpecification{
 				Name:        aws.String(toolName),
-				Description: aws.String("Submit the connector config draft and its notes."),
-				InputSchema: &types.ToolInputSchemaMemberJson{Value: document.NewLazyDocument(outputSchema)},
+				Description: aws.String(s.desc),
+				InputSchema: &types.ToolInputSchemaMemberJson{Value: document.NewLazyDocument(s.body)},
 			}}},
 			ToolChoice: &types.ToolChoiceMemberTool{Value: types.SpecificToolChoice{Name: aws.String(toolName)}},
 		},
@@ -58,14 +60,18 @@ func (c *Client) bedrockOnce(ctx context.Context, msgs []message) (*modelOutput,
 	}
 	out, e := c.Bedrock.Converse(ctx, in)
 	if e != nil {
-		return nil, bedrockWait(e), bedrockErr(e)
+		return "", none, bedrockWait(e), bedrockErr(e)
+	}
+	u := none
+	if t := out.Usage; t != nil && t.InputTokens != nil && t.OutputTokens != nil {
+		u = insights.Usage{Known: true, Input: int64(*t.InputTokens), Output: int64(*t.OutputTokens), Total: int64(*t.InputTokens) + int64(*t.OutputTokens)}
 	}
 	if out.StopReason == types.StopReasonMaxTokens {
-		return nil, 0, fmt.Errorf("%w: model output too long", ErrUpstream)
+		return "", u, 0, fmt.Errorf("%w: model output too long", ErrUpstream)
 	}
 	msg, ok := out.Output.(*types.ConverseOutputMemberMessage)
 	if !ok {
-		return nil, 0, fmt.Errorf("%w: unexpected response", ErrUpstream)
+		return "", u, 0, fmt.Errorf("%w: unexpected response", ErrUpstream)
 	}
 	for _, b := range msg.Value.Content {
 		tu, ok := b.(*types.ContentBlockMemberToolUse)
@@ -73,17 +79,13 @@ func (c *Client) bedrockOnce(ctx context.Context, msgs []message) (*modelOutput,
 			continue
 		}
 		// smithy documents decode by `document` tags, not `json`: take the raw JSON
-		var mo modelOutput
 		b, e := tu.Value.Input.MarshalSmithyDocument()
-		if e == nil {
-			e = json.Unmarshal(b, &mo)
+		if e != nil || !json.Valid(b) {
+			return "", u, time.Second, fmt.Errorf("%w: output not in schema", ErrUpstream)
 		}
-		if e != nil {
-			return nil, time.Second, fmt.Errorf("%w: output not in schema", ErrUpstream)
-		}
-		return &mo, 0, nil
+		return string(b), u, 0, nil
 	}
-	return nil, time.Second, fmt.Errorf("%w: model did not submit a draft", ErrUpstream)
+	return "", u, time.Second, fmt.Errorf("%w: model did not submit an answer", ErrUpstream)
 }
 
 // bedrockWait: throttling is retried after a pause (the SDK has already

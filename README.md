@@ -179,6 +179,37 @@ pagination `none/page/offset/link/cursor`, and retry `base_delay_ms`. Date layou
 use Go notation (`2006-01-02`), with an explicit IANA timezone for naive dates.
 User-supplied `tenant_id`, unknown keys and duplicate JSON keys are rejected.
 
+## SIEM findings and AI explanations
+
+PostgreSQL stays authoritative. The optional SIEM flow derives bounded rule
+findings, indexes fixed metadata in private OpenSearch, retrieves candidate IDs,
+then revalidates them against the tenant's current PostgreSQL snapshot. Groq
+receives only approved counts, rule/error categories and request-local evidence
+labels after separate operator enablement and explicit request consent.
+
+The local `/insights` dashboard shows findings, evidence-backed explanations and
+the authenticated tenant's AI input/output/total tokens. Existing draft calls
+also record usage. Shared UTC-day request/token budgets are enforced in PostgreSQL;
+missing provider usage retains a conservative reservation rather than counting zero.
+
+Start with [docs/SIEM_AND_AI.md](docs/SIEM_AND_AI.md) for setup, exact rules,
+tests, jury explanation and Mohit's Bedrock adapter handoff. The app runs natively;
+Docker is used for test dependencies. Initial scope is five fixed rules and two
+question types. This does not implement the full OpenSearch Security Analytics
+detector/Sigma workflow or general-purpose autonomous investigations.
+
+| Route | Purpose |
+|---|---|
+| `POST /siem/refresh` | Body `{connector}`; compute and index a fresh 24-hour snapshot |
+| `GET /siem/findings?connector=` | Read your stored findings and snapshot window |
+| `POST /siem/ask` | Body `{connector,topic,external_ai_consent:true}`; retrieve/revalidate/explain |
+| `GET /ai/usage` | Your tenant's current UTC-day counts, tokens and recent requests |
+| `GET /insights` | Development browser dashboard; same Basic login as onboarding |
+
+The current hosted provider is Groq. Mohit will implement Bedrock later. Operator
+cross-customer dashboards, monthly billing, general free-text questions and
+production deployment remain future work.
+
 ## KEV and AI config drafts
 
 KEV events now retain optional `vendor`/`product` fields. A reviewed alias table

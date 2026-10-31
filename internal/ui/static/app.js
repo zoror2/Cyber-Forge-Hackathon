@@ -136,7 +136,7 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
 function lock(msg) {
   S.me = null;
   app().replaceChildren(loginView(msg));
@@ -225,7 +225,7 @@ function route() {
   const v = document.getElementById('view');
   if (!v) return;
   const name = view.split('?')[0];
-  const fn = { overview, connectors, builder, records, quarantine, runs, secrets, access }[name] || overview;
+  const fn = { overview, connectors, builder, records, insights, quarantine, runs, secrets, access }[name] || overview;
   v.replaceChildren(h('div', { class: 'muted' }, 'Loading…'));
   fn(v, decodeURIComponent(arg.split('?')[0]), q).catch((e) => {
     if (S.me) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
@@ -488,6 +488,53 @@ async function secrets(v) {
     h('div', { class: 'stack' }, h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Add or rotate')), form),
       h('div', { class: 'card' }, table([{ t: 'Name', v: (s) => h('code', {}, s.name) }, { t: 'Bound host', v: (s) => h('code', {}, s.allowed_host) },
         { t: 'Backend', v: (s) => h('span', { class: 'tag' }, s.backend) }, { t: 'Created', v: (s) => ago(s.created_at) }, { t: 'Updated', v: (s) => ago(s.updated_at) }], list))));
+}
+
+// ---------- insights: rule findings per source + AI explanation (opt-in, metered) ----------
+const TOPIC = { connection_health: 'Why is collection having problems?', security_findings: 'Which security findings need review?' };
+async function insights(v, _a, q) {
+  const [cfgs, usage] = await Promise.all([must('GET', '/configs?limit=500'), must('GET', '/ai/usage')]);
+  const live = cfgs.filter((c) => c.live_revision);
+  const I = { id: q.get('connector') || (live[0] || {}).id || '', topic: 'connection_health', consent: false, snap: null, answer: null, msg: '' };
+  const out = h('div', { class: 'stack' });
+  const show = () => {
+    const parts = [];
+    if (I.msg) parts.push(h('div', { class: 'small', style: 'color:var(--bad)' }, I.msg));
+    if (I.snap) parts.push(h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Rule findings'), h('span', { class: 'small muted' }, 'last 24 h · ' + when(I.snap.window_end))),
+      I.snap.findings.length ? table([{ t: 'Rule', v: (f) => h('code', {}, f.rule) }, { t: 'Severity', v: (f) => h('span', { class: 'tag' }, f.severity) },
+        { t: 'Category', v: (f) => f.category.replace(/_/g, ' ') }, { t: 'Count', num: 1, v: (f) => f.count.toLocaleString() }], I.snap.findings)
+        : h('div', { class: 'empty' }, 'No findings in this window. That does not establish the source is secure.')));
+    const a = I.answer;
+    if (a) parts.push(h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'AI explanation'), h('span', { class: 'pill warn' }, a.status === 'no_findings' ? 'no AI call' : 'review required')),
+      h('div', { class: 'bd stack' }, h('p', { style: 'margin:0' }, a.answer.summary),
+        (a.answer.next_checks || []).length ? h('ul', { class: 'small', style: 'margin:0;padding-left:18px' }, a.answer.next_checks.map((k) => h('li', {}, k.replace(/_/g, ' ')))) : null,
+        h('div', { class: 'small muted' }, 'Evidence: ', (a.evidence.facts || []).map((f) => f.id + ' ' + f.rule + ' ×' + f.count).join(' · ') || 'none'),
+        a.provider ? h('div', { class: 'small faint' }, a.provider + ' / ' + a.model + (a.usage && a.usage.known ? ' · ' + a.usage.total_tokens + ' tokens' : ' · usage not reported')) : null)));
+    out.replaceChildren(...parts);
+  };
+  const sel = h('select', { onchange: (e) => { I.id = e.target.value; I.snap = I.answer = null; show(); } }, live.map((c) => h('option', { value: c.id, selected: c.id === I.id }, c.name + ' (' + c.id + ')')));
+  const topic = h('select', { onchange: (e) => { I.topic = e.target.value; } }, Object.entries(TOPIC).map(([k, t]) => h('option', { value: k }, t)));
+  const consent = h('input', { type: 'checkbox', onchange: (e) => { I.consent = e.target.checked; } });
+  const fail = (r) => { const err = (r.data && r.data.error) || 'HTTP ' + r.status; I.msg = err === 'siem_disabled' ? 'Insights are not enabled for this account (operator setting CB_SIEM_ENABLED_TENANTS).' : err === 'ai_budget_reached' ? 'Today\'s AI budget is used up.' : err.replace(/_/g, ' '); };
+  const refreshBtn = h('button', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+    I.msg = ''; const r = await api('POST', '/siem/refresh', { connector: I.id }); if (r.ok) I.snap = r.data; else fail(r); show();
+  }) }, 'Refresh findings');
+  const askBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+    I.msg = ''; if (!I.consent) { I.msg = 'Tick the consent box first.'; show(); return; }
+    const r = await api('POST', '/siem/ask', { connector: I.id, topic: I.topic, external_ai_consent: true });
+    if (r.ok) { I.answer = r.data; I.snap = { window_end: new Date().toISOString(), findings: r.data.findings || [] }; } else fail(r); show();
+  }) }, 'Explain');
+  const kpi = (val, label) => h('div', { class: 'kpi' }, h('div', { class: 'v' }, val), h('div', { class: 'l' }, label));
+  v.replaceChildren(header('Insights', 'Rule-based findings from your stored OCSF events and run history. AI only sees counts and fixed categories, never records, names or keys.'),
+    h('div', { class: 'kpis' }, kpi(usage.requests, 'AI requests today (UTC)'), kpi(usage.reported_tokens.toLocaleString(), 'reported tokens'),
+      kpi(usage.unreported_reserved_tokens.toLocaleString(), 'reserved, not yet reported')),
+    live.length ? h('div', { class: 'card' }, h('div', { class: 'bd stack' },
+      h('div', { class: 'grid2' }, h('label', { class: 'f' }, 'Source', sel), h('label', { class: 'f' }, 'Question', topic)),
+      h('div', { class: 'row' }, refreshBtn, can('ai:draft') ? askBtn : null),
+      can('ai:draft') ? h('label', { class: 'inline-check small' }, consent, 'Send the selected aggregate counts and categories to the AI provider for this explanation.') : null))
+      : h('div', { class: 'card', style: 'padding:24px' }, 'No live sources yet.'),
+    out);
+  show();
 }
 
 // ---------- users & keys (IAM) ----------

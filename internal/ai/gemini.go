@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"configbridge/internal/insights"
 )
 
 // geminiCache holds researched vendor facts (public docs only).
@@ -54,7 +56,7 @@ type researchHit struct {
 
 // research asks Gemini (with Google Search) for the facts a config needs.
 // Cached only when the request has no customer notes (those may be private).
-func (c *Client) research(ctx context.Context, r Request) (string, error) {
+func (c *Client) research(ctx context.Context, r Request, used *meter) (string, error) {
 	key := strings.ToLower(strings.Join(strings.Fields(r.Product), " ")) + "|" + r.Data
 	if r.Auto() {
 		key = strings.ToLower(strings.Join(strings.Fields(r.Product), " ")) + "|auto"
@@ -68,7 +70,7 @@ func (c *Client) research(ctx context.Context, r Request) (string, error) {
 			return hit.text, nil
 		}
 	}
-	text, e := c.search(ctx, r)
+	text, e := c.search(ctx, r, used)
 	if e == nil && cacheable && text != "" {
 		c.mu.Lock()
 		if c.cache == nil || len(c.cache) >= 1000 {
@@ -80,7 +82,7 @@ func (c *Client) research(ctx context.Context, r Request) (string, error) {
 	return text, e
 }
 
-func (c *Client) search(ctx context.Context, r Request) (string, error) {
+func (c *Client) search(ctx context.Context, r Request, used *meter) (string, error) {
 	data := "its main security dataset that EVERY customer has on the standard plan (users, devices, logins or findings); if a richer dataset needs a premium/enterprise tier, name it and its tier separately"
 	if !r.Auto() {
 		data = "OCSF class " + r.Data
@@ -107,7 +109,8 @@ Say "unknown" for anything the docs do not state. Do not guess.`
 	}
 	var text string
 	e := c.retry(ctx, func() (time.Duration, error) {
-		t, wait, e := c.geminiCall(ctx, body)
+		t, u, wait, e := c.geminiCall(ctx, body)
+		used.add(u)
 		text = t
 		return wait, e
 	})
@@ -117,10 +120,10 @@ Say "unknown" for anything the docs do not state. Do not guess.`
 	return text, e
 }
 
-// geminiOnce: one strict-JSON drafting call.
-func (c *Client) geminiOnce(ctx context.Context, msgs []message) (*modelOutput, time.Duration, error) {
+// geminiOnce: one strict-JSON call.
+func (c *Client) geminiOnce(ctx context.Context, msgs []message, s schema) (string, insights.Usage, time.Duration, error) {
 	body := map[string]any{"generationConfig": map[string]any{
-		"responseMimeType": "application/json", "responseJsonSchema": outputSchema, "temperature": 0.2,
+		"responseMimeType": "application/json", "responseJsonSchema": s.body, "temperature": 0.2,
 		"thinkingConfig": map[string]any{"thinkingLevel": "low"}}}
 	var contents []map[string]any
 	for _, m := range msgs {
@@ -135,46 +138,45 @@ func (c *Client) geminiOnce(ctx context.Context, msgs []message) (*modelOutput, 
 		}
 	}
 	body["contents"] = contents
-	text, wait, e := c.geminiCall(ctx, body)
-	if e != nil {
-		return nil, wait, e
-	}
-	var out modelOutput
-	if json.Unmarshal([]byte(text), &out) != nil {
-		return nil, time.Second, fmt.Errorf("%w: model output did not fit the schema", ErrUpstream)
-	}
-	return &out, 0, nil
+	return c.geminiCall(ctx, body)
 }
 
-// geminiCall posts one generateContent request and returns the answer text.
-func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, time.Duration, error) {
+// geminiCall posts one generateContent request and returns the answer text and
+// reported tokens (output = everything billed beyond the prompt: thoughts,
+// search tool use and the answer).
+func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, insights.Usage, time.Duration, error) {
+	none := insights.Usage{}
 	raw, _ := json.Marshal(body)
 	req, e := http.NewRequestWithContext(ctx, "POST", c.URL+url.PathEscape(c.Model)+":generateContent", bytes.NewReader(raw))
 	if e != nil {
-		return "", 0, ErrUpstream
+		return "", none, 0, ErrUpstream
 	}
 	req.Header.Set("x-goog-api-key", c.Key) // header, never the URL: URLs get logged
 	req.Header.Set("Content-Type", "application/json")
 	res, e := c.HTTP.Do(req)
 	if e != nil {
-		return "", 0, fmt.Errorf("%w: unreachable", ErrUpstream) // e may echo the URL
+		return "", none, 0, fmt.Errorf("%w: unreachable", ErrUpstream) // e may echo the URL
 	}
 	defer res.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if e != nil {
-		return "", 0, ErrUpstream
+		return "", none, 0, ErrUpstream
 	}
 	switch {
 	case res.StatusCode == 429:
-		return "", 10 * time.Second, fmt.Errorf("%w: provider rate limit, try again in a minute", ErrUpstream)
+		return "", none, 10 * time.Second, fmt.Errorf("%w: provider rate limit, try again in a minute", ErrUpstream)
 	case res.StatusCode == 503 || res.StatusCode == 500:
-		return "", 5 * time.Second, fmt.Errorf("%w: provider busy", ErrUpstream)
+		return "", none, 5 * time.Second, fmt.Errorf("%w: provider busy", ErrUpstream)
 	case res.StatusCode == 401 || res.StatusCode == 403:
-		return "", 0, fmt.Errorf("%w: Gemini key rejected", ErrUpstream)
+		return "", none, 0, fmt.Errorf("%w: Gemini key rejected", ErrUpstream)
 	case res.StatusCode != 200:
-		return "", 0, fmt.Errorf("%w: HTTP %d", ErrUpstream, res.StatusCode) // body not echoed
+		return "", none, 0, fmt.Errorf("%w: HTTP %d", ErrUpstream, res.StatusCode) // body not echoed
 	}
 	var gr struct {
+		UsageMetadata *struct {
+			Prompt int64 `json:"promptTokenCount"`
+			Total  int64 `json:"totalTokenCount"`
+		} `json:"usageMetadata"`
 		Candidates []struct {
 			FinishReason string `json:"finishReason"`
 			Content      struct {
@@ -185,8 +187,15 @@ func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, t
 			} `json:"content"`
 		} `json:"candidates"`
 	}
-	if json.Unmarshal(b, &gr) != nil || len(gr.Candidates) == 0 {
-		return "", 0, fmt.Errorf("%w: no answer", ErrUpstream)
+	if json.Unmarshal(b, &gr) != nil {
+		return "", none, 0, fmt.Errorf("%w: no answer", ErrUpstream)
+	}
+	u := none
+	if m := gr.UsageMetadata; m != nil && m.Total >= m.Prompt {
+		u = insights.Usage{Known: true, Input: m.Prompt, Output: m.Total - m.Prompt, Total: m.Total}
+	}
+	if len(gr.Candidates) == 0 {
+		return "", u, 0, fmt.Errorf("%w: no answer", ErrUpstream)
 	}
 	var sb strings.Builder
 	for _, p := range gr.Candidates[0].Content.Parts {
@@ -195,10 +204,10 @@ func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, t
 		}
 	}
 	if gr.Candidates[0].FinishReason == "MAX_TOKENS" {
-		return "", 0, fmt.Errorf("%w: model output too long", ErrUpstream)
+		return "", u, 0, fmt.Errorf("%w: model output too long", ErrUpstream)
 	}
 	if sb.Len() == 0 {
-		return "", time.Second, fmt.Errorf("%w: empty answer", ErrUpstream)
+		return "", u, time.Second, fmt.Errorf("%w: empty answer", ErrUpstream)
 	}
-	return sb.String(), 0, nil
+	return sb.String(), u, 0, nil
 }

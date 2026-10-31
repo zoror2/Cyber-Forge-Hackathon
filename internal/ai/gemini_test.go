@@ -84,7 +84,7 @@ func TestGeminiResearchCachedWithoutNotes(t *testing.T) {
 	c := NewGemini("k", "m")
 	c.URL, c.HTTP = srv.URL+"/", srv.Client()
 	for _, r := range []Request{{Product: "Okta"}, {Product: " okta ", Data: "auto"}, {Product: "Okta", Details: "private notes"}} {
-		if _, err := c.research(context.Background(), r); err != nil {
+		if _, err := c.research(context.Background(), r, &meter{}); err != nil {
 			t.Fatal(err)
 		}
 	}
