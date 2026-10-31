@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"log/slog"
 	"net/http"
@@ -104,20 +105,45 @@ func run() error {
 			notificationTenants[tenant] = true
 		}
 	}
-	// AI drafter: off unless GROQ_API_KEY is set. The key is never logged.
-	drafter := ai.New(os.Getenv("GROQ_API_KEY"), os.Getenv("CB_AI_MODEL"))
+	// AI drafter. Every setting comes from the environment (.env locally);
+	// nothing is defaulted in code. CB_AI_PROVIDER empty = drafter off.
+	// Bedrock uses the AWS default credential chain (task role in AWS, shared
+	// config locally). Keys are never logged.
+	drafter := &ai.Client{}
+	if provider := os.Getenv("CB_AI_PROVIDER"); provider != "" {
+		model := os.Getenv("CB_AI_MODEL")
+		limit, err := strconv.Atoi(os.Getenv("CB_AI_DAILY_LIMIT"))
+		if model == "" || err != nil || limit < 1 || limit > 1000 {
+			return errors.New("CB_AI_PROVIDER set: CB_AI_MODEL and CB_AI_DAILY_LIMIT (1-1000) are required")
+		}
+		switch provider {
+		case "bedrock":
+			region := os.Getenv("CB_BEDROCK_REGION")
+			if region == "" {
+				return errors.New("CB_AI_PROVIDER=bedrock: CB_BEDROCK_REGION is required")
+			}
+			awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(region))
+			if err != nil {
+				return errors.New("bedrock: AWS config could not be loaded")
+			}
+			drafter = ai.NewBedrock(bedrockruntime.NewFromConfig(awsCfg), model)
+			slog.Info("ai drafter", "provider", "bedrock", "region", region, "model", model)
+		case "groq":
+			if os.Getenv("GROQ_API_KEY") == "" {
+				return errors.New("CB_AI_PROVIDER=groq: GROQ_API_KEY is required")
+			}
+			drafter = ai.New(os.Getenv("GROQ_API_KEY"), model)
+			slog.Info("ai drafter", "provider", "groq", "model", model)
+		default:
+			return errors.New("CB_AI_PROVIDER must be groq, bedrock or empty")
+		}
+		drafter.DailyLimit = limit
+	}
 	if raw := strings.TrimSpace(os.Getenv("CB_AI_ENABLED_TENANTS")); raw != "" {
 		drafter.Tenants = map[string]bool{}
 		for _, t := range strings.Split(raw, ",") {
 			drafter.Tenants[strings.TrimSpace(t)] = true
 		}
-	}
-	if raw := os.Getenv("CB_AI_DAILY_LIMIT"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > 1000 {
-			return errors.New("CB_AI_DAILY_LIMIT must be 1-1000")
-		}
-		drafter.DailyLimit = n
 	}
 	// Console sessions (JWT in an HttpOnly cookie). Dev without a secret gets a
 	// random one: sessions then end when the API restarts.

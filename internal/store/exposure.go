@@ -24,7 +24,10 @@ type Exposure struct {
 	Assessment        string              `json:"assessment"`
 }
 
-// Exposure uses each tenant's existing KEV copy. It never loads secret values or
+// Exposure matches every live source's vendor against the tenant's KEV copy,
+// for any vendor (not a fixed list). It is a vendor-level signal: the result
+// says "this vendor has N actively exploited CVEs", not that the tenant runs
+// an affected version (assessment says so). Exposure uses each tenant's existing KEV copy. It never loads secret values or
 // calls a model. Source checks use the config revision that produced the record,
 // so changing a config after a run cannot relabel an arbitrary feed as CISA.
 func (s Scope) Exposure(ctx context.Context, connector string, limit, offset int) (out []Exposure, err error) {
@@ -37,9 +40,12 @@ func (s Scope) Exposure(ctx context.Context, connector string, limit, offset int
     e.external_id AS cve,to_char(cb_ts(e.payload->'time') AT TIME ZONE 'UTC','YYYY-MM-DD') AS added,
     btrim(e.payload#>>'{unmapped,product}') AS product,e.fetched_at
    FROM configs c
-   JOIN vendor_aliases a ON lower(btrim(c.body->>'vendor'))=lower(a.vendor)
-   JOIN ocsf_records e ON e.tenant_id=c.tenant_id AND e.class_uid=2002
-    AND lower(btrim(e.payload#>>'{vulnerabilities,0,vendor_name}'))=a.kev_vendor AND lower(btrim(e.payload#>>'{unmapped,product}'))=a.kev_product
+   JOIN ocsf_records e ON e.tenant_id=c.tenant_id AND e.class_uid=2002 AND btrim(c.body->>'vendor')<>''
+    -- any vendor: same name as the KEV entry (case/space-insensitive), or a
+    -- reviewed alias where CISA spells the vendor/product differently
+    AND (lower(btrim(e.payload#>>'{vulnerabilities,0,vendor_name}'))=lower(btrim(c.body->>'vendor'))
+     OR EXISTS(SELECT 1 FROM vendor_aliases a WHERE lower(a.vendor)=lower(btrim(c.body->>'vendor'))
+      AND a.kev_vendor=lower(btrim(e.payload#>>'{vulnerabilities,0,vendor_name}')) AND a.kev_product=lower(btrim(e.payload#>>'{unmapped,product}'))))
    JOIN runs r ON r.tenant_id=e.tenant_id AND r.id=e.run_id
    JOIN configs src ON src.tenant_id=r.tenant_id AND src.id=r.connector AND src.version=r.config_version
    WHERE c.tenant_id=$1 AND c.status='live' AND ($2='' OR c.id=$2)

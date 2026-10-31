@@ -38,7 +38,7 @@ var ErrUpstream = errors.New("ai_provider_failed")
 
 type Client struct {
 	Key   string // GROQ_API_KEY; empty disables the drafter
-	Model string // e.g. openai/gpt-oss-120b
+	Model string // CB_AI_MODEL
 	URL   string // chat completions endpoint
 	HTTP  *http.Client
 	// Tenants may use the drafter; empty = every tenant. CB_AI_ENABLED_TENANTS.
@@ -46,6 +46,28 @@ type Client struct {
 	// DailyLimit drafts per tenant per UTC day, counted in Postgres (shared by
 	// replicas, survives restarts). Each draft is up to 1+MaxRepairs model calls.
 	DailyLimit int
+	// MaxWait caps how long one call waits for a provider Retry-After
+	// (default 30 s, so a browser request doesn't hang for minutes).
+	MaxWait time.Duration
+	// Bedrock, when set, is used instead of the Groq HTTP API (CB_AI_PROVIDER=bedrock).
+	Bedrock Converser
+}
+
+// Provider names the backend for ai_audit.
+func (c *Client) Provider() string {
+	if c != nil && c.Bedrock != nil {
+		return "bedrock"
+	}
+	return "groq"
+}
+
+func (c *Client) configured() bool { return c != nil && (c.Key != "" || c.Bedrock != nil) }
+
+func (c *Client) maxWait() time.Duration {
+	if c.MaxWait > 0 {
+		return c.MaxWait
+	}
+	return 30 * time.Second
 }
 
 // PromptVersion is recorded in ai_audit so a draft can be traced to its prompt.
@@ -53,16 +75,13 @@ const PromptVersion = "draft-v1"
 
 // Allowed reports whether a tenant may draft.
 func (c *Client) Allowed(tenant string) bool {
-	return c != nil && c.Key != "" && (len(c.Tenants) == 0 || c.Tenants[tenant])
+	return c.configured() && (len(c.Tenants) == 0 || c.Tenants[tenant])
 }
 
 // New reads nothing from the environment itself; cmd/api passes values in.
 func New(key, model string) *Client {
-	if model == "" {
-		model = "openai/gpt-oss-120b"
-	}
 	return &Client{Key: key, Model: model, URL: "https://api.groq.com/openai/v1/chat/completions",
-		HTTP: &http.Client{Timeout: 90 * time.Second}, DailyLimit: 20}
+		HTTP: &http.Client{Timeout: 90 * time.Second}}
 }
 
 type Request struct {
@@ -117,7 +136,7 @@ func (r Request) Auto() bool { return r.Data == "" || r.Data == "auto" }
 
 // Draft asks the model for a config and repairs it against our validator.
 func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft, error) {
-	if c == nil || c.Key == "" {
+	if !c.configured() {
 		return nil, ErrNotConfigured
 	}
 	msgs := []message{{Role: "system", Content: systemPrompt()}, {Role: "user", Content: userPrompt(r, secrets)}}
@@ -209,18 +228,22 @@ var outputSchema = map[string]any{
 // call asks the model once; a provider 429 is waited out once (Retry-After, at most 30 s).
 func (c *Client) call(ctx context.Context, msgs []message) (*modelOutput, error) {
 	out, wait, e := c.callOnce(ctx, msgs)
-	if wait > 0 && wait <= 30*time.Second {
+	// retryable (rate limit, bad structured output): at most 2 more tries
+	for try := 0; try < 2 && wait > 0 && wait <= c.maxWait(); try++ {
 		select {
 		case <-ctx.Done():
 			return nil, ErrUpstream
 		case <-time.After(wait):
 		}
-		out, _, e = c.callOnce(ctx, msgs)
+		out, wait, e = c.callOnce(ctx, msgs)
 	}
 	return out, e
 }
 
 func (c *Client) callOnce(ctx context.Context, msgs []message) (*modelOutput, time.Duration, error) {
+	if c.Bedrock != nil {
+		return c.bedrockOnce(ctx, msgs)
+	}
 	body, _ := json.Marshal(map[string]any{
 		"model": c.Model, "messages": msgs, "temperature": 0.2,
 		"response_format": map[string]any{"type": "json_schema",
@@ -244,6 +267,11 @@ func (c *Client) callOnce(ctx context.Context, msgs []message) (*modelOutput, ti
 	if res.StatusCode == 429 {
 		secs, _ := strconv.Atoi(res.Header.Get("Retry-After"))
 		return nil, time.Duration(max(secs, 2)) * time.Second, fmt.Errorf("%w: provider rate limit, try again in a minute", ErrUpstream)
+	}
+	// Groq answers 400 json_validate_failed when the model's own output broke
+	// the strict schema. That is random, not our request: try again.
+	if res.StatusCode == 400 && bytes.Contains(raw, []byte(`"json_validate_failed"`)) {
+		return nil, time.Second, fmt.Errorf("%w: model output did not fit the schema", ErrUpstream)
 	}
 	if res.StatusCode != 200 {
 		return nil, 0, fmt.Errorf("%w: HTTP %d", ErrUpstream, res.StatusCode) // body not echoed
@@ -279,7 +307,7 @@ You only write the config. You never produce data records.
 Output: config_json = ONE complete config document (a JSON string), notes = short reasons for each non-obvious choice (endpoint, auth, paging, mappings); needed = the MINIMUM the customer must do to connect, normally just one item: which API key/token to create, where in the vendor console, and which read-only permission it needs; add the tenant address only if the host is customer-specific; never put anything you can decide yourself in needed; optional = a few settings they MAY tune later (filters, schedule, extra fields), never required to connect; also_available = other OCSF classes (from the available OCSF classes given in the request) this product's API genuinely offers besides the one you drafted, e.g. Okta drafted as user_inventory -> ["authentication"]; empty if none; sources = 1-3 official https documentation URLs of the vendor API you based the endpoint, auth and fields on (only real vendor doc pages you are confident exist; empty if unsure). If you are unsure of an endpoint or field name, still give your best guess and say so in notes; the platform tests every draft against the real API before it can go live.
 
 Config rules (the platform validator enforces them):
-- version 1; id: lowercase a-z 0-9 _ - (derive from product + data, e.g. okta_users); name: human label.
+- version 1; id: lowercase a-z 0-9 _ - (derive from product + data, e.g. <product>_<data>); name: human label; vendor: the maker's name (see below).
 - request: method GET only; url https only, no query string, no credentials in the URL; non-secret query params go in request.params (string values); request.headers for non-secret headers only; timeout_seconds 5-120.
 - If the vendor needs a customer-specific host (e.g. {yourOrg}.okta.com), write the host with the customer part as "your-tenant" (e.g. your-tenant.okta.com) and list the address in needed.
 - auth.type: none | api_key (header = header name) | bearer | basic (username) | oauth2_client_credentials (token_url, scopes) | static (headers with {{secret.value}} placeholders). If the vendor wants a scheme other than "Bearer" in Authorization (e.g. Okta "SSWS <token>", "Token <token>", "ApiKey <key>"), use static with headers [{"name":"Authorization","value":"SSWS {{secret.value}}"}]; api_key sends the raw value with no prefix. auth.secret = the NAME of a stored secret. Never put a key or token value anywhere. Prefer a stored secret bound to the same host if one is listed.
@@ -295,7 +323,35 @@ Config rules (the platform validator enforces them):
 Supported classes:
 ` + strings.Join(classes, "\n") + `
 
-Two real configs that are live in production (follow their shape exactly):
+How to decide, for ANY vendor (these are patterns, not a vendor list):
+- vendor: always set the top-level "vendor" to the company that makes the product, as it is commonly written (e.g. "Microsoft", "CrowdStrike", "Atlassian"). It links sources to vulnerability feeds; never leave it empty.
+- Host: use the vendor's documented public API host. If every customer has their own host or subdomain, use "your-tenant" for that part (your-tenant.vendor.com, vendor.your-tenant.com). If the vendor has regional hosts, pick the default/US one and mention the others in optional.
+- Auth, by what the vendor documents:
+  * a key in a custom header (X-Api-Key, Key, X-Auth-Token)            -> api_key with header
+  * "Authorization: Bearer <token>" (personal or API token)             -> bearer
+  * "Authorization: <Scheme> <token>" with any other scheme             -> static with that exact scheme
+  * two values sent in two headers (key id + secret)                    -> static, {{secret.<field>}} per header; needed names both fields
+  * username/email + password or API token over HTTP Basic             -> basic with username (secret holds the password/token)
+  * client id + client secret exchanged at a token URL (OAuth2 client credentials, e.g. Microsoft Graph, most EDR/XDR APIs)
+                                                                          -> oauth2_client_credentials with token_url, scopes, extra_params if documented (audience/resource); the secret holds fields client_id and client_secret
+  * public data, no key                                                 -> none
+- Pagination, by what the response shows:
+  * Link header with rel="next"                                       -> link
+  * a next token/cursor/marker in the body (next, nextPageToken, after, meta.next_cursor)
+                                                                          -> cursor with cursor_path to it and cursor_param to send it
+  * page number + page size                                           -> page (start_page 0 or 1 as documented)
+  * offset/skip/startIndex + limit/count                              -> offset
+  * one response holds everything                                      -> none
+- Prefer the endpoint that LISTS the records (inventory/list/search with GET), not a single-item lookup. If the data is only reachable via POST search, GraphQL, bulk export or webhooks, draft the closest GET list endpoint if one exists and say plainly in notes what is missing; never invent an endpoint that you believe does not exist.
+
+Generic shapes (example.com hosts stand for any vendor):
+api_key header + page:   "auth":{"type":"api_key","secret":"vendor_key","header":"X-Api-Key"},"pagination":{"type":"page","page_param":"page","start_page":1,"size_param":"per_page","page_size":100}
+static scheme + cursor:  "auth":{"type":"static","secret":"vendor_token","headers":[{"name":"Authorization","value":"Token {{secret.value}}"}]},"pagination":{"type":"cursor","cursor_param":"cursor","cursor_path":"meta.next_cursor","size_param":"limit","page_size":100}
+two-header static:       "auth":{"type":"static","secret":"vendor_api","headers":[{"name":"X-Key-Id","value":"{{secret.key_id}}"},{"name":"X-Key-Secret","value":"{{secret.key}}"}]}
+basic + offset:          "auth":{"type":"basic","secret":"vendor_token","username":"you@your-company.com"},"pagination":{"type":"offset","offset_param":"startAt","size_param":"maxResults","page_size":100}
+oauth2 + cursor:         "auth":{"type":"oauth2_client_credentials","secret":"vendor_client","token_url":"https://auth.example.com/oauth2/token","scopes":["read"]},"pagination":{"type":"cursor","cursor_param":"after","cursor_path":"meta.pagination.after","size_param":"limit","page_size":100}
+
+Two real configs that are live in production (follow their overall shape):
 GitHub org members (bearer + Link paging):
 ` + string(configs.GitHubMembers) + `
 NVD CVEs (api_key header + offset paging):

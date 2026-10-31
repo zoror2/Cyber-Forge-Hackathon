@@ -511,7 +511,7 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	rand.Read(id)
 	in, _ := json.Marshal(req)
 	audit := store.AIAudit{RequestID: hex.EncodeToString(id), Actor: caller.Actor, SourceID: aiSourceID(req.Product),
-		SourceHash: sha(in), Provider: "groq", Model: a.AI.Model, PromptVersion: ai.PromptVersion}
+		SourceHash: sha(in), Provider: a.AI.Provider(), Model: a.AI.Model, PromptVersion: ai.PromptVersion}
 	scope := a.scope(r)
 	// Reserve before calling the model: failed and cancelled drafts count too.
 	if e := scope.ReserveAI(r.Context(), a.AI.DailyLimit, audit); e != nil {

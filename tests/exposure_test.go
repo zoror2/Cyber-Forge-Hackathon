@@ -55,6 +55,14 @@ func TestKEVExposureIsolationAndCredentialOwnership(t *testing.T) {
 			t.Fatal(bad)
 		}
 		records = append(records, rec)
+		// a vendor with no alias row: matched by name alone
+		for i, product := range []string{"FortiOS", "FortiProxy"} {
+			rec, bad := mapping.Map(map[string]any{"cveID": fmt.Sprintf("CVE-2025-%05d", 20000+i), "dateAdded": "2025-01-02", "vulnerabilityName": "Synthetic", "vendorProject": "Fortinet", "product": product}, kev, tenant, time.Now(), 30+i)
+			if bad != nil {
+				t.Fatal(bad)
+			}
+			records = append(records, rec)
+		}
 		if err = scope.SavePage(ctx, run.ID, kev.ID, records, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -120,6 +128,20 @@ func TestKEVExposureIsolationAndCredentialOwnership(t *testing.T) {
 		}
 		if string(e.request(t, tenant, "GET", "/exposure?offset=1&limit=1", nil, 200)) != "[]\n" {
 			t.Fatal("pagination failed")
+		}
+		c.ID = "fortinet-fw"
+		c.Vendor = "  FORTINET "
+		saved, err = scope.SaveConfig(ctx, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = scope.Activate(ctx, c.ID, saved.Revision); err != nil {
+			t.Fatal(err)
+		}
+		var forti []store.Exposure
+		json.Unmarshal(e.request(t, tenant, "GET", "/exposure?connector=fortinet-fw", nil, 200), &forti)
+		if len(forti) != 1 || forti[0].KEVCount != 2 || len(forti[0].Products) != 2 {
+			t.Fatal("vendor outside the alias list not matched", forti)
 		}
 	}
 	e.request(t, "tenant-b", "GET", "/exposure?connector=tenant-a-ivanti", nil, 404)
