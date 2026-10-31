@@ -1,6 +1,6 @@
 {
   "tenant_id": "dev",
   "id": "mock_bad_port",
-  "request": {"url": "http://mockvendor:8081/users"},
+  "request": {"url": "https://mockvendor:8081/users"},
   "auth": {"type": "none"}
 }

@@ -4,8 +4,10 @@
 //
 //	fetch -config examples/mock_users.json
 //	fetch -config my.json -show 3                  print the first 3 records of each page
-//	fetch -config my.json -dev-allow-http \
-//	      -dev-allow-private 172.16.0.0/12         reach the mock inside Docker
+//
+// Egress rules come from internal/app.Policy, exactly like the API: production
+// rules by default; CB_ENV=dev plus CB_DEV_ALLOW_PRIVATE / CB_DEV_CA_FILE reach
+// the TLS mock inside Docker. Plain HTTP is always refused.
 //
 // Secrets come from environment variables, never from the config file:
 //
@@ -24,12 +26,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
 
-	"configbridge/internal/egress"
+	"configbridge/internal/app"
 	"configbridge/internal/engine"
 )
 
@@ -54,8 +55,6 @@ func (envSecrets) Get(_ context.Context, _ string, name string) (engine.Secret, 
 
 func main() {
 	configPath := flag.String("config", "", "path to a connector JSON file (required)")
-	allowPrivate := flag.String("dev-allow-private", "", "DEV ONLY: comma-separated private CIDRs the engine may reach")
-	allowHTTP := flag.Bool("dev-allow-http", false, "DEV ONLY: allow http:// URLs")
 	show := flag.Int("show", 2, "records to print per page (0 = none)")
 	flag.Parse()
 
@@ -90,21 +89,14 @@ func main() {
 		fail("parse config", err)
 	}
 
-	// 2. Egress policy. Zero value = production rules; flags loosen it for dev.
-	policy := egress.Policy{AllowHTTP: *allowHTTP}
-	for _, s := range strings.Split(*allowPrivate, ",") {
-		if s = strings.TrimSpace(s); s == "" {
-			continue
-		}
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			fail("bad -dev-allow-private", err)
-		}
-		policy.AllowPrivate = append(policy.AllowPrivate, p)
+	// 2. Egress policy: the same rules as the API (internal/app.Policy).
+	//    Production rules unless CB_ENV=dev enables CB_DEV_ALLOW_PRIVATE / CB_DEV_CA_FILE.
+	policy, err := app.Policy(os.Getenv)
+	if err != nil {
+		fail("egress policy", err)
 	}
 	if policy.ProductionSafe() != nil {
-		log.Warn("DEV egress overrides active: never use these flags outside local testing",
-			"allow_http", policy.AllowHTTP, "allow_private", *allowPrivate)
+		log.Warn("DEV egress overrides active: never use outside local testing")
 	}
 
 	// 3. Run it. Ctrl+C cancels cleanly.

@@ -2,7 +2,7 @@
   "tenant_id": "dev",
   "id": "mock_events",
   "request": {
-    "url": "http://mockvendor:8081/events",
+    "url": "https://mockvendor:8081/events",
     "allowed_ports": [8081]
   },
   "auth": {"type": "none"},

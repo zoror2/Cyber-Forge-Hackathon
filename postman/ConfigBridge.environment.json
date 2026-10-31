@@ -1,0 +1,53 @@
+{
+  "name": "ConfigBridge local - credential values empty",
+  "values": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8080",
+      "enabled": true
+    },
+    {
+      "key": "vendor_url",
+      "value": "https://mockvendor:8081",
+      "enabled": true
+    },
+    {
+      "key": "api_key",
+      "value": "",
+      "enabled": true,
+      "type": "secret"
+    },
+    {
+      "key": "tenant_b_api_key",
+      "value": "",
+      "enabled": true,
+      "type": "secret"
+    },
+    {
+      "key": "connector",
+      "value": "mock_users",
+      "enabled": true
+    },
+    {
+      "key": "a_only_connector",
+      "value": "mock_users",
+      "enabled": true
+    },
+    {
+      "key": "revision",
+      "value": "1",
+      "enabled": true
+    },
+    {
+      "key": "secret_name",
+      "value": "vendor_token",
+      "enabled": true
+    },
+    {
+      "key": "allowed_host",
+      "value": "mockvendor:8081",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

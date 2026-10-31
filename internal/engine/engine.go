@@ -51,8 +51,9 @@ type Page struct {
 
 // Result summarises a run for the runs table / health page.
 type Result struct {
-	Pages int // pages fetched successfully
-	Items int // records handed to emit
+	Attempts int // logical API attempts, including retries (token exchanges are separate)
+	Pages    int // pages fetched successfully
+	Items    int // records handed to emit
 }
 
 // Engine runs connectors. Create one with New and reuse it; it is safe for
@@ -128,7 +129,7 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 		seen[u.String()] = true
 
 		// Fetch it (with retries).
-		body, header, err := e.get(ctx, client, c, u)
+		body, header, err := e.get(ctx, client, c, u, func() { res.Attempts++ })
 		if err != nil {
 			e.logFailure(c, u, err)
 			return res, fmt.Errorf("page %d: %w", res.Pages+1, err)
@@ -216,7 +217,10 @@ func (c Connector) pagedURL(base *url.URL, page, offset int, cursor string) *url
 
 // get performs one logical request: it calls once() and retries on
 // temporary failures, waiting between attempts as retryDelay decides.
-func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *url.URL) ([]byte, http.Header, error) {
+//
+// onAttempt (optional) is called before every attempt, retries included, so
+// the runner can record how many requests a run really made.
+func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *url.URL, onAttempt ...func()) ([]byte, http.Header, error) {
 	if err := e.Policy.CheckURL(u); err != nil { // https, no credentials, no odd hosts
 		return nil, nil, err
 	}
@@ -224,6 +228,9 @@ func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *u
 		return nil, nil, err
 	}
 	for attempt := 1; ; attempt++ {
+		for _, observe := range onAttempt {
+			observe()
+		}
 		body, header, err := e.once(ctx, client, c, u)
 		// Success, or the whole run has been cancelled / timed out: stop here.
 		if err == nil || ctx.Err() != nil {
@@ -361,6 +368,10 @@ func decodeItems(body []byte, path string) (any, []any, error) {
 	var payload any
 	if err := dec.Decode(&payload); err != nil {
 		return nil, nil, errors.New("response is not valid JSON") // no body content in the error
+	}
+	var extra any
+	if dec.Decode(&extra) != io.EOF {
+		return nil, nil, errors.New("response has trailing JSON content")
 	}
 	v, ok := getPath(payload, path)
 	if !ok {

@@ -2,7 +2,7 @@
   "tenant_id": "dev",
   "id": "mock_issues",
   "request": {
-    "url": "http://mockvendor:8081/issues",
+    "url": "https://mockvendor:8081/issues",
     "allowed_ports": [8081]
   },
   "auth": {"type": "none"},

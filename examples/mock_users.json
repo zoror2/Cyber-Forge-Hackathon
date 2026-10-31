@@ -2,7 +2,7 @@
   "tenant_id": "dev",
   "id": "mock_users",
   "request": {
-    "url": "http://mockvendor:8081/users",
+    "url": "https://mockvendor:8081/users",
     "params": {"per_page": "10"},
     "allowed_ports": [8081]
   },

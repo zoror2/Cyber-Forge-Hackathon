@@ -165,7 +165,7 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 		return "", errors.New("token endpoint returned no access_token")
 	}
 	if tr.TokenType != "" && !strings.EqualFold(tr.TokenType, "bearer") {
-		return "", fmt.Errorf("token endpoint returned unsupported token_type %q", tr.TokenType)
+		return "", errors.New("token endpoint returned unsupported token_type")
 	}
 
 	// Cache it. Expire 30s early so we never send a token that dies mid-request.
