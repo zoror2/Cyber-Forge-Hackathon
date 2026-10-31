@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
+	"configbridge/internal/ai"
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
@@ -25,6 +27,10 @@ type API struct {
 	Secrets *secrets.Service
 	// Test seam only; the binary always uses Store.Authenticate.
 	Authenticate func(context.Context, string) (string, error)
+	// Limits for this API; nil means DefaultLimits.
+	Limits *Limits
+	// AI drafts configs; nil or no key = POST /ai/draft answers 503.
+	AI *ai.Client
 }
 
 type tenantKey struct{}
@@ -40,6 +46,10 @@ func New(a *API) (http.Handler, error) {
 		}
 		lookup = a.Store.Authenticate
 	}
+	lim, rl, keys := newLimiter(), DefaultLimits, newKeyCache(30*time.Second)
+	if a.Limits != nil {
+		rl = *a.Limits
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /configs", a.listConfigs)
 	mux.HandleFunc("GET /configs/{id}", a.getConfig)
@@ -54,20 +64,61 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /records/{class}", a.records)
 	mux.HandleFunc("GET /quarantine", a.quarantine)
+	mux.HandleFunc("GET /schema/{view}", a.prdView)
+	mux.HandleFunc("POST /ai/draft", a.aiDraft)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+		ip := clientIP(r)
 		supplied := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(supplied, "Bearer ")
+		well := strings.HasPrefix(supplied, "Bearer ") && len(token) >= 32 && len(token) <= 512
+		key := keyID(token)
+		// A key verified in the last 30 s skips the per-IP gates, so junk-key
+		// floods or a noisy neighbour behind the same IP/NAT can't lock it out.
+		// It is still authenticated against the database on every request, so a
+		// revoked key stops working immediately.
+		if _, known := keys.get(key); known {
+			if ok, retry := lim.take("vip:"+ip, rl.VerifiedIP); !ok {
+				limited(w, retry)
+				return
+			}
+		} else {
+			// An IP that keeps failing authentication is refused before any key lookup.
+			if ok, retry := lim.peek("fail:"+ip, rl.FailedPerIP); !ok {
+				limited(w, retry)
+				return
+			}
+			if ok, retry := lim.take("ip:"+ip, rl.PerIP); !ok {
+				limited(w, retry)
+				return
+			}
+		}
 		var tenant string
-		if strings.HasPrefix(supplied, "Bearer ") && len(token) >= 32 && len(token) <= 512 {
+		if well {
 			tenant, _ = lookup(r.Context(), token)
 		}
-		if !config.ValidID(tenant) {
+		if config.ValidID(tenant) {
+			keys.put(key, tenant)
+		} else {
+			keys.drop(key)
+			lim.take("fail:"+ip, rl.FailedPerIP)
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			fail(w, 401, "unauthorized")
 			return
+		}
+		if ok, retry := lim.take("key:"+key, rl.PerKey); !ok {
+			limited(w, retry)
+			return
+		}
+		// runs/tests call the vendor and AI drafts call the model: both are costly
+		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || strings.HasPrefix(r.URL.Path, "/connectors/") &&
+			(strings.HasSuffix(r.URL.Path, "/run") || strings.HasSuffix(r.URL.Path, "/test"))) {
+			if ok, retry := lim.take("run:"+key, rl.RunPerKey); !ok {
+				limited(w, retry)
+				return
+			}
 		}
 		if !sameOrigin(r) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
@@ -167,7 +218,11 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) {
 		dbFail(w, e)
 		return
 	}
-	write(w, 201, map[string]any{"id": c.ID, "revision": saved.Revision, "status": saved.Status, "hash": saved.Hash})
+	code := 201
+	if saved.Unchanged {
+		code = 200
+	}
+	write(w, code, map[string]any{"id": c.ID, "revision": saved.Revision, "status": saved.Status, "hash": saved.Hash, "unchanged": saved.Unchanged})
 }
 func (a *API) listConfigs(w http.ResponseWriter, r *http.Request) {
 	l, o, ok := paging(w, r)
@@ -233,17 +288,42 @@ func (a *API) secretWarnings(r *http.Request, c config.Config) []config.Issue {
 	switch {
 	case !ok:
 		msg := "secret " + strconv.Quote(c.Auth.Secret) + " is not stored"
+		// suggest the stored secret for this host whose name is closest to the typo
+		best, bestD := "", 1<<30
 		for name, h := range hosts {
-			if h == want {
-				msg += "; stored secret " + strconv.Quote(name) + " is bound to " + want + ", did you mean it?"
-				break
+			if d := editDistance(name, c.Auth.Secret); h == want && (d < bestD || d == bestD && name < best) {
+				best, bestD = name, d
 			}
+		}
+		if best != "" {
+			msg += "; stored secret " + strconv.Quote(best) + " is bound to " + want + ", did you mean it?"
 		}
 		out = append(out, config.Issue{Field: "auth.secret", Message: msg})
 	case bound != want:
 		out = append(out, config.Issue{Field: "auth.secret", Message: "secret " + strconv.Quote(c.Auth.Secret) + " is bound to " + bound + " but this config calls " + want + "; the run would fail with credential_binding_mismatch"})
 	}
 	return out
+}
+
+// editDistance is the Levenshtein distance (names are short, so O(n*m) is fine).
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
 }
 func (a *API) activate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -307,6 +387,42 @@ func (a *API) listSecrets(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, 200, data)
 }
+
+// aiDraft returns an UNSAVED config drafted by the model and already passed
+// through the platform validator. Only secret names/hosts reach the model.
+func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
+	var req ai.Request
+	if !jsonBody(w, r, &req) {
+		return
+	}
+	if e := req.Check(); e != nil {
+		write(w, 400, map[string]string{"error": "invalid_ai_request", "detail": e.Error()})
+		return
+	}
+	var secrets []ai.Secret
+	if a.Secrets != nil {
+		list, e := a.Secrets.List(r.Context(), a.scope(r).Tenant, 200, 0)
+		if e != nil {
+			fail(w, 503, "secret_backend_unavailable")
+			return
+		}
+		for _, m := range list {
+			secrets = append(secrets, ai.Secret{Name: m.Name, Host: m.AllowedHost})
+		}
+	}
+	d, e := a.AI.Draft(r.Context(), req, secrets)
+	var bad *ai.InvalidDraft
+	switch {
+	case e == nil:
+		write(w, 200, d)
+	case errors.Is(e, ai.ErrNotConfigured):
+		fail(w, 503, "ai_not_configured")
+	case errors.As(e, &bad):
+		write(w, 422, map[string]any{"error": "ai_draft_invalid", "issues": bad.Issues, "config": bad.Last})
+	default:
+		write(w, 502, map[string]string{"error": "ai_provider_failed", "detail": strings.TrimPrefix(e.Error(), ai.ErrUpstream.Error()+": ")})
+	}
+}
 func (a *API) run(w http.ResponseWriter, r *http.Request)  { a.execute(w, r, false) }
 func (a *API) test(w http.ResponseWriter, r *http.Request) { a.execute(w, r, true) }
 func (a *API) execute(w http.ResponseWriter, r *http.Request, test bool) {
@@ -358,6 +474,28 @@ func (a *API) records(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, e := a.scope(r).Records(r.Context(), class.UID, source, l, o)
+	if e != nil {
+		dbFail(w, e)
+		return
+	}
+	write(w, 200, data)
+}
+
+// prdView serves the PRD common schema (users/devices/events) over the OCSF store.
+func (a *API) prdView(w http.ResponseWriter, r *http.Request) {
+	l, o, ok := paging(w, r)
+	if !ok {
+		return
+	}
+	source := r.URL.Query().Get("source")
+	if !a.checkFilter(w, r, source) {
+		return
+	}
+	data, e := a.scope(r).View(r.Context(), r.PathValue("view"), source, l, o)
+	if errors.Is(e, store.ErrNotFound) {
+		fail(w, 404, "unknown_view")
+		return
+	}
 	if e != nil {
 		dbFail(w, e)
 		return

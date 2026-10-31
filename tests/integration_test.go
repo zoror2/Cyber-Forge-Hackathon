@@ -125,7 +125,7 @@ func setup(t *testing.T) *environment {
 	e.svc = &secrets.Service{Store: db.Store, Backend: local, BackendName: "local"}
 	e.requests = engine.New(e.svc, egress.Policy{RootCAs: root, AllowPrivate: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}, slog.New(slog.NewTextHandler(e.logs, nil)))
 	e.runs = runner.New(db.Store, e.requests)
-	h, err := api.New(&api.API{Store: db.Store, Engine: e.runs, Secrets: e.svc})
+	h, err := api.New(&api.API{Store: db.Store, Engine: e.runs, Secrets: e.svc, Limits: &api.Limits{}})
 	if err != nil {
 		t.Fatal(err)
 	}

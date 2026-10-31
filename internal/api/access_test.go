@@ -10,7 +10,8 @@ import (
 
 func TestAllRoutesRequireTenantKey(t *testing.T) {
 	key := strings.Repeat("test-key-", 5)
-	handler, e := New(&API{Authenticate: func(_ context.Context, k string) (string, error) {
+	// Limits{} = unlimited: this test sends many bad keys from one address on purpose.
+	handler, e := New(&API{Limits: &Limits{}, Authenticate: func(_ context.Context, k string) (string, error) {
 		if k == key {
 			return "tenant-a", nil
 		}

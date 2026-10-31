@@ -25,6 +25,12 @@ var migration string
 //go:embed migrations/002_ocsf.sql
 var migrationOCSF string
 
+//go:embed migrations/003_prd_views.sql
+var migrationPRDViews string
+
+//go:embed migrations/004_scale.sql
+var migrationScale string
+
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
 var migrations = []struct {
@@ -34,6 +40,8 @@ var migrations = []struct {
 }{
 	{1, migration, []string{"tenants", "api_keys", "configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"}},
 	{2, migrationOCSF, []string{"ocsf_records"}},
+	{3, migrationPRDViews, nil},
+	{4, migrationScale, nil},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -133,8 +141,10 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 			return e
 		}
 	}
-	if _, e = tx.Exec(ctx, "GRANT SELECT ON "+sch+".tenants TO "+role); e != nil {
-		return e
+	for _, table := range append([]string{"tenants"}, PRDViews...) {
+		if _, e = tx.Exec(ctx, "GRANT SELECT ON "+pgx.Identifier{schema, table}.Sanitize()+" TO "+role); e != nil {
+			return e
+		}
 	}
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON ALL SEQUENCES IN SCHEMA "+sch+" TO "+role); e != nil {
 		return e
@@ -229,6 +239,8 @@ type SavedConfig struct {
 	Revision int           `json:"revision"`
 	Status   string        `json:"status"`
 	Hash     string        `json:"hash"`
+	// Unchanged: the body equals the newest revision, so no new revision was made.
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 func (s Scope) SaveConfig(ctx context.Context, c config.Config) (out SavedConfig, err error) {
@@ -244,13 +256,22 @@ func (s Scope) SaveConfig(ctx context.Context, c config.Config) (out SavedConfig
 		if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", s.LockKey("version", c.ID)); e != nil {
 			return e
 		}
-		var revision int
-		if e = tx.QueryRow(ctx, "SELECT COALESCE(MAX(version),0)+1 FROM configs WHERE tenant_id=$1 AND id=$2", s.Tenant, c.ID).Scan(&revision); e != nil {
+		hash := hex.EncodeToString(sum[:])
+		// Saving an identical config again returns the newest revision instead of
+		// piling up duplicate drafts that look like pending changes.
+		var newest int
+		var newestHash, newestStatus string
+		e = tx.QueryRow(ctx, "SELECT version,config_hash,status FROM configs WHERE tenant_id=$1 AND id=$2 ORDER BY version DESC LIMIT 1", s.Tenant, c.ID).Scan(&newest, &newestHash, &newestStatus)
+		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 			return e
 		}
-		hash := hex.EncodeToString(sum[:])
+		if newestHash == hash {
+			out = SavedConfig{Config: c, Revision: newest, Status: newestStatus, Hash: hash, Unchanged: true}
+			return nil
+		}
+		revision := newest + 1
 		_, e = tx.Exec(ctx, "INSERT INTO configs(tenant_id,id,version,status,body,config_hash)VALUES($1,$2,$3,'draft',$4,$5)", s.Tenant, c.ID, revision, body, hash)
-		out = SavedConfig{c, revision, "draft", hash}
+		out = SavedConfig{Config: c, Revision: revision, Status: "draft", Hash: hash}
 		return e
 	})
 	return
@@ -527,6 +548,39 @@ func (s Scope) Records(ctx context.Context, classUID int, source string, limit, 
 	out = []json.RawMessage{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
 		rows, e := tx.Query(ctx, q, s.Tenant, source, limit, offset, classUID)
+		if e != nil {
+			return e
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var raw []byte
+			if e = rows.Scan(&raw); e != nil {
+				return e
+			}
+			out = append(out, json.RawMessage(raw))
+		}
+		return rows.Err()
+	})
+	return
+}
+
+// PRDViews are the PRD "common schema (minimum)" views (migration 003).
+var PRDViews = []string{"users", "devices", "events"}
+
+// View reads one PRD view as JSON rows. name must be one of PRDViews; the view
+// is security_invoker, so RLS on ocsf_records still scopes it to the tenant.
+func (s Scope) View(ctx context.Context, name, source string, limit, offset int) (out []json.RawMessage, err error) {
+	ok := false
+	for _, v := range PRDViews {
+		ok = ok || v == name
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	q := "SELECT row_to_json(v) FROM " + pgx.Identifier{s.Store.namespace, name}.Sanitize() + " v WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,id LIMIT $3 OFFSET $4"
+	out = []json.RawMessage{}
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		rows, e := tx.Query(ctx, q, s.Tenant, source, limit, offset)
 		if e != nil {
 			return e
 		}

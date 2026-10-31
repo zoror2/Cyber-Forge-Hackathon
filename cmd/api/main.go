@@ -1,6 +1,7 @@
 package main
 
 import (
+	"configbridge/internal/ai"
 	"configbridge/internal/api"
 	"configbridge/internal/app"
 	"configbridge/internal/engine"
@@ -72,7 +73,17 @@ func run() error {
 	svc := &secrets.Service{Store: db, Backend: backend, BackendName: name}
 	requests := engine.New(svc, policy, slog.Default())
 	runs := runner.New(db, requests)
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc})
+	var limits *api.Limits
+	// Load tests measure raw capacity, so dev may switch our own rate limit off.
+	if os.Getenv("CB_DEV_RATE_LIMIT") == "off" {
+		if os.Getenv("CB_ENV") != "dev" {
+			return errors.New("CB_DEV_RATE_LIMIT is only allowed when CB_ENV=dev")
+		}
+		limits = &api.Limits{}
+	}
+	// AI drafter: off unless GROQ_API_KEY is set. The key is never logged.
+	drafter := ai.New(os.Getenv("GROQ_API_KEY"), os.Getenv("CB_AI_MODEL"))
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter})
 	if e != nil {
 		return e
 	}

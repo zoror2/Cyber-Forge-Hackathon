@@ -169,8 +169,9 @@ func (c *Config) Defaults() {
 	if c.Pagination.Type == "" {
 		c.Pagination.Type = "none"
 	}
-	if c.Pagination.Type == "page" && c.Pagination.StartPage == 0 {
-		c.Pagination.StartPage = 1
+	if c.Pagination.Type == "page" && c.Pagination.StartPage == nil {
+		one := 1
+		c.Pagination.StartPage = &one // explicit 0 stays 0 (zero-based APIs)
 	}
 	if c.Limits.MaxPages == 0 {
 		c.Limits.MaxPages = 100

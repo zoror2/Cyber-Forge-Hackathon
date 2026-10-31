@@ -123,7 +123,7 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Connectors'], ['builder', 'New connector'], ['records', 'OCSF records'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source'], ['records', 'OCSF records'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets']];
 function lock(msg) {
   S.key = null;
   app().replaceChildren(loginView(msg));
@@ -266,23 +266,52 @@ function runTable(list) {
     { t: 'Error', v: (r) => r.error ? h('code', {}, r.error) : '' },
   ], list);
 }
+// Plain words for OCSF classes.
+const KIND = { vulnerability_finding: 'Vulnerabilities', detection_finding: 'Alerts', user_inventory: 'Users', inventory_info: 'Devices', authentication: 'Logins' };
+const kind = (c) => KIND[c] || c;
+// One plain sentence per failure category.
+function plainError(err) {
+  const e = String(err || '');
+  if (/auth_failed|needs_reauth|401|403/.test(e)) return 'The vendor rejected the key. Store a fresh key.';
+  if (/binding_mismatch/.test(e)) return 'The stored key belongs to a different address.';
+  if (/credential_missing|not stored/.test(e)) return 'No key stored for this source yet.';
+  if (/rate_limited|429/.test(e)) return 'Too many requests right now. Try again in a few minutes.';
+  if (/destination_denied|egress|blocked/.test(e)) return 'Blocked: that address is not allowed.';
+  if (/timeout|unreachable|collection_failed|deadline/.test(e)) return 'Could not reach the vendor.';
+  if (/busy/.test(e)) return 'Already running. Try again in a moment.';
+  return e.replace(/_/g, ' ');
+}
 async function connectors(v) {
-  const cfgs = await must('GET', '/configs?limit=500');
+  const [cfgs, runList] = await Promise.all([must('GET', '/configs?limit=500'), must('GET', '/runs?limit=500')]);
+  const last = {};
+  for (const r of runList) if (r.mode !== 'test' && !last[r.connector]) last[r.connector] = r;
+  const state = (c) => {
+    const r = last[c.id];
+    if (!c.live_revision) return h('span', { class: 'pill' }, 'Off');
+    if (r && !['success', 'completed_with_errors'].includes(r.outcome)) return h('span', { class: 'pill bad' }, 'Failing');
+    return h('span', { class: 'pill ok' }, 'On');
+  };
+  const lastRun = (c) => {
+    const r = last[c.id];
+    if (!r) return h('span', { class: 'faint' }, 'never run');
+    if (!['success', 'completed_with_errors'].includes(r.outcome)) return h('span', { class: 'small', style: 'color:var(--bad)' }, plainError(r.error || r.outcome));
+    return h('span', { class: 'small muted', title: when(r.started_at) }, r.accepted.toLocaleString() + ' records · ' + ago(r.started_at));
+  };
+  const runNow = (c) => {
+    const b = h('button', { class: 'sm', onclick: async (e) => { e.stopPropagation(); await execute(b, c.id, false); route(); } }, 'Run');
+    return b;
+  };
   v.replaceChildren(
-    header('Connectors', 'One JSON config per source. Edits create a new draft revision; only the live revision runs.',
-      h('a', { class: 'btn', href: '#/builder' }, 'New connector')),
-    h('div', { class: 'card' }, table([
-      { t: 'Connector', v: (c) => h('div', {}, h('div', {}, c.name), h('code', { class: 'faint' }, c.id)) },
-      { t: 'OCSF class', v: (c) => c.class ? h('span', {}, classLabel(c.class)) : '—' },
-      { t: 'Newest revision', v: (c) => h('div', { class: 'row' }, h('span', {}, 'rev ' + c.revision), pill(c.status)) },
-      { t: 'Live', v: (c) => c.live_revision ? 'rev ' + c.live_revision : h('span', { class: 'faint' }, 'not live') },
-      { t: 'Config hash', v: (c) => h('code', { class: 'faint', title: c.hash }, short(c.hash, 12)) },
-      { t: 'Created', v: (c) => ago(c.created_at) },
-      { t: '', v: (c) => h('div', { class: 'row', style: 'flex-wrap:nowrap' },
-        h('a', { class: 'btn sm', href: '#/builder/' + encodeURIComponent(c.id), onclick: (e) => e.stopPropagation() }, 'Edit'),
-        h('a', { class: 'btn sm', href: `#/records?class=${c.class}&source=${encodeURIComponent(c.id)}`, onclick: (e) => e.stopPropagation() }, 'Records'),
-        c.live_revision ? runButtons(c.id, () => route()) : null) },
-    ], cfgs)));
+    header('Sources', null, h('a', { class: 'btn primary', href: '#/builder' }, '+ Add source')),
+    cfgs.length ? h('div', { class: 'card' }, table([
+      { t: 'Source', v: (c) => h('div', {}, h('div', {}, c.name), h('div', { class: 'small faint' }, kind(c.class))) },
+      { t: 'Status', v: state },
+      { t: 'Last run', v: lastRun },
+      { t: '', v: (c) => h('div', { class: 'row', style: 'flex-wrap:nowrap;justify-content:flex-end' },
+        c.live_revision ? runNow(c) : null,
+        h('a', { class: 'btn sm', href: '#/records?class=' + c.class + '&source=' + encodeURIComponent(c.id), onclick: (e) => e.stopPropagation() }, 'Data')) },
+    ], cfgs, (c) => { location.hash = '#/builder/' + encodeURIComponent(c.id); }))
+      : h('div', { class: 'card', style: 'padding:24px' }, 'No sources yet. ', h('a', { href: '#/builder' }, 'Add your first source'), '.'));
 }
 
 const COLS = {
@@ -432,7 +461,7 @@ function parse(c) {
     activity: (c.destination || {}).activity_id ? String(c.destination.activity_id) : '' });
   f.auth = { type: a.type || 'none', secret: a.secret || '', header: a.header || '', username: a.username || '', token_url: a.token_url || '', client_id: a.client_id || '',
     scopes: (a.scopes || []).join(', '), extra: kv(a.extra_params), tpl: (a.headers || []).map((x) => [x.name, x.value]) };
-  for (const k of Object.keys(f.pag)) if (k !== 'type') f.pag[k] = p[k] !== undefined && p[k] !== 0 && p[k] !== '' ? String(p[k]) : '';
+  for (const k of Object.keys(f.pag)) if (k !== 'type') f.pag[k] = p[k] !== undefined && p[k] !== null && p[k] !== '' && (p[k] !== 0 || k === 'start_page') ? String(p[k]) : '';
   f.pag.type = p.type || 'none';
   f.filter = (c.filter || []).map((x) => ({ path: x.path, op: x.op, value: Array.isArray(x.value) ? x.value.join(', ') : String(x.value ?? '') }));
   f.rows = Object.entries((c.destination || {}).mapping || {}).map(([o, m]) => ({ o, src: m.path !== undefined ? 'path' : 'constant',
@@ -498,10 +527,12 @@ function serialize(f) {
 
 const B = { f: null, saved: null, steps: {}, issues: [], warnings: [], secretNames: [] };
 async function builder(v, id) {
+  if (!id && !B.advanced) return wizard(v);
+  B.advanced = false;
   B.saved = null; B.steps = {}; B.issues = []; B.warnings = [];
   const [sec, existing] = await Promise.all([must('GET', '/secrets?limit=500'), id ? must('GET', '/configs/' + encodeURIComponent(id)) : null]);
   B.secretNames = sec.map((s) => [s.name, s.allowed_host]);
-  B.f = existing ? parse(existing.config) : blank();
+  B.f = existing ? parse(existing.config) : (B.f || blank());
   B.existing = existing;
   renderBuilder(v);
 }
@@ -657,6 +688,109 @@ function renderBuilder(v) {
             } }, 'Apply to form'))),
           h('div', { class: 'bd' }, json, h('div', { class: 'small faint', style: 'margin-top:6px' }, 'Holds secret names only. Paste a config here and press Apply to load it into the form.'))))));
   refreshJSON();
+}
+// ---------- Add source: product + data type -> AI draft -> key -> Connect ----------
+const W = { product: '', data: 'user_inventory', details: '', draft: null, msg: '', bad: false, progress: [], address: '' };
+const optTag = () => h('span', { class: 'tag', style: 'margin-left:6px' }, 'optional');
+async function wizard(v) {
+  const [sec, cfgs] = await Promise.all([must('GET', '/secrets?limit=500'), must('GET', '/configs?limit=500')]);
+  W.taken = new Set(cfgs.map((x) => x.id));
+  B.secretNames = sec.map((x) => [x.name, x.allowed_host]);
+  renderWizard(v);
+}
+function renderWizard(v) {
+  const re = () => renderWizard(v);
+  const say = (msg, bad) => { W.msg = msg; W.bad = !!bad; };
+  const kinds = Object.keys(KIND).filter((k) => classes()[k]);
+  const product = h('input', { value: W.product, placeholder: 'e.g. Okta, AbuseIPDB, CrowdStrike', autocomplete: 'off', oninput: (e) => { W.product = e.target.value; } });
+  const details = h('textarea', { rows: 2, value: W.details, placeholder: 'Anything special, or paste part of the vendor API docs', oninput: (e) => { W.details = e.target.value; } });
+  const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+    if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
+    W.draft = null; W.progress = []; W.address = ''; say('Drafting…'); re();
+    const r = await api('POST', '/ai/draft', { product: W.product.trim(), data: W.data, details: W.details });
+    say('');
+    if (r.ok) {
+      W.draft = r.data; B.f = parse(r.data.config); B.existing = null; B.saved = null; B.steps = {};
+      // never overwrite an existing source: a taken id gets a numeric suffix
+      const base = B.f.id; let n = 2;
+      while (W.taken && W.taken.has(B.f.id)) B.f.id = base.slice(0, 60) + '_' + n++;
+    }
+    else if (r.status === 503 && r.data && r.data.error === 'ai_not_configured') say('AI is not set up on this server. Use "Fill in manually".', true);
+    else if (r.status === 422) { say('The AI could not produce a valid setup. Use "Fill in manually" to finish it.', true); if (r.data.config) B.f = parse(r.data.config); }
+    else if (r.status === 429) say('Too many drafts in a row. Wait a few seconds.', true);
+    else say('AI request failed: ' + ((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status), true);
+    re();
+  }) }, W.draft ? 'Draft again' : 'Set it up');
+
+  const parts = [
+    header('Add source', null, h('button', { class: 'ghost', type: 'button', onclick: () => { B.advanced = true; if (!W.draft) B.f = null; route(); } }, 'Fill in manually')),
+    h('div', { class: 'card' }, h('div', { class: 'bd stack' },
+      h('label', { class: 'f' }, h('span', {}, 'Product'), product),
+      h('div', { class: 'f' }, h('span', {}, 'What data'), h('div', { class: 'row' },
+        kinds.map((k) => h('button', { type: 'button', class: 'sm' + (W.data === k ? ' primary' : ''), onclick: () => { W.data = k; re(); } }, KIND[k])))),
+      h('label', { class: 'f' }, h('span', {}, 'Notes', optTag()), details),
+      h('div', { class: 'row' }, draftBtn, W.msg ? h('span', { class: 'small', style: W.bad ? 'color:var(--bad)' : 'color:var(--muted)' }, W.msg) : null))),
+  ];
+  if (W.draft) parts.push(draftCard(v));
+  v.replaceChildren(...parts);
+}
+function draftCard(v) {
+  const re = () => renderWizard(v);
+  const c = serialize(B.f), a = c.auth || {};
+  const isOAuth = a.type === 'oauth2_client_credentials';
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
+  const apiHost = hostOf(c.request.url), keyHost = isOAuth ? hostOf(a.token_url) : apiHost;
+  const placeholder = /your-tenant/.test(apiHost + ' ' + keyHost);
+  // needed 1: the customer's own address, only when the vendor has per-customer hosts
+  const addr = h('input', { value: W.address || apiHost, autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.address = e.target.value.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase(); } });
+  const applyAddr = h('button', { type: 'button', onclick: () => {
+    if (!W.address || /your-tenant/.test(W.address)) { toast('Enter your own address', true); return; }
+    const swap = (u) => u.replace(/\/\/[^/]*your-tenant[^/]*/, '//' + W.address);
+    B.f.url = swap(B.f.url); if (B.f.auth.token_url) B.f.auth.token_url = swap(B.f.auth.token_url);
+    re();
+  } }, 'Use this address');
+  // needed 2: the key, unless one is already stored for this exact host
+  const stored = B.secretNames.find(([n]) => n === a.secret);
+  const needsKey = a.type && a.type !== 'none' && !(stored && stored[1] === keyHost);
+  const keyInput = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'paste the key' });
+  const saveKey = h('button', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+    if (!keyInput.value) return;
+    const r = await api('PUT', '/secrets/' + encodeURIComponent(a.secret), { value: keyInput.value, allowed_host: keyHost });
+    keyInput.value = '';
+    if (r.status === 204) { B.secretNames = B.secretNames.filter(([n]) => n !== a.secret).concat([[a.secret, keyHost]]); toast('Key stored. It is only ever sent to ' + keyHost); re(); }
+    else toast((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status, true);
+  }) }, 'Store key');
+  const ready = !placeholder && !needsKey;
+  const connect = h('button', { class: 'primary', type: 'button', disabled: !ready, onclick: (e) => busy(e.currentTarget, async () => {
+    W.progress = [];
+    const label = { save: 'Saved', validate: 'Checked', activate: 'Switched on', test: 'Test call', run: 'First fetch' };
+    for (const k of ['save', 'validate', 'activate', 'test', 'run']) {
+      const ok = await doStep(k);
+      const st = B.steps[k] || {};
+      W.progress.push([ok, label[k] + (k === 'run' && ok ? ': ' + st.msg : '') + (ok ? '' : ': ' + plainError(st.msg) + (B.issues.length ? ' (' + B.issues.map((x) => x.field).join(', ') + ')' : ''))]);
+      re();
+      if (!ok) break;
+    }
+  }) }, 'Connect');
+  const done = W.progress.length === 5 && W.progress.every(([ok]) => ok);
+  const neededHints = (W.draft.needed || []);
+  const step = (n, title, ...body) => h('div', { class: 'stack', style: 'gap:6px' }, h('div', {}, h('strong', {}, n + '. ' + title)), ...body);
+  let n = 0;
+  return h('div', { class: 'card' }, h('div', { class: 'bd stack' },
+    h('div', {}, h('h2', {}, c.name || c.id), h('div', { class: 'small muted' }, kind(c.destination.class) + ' from ' + (apiHost || c.request.url))),
+    placeholder ? step(++n, 'Your ' + (W.product || 'vendor') + ' address', h('div', { class: 'row' }, addr, applyAddr)) : null,
+    needsKey ? step(++n, 'API key', neededHints.length ? h('ul', { class: 'small muted', style: 'margin:0;padding-left:18px' }, neededHints.map((x) => h('li', {}, x))) : null,
+      h('div', { class: 'row' }, keyInput, saveKey), h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + (keyHost || 'the vendor') + '.')) : null,
+    !placeholder && !needsKey && a.type !== 'none' ? h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ Key "' + a.secret + '" is stored for ' + keyHost) : null,
+    h('div', { class: 'row' }, connect, ready ? null : h('span', { class: 'small muted' }, 'Finish the step' + (placeholder && needsKey ? 's' : '') + ' above first.')),
+    W.progress.length ? h('ul', { class: 'small', style: 'margin:0;padding-left:18px' }, W.progress.map(([ok, t]) => h('li', { style: ok ? '' : 'color:var(--bad)' }, (ok ? '✓ ' : '✗ ') + t))) : null,
+    done ? h('a', { class: 'btn', href: '#/records?class=' + c.destination.class + '&source=' + encodeURIComponent(c.id) }, 'See the data') : null,
+    (W.draft.optional || []).length ? h('details', {}, h('summary', {}, 'Optional settings'),
+      h('ul', { class: 'small', style: 'margin:6px 0 0;padding-left:18px' }, W.draft.optional.map((x) => h('li', {}, x, optTag()))),
+      h('button', { class: 'ghost sm', type: 'button', onclick: () => { B.advanced = true; route(); } }, 'Change settings')) : null,
+    (W.draft.sources || []).length ? h('div', { class: 'small muted' }, 'Based on: ', W.draft.sources.map((u, i) => [i ? ' · ' : '',
+      h('a', { href: /^https:\/\//.test(u) ? u : '#', target: '_blank', rel: 'noopener noreferrer' }, (() => { try { const x = new URL(u); return x.host + x.pathname; } catch { return u; } })())])) : null,
+    (W.draft.notes || []).length ? h('details', {}, h('summary', {}, 'How it was set up'), h('ul', { class: 'small muted' }, W.draft.notes.map((x) => h('li', {}, x)))) : null));
 }
 async function doStep(k, btn) {
   const run = async () => {

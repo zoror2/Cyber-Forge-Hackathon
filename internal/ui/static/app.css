@@ -81,12 +81,12 @@ td.clip { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-spa
 /* controls */
 button, .btn { font: inherit; font-size: 13px; border-radius: 6px; padding: 6px 12px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 button:hover, .btn:hover { background: var(--sunken); }
-button.primary { background: var(--ink); border-color: var(--ink); color: #fafafa; }
+button.primary, .btn.primary { background: var(--ink); border-color: var(--ink); color: #fafafa; }
 button.primary:hover { background: var(--ink-hover); }
 button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
 button.ghost:hover { background: var(--sunken); color: var(--text); }
 button.danger { color: var(--bad); }
-button.sm { padding: 3px 9px; font-size: 12px; }
+button.sm, .btn.sm { padding: 3px 9px; font-size: 12px; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.busy { position: relative; color: transparent !important; }
 button.busy::after { content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px; border: 2px solid var(--faint); border-top-color: var(--text); border-radius: 50%; animation: spin .7s linear infinite; }

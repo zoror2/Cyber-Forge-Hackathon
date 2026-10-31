@@ -23,6 +23,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY pkg ./pkg
+COPY configs ./configs
 # CGO_ENABLED=0  -> fully static binary (needed for the distroless/static image)
 # -trimpath      -> no local file paths embedded in the binary
 # -ldflags=-s -w -> strip debug symbols (smaller binary)
