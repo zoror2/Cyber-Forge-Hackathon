@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"configbridge/configs"
+	"configbridge/internal/engine"
 	"configbridge/pkg/config"
 	"configbridge/pkg/ocsf"
 )
@@ -108,6 +109,9 @@ type Draft struct {
 	// source (OCSF class names, never including Data).
 	AlsoAvailable []string `json:"also_available"`
 	Rounds        int      `json:"rounds"` // model calls used
+	// Credential: the exact fields and hosts to ask the human for, derived
+	// from the config itself (the model's "needed" text is only a hint).
+	Credential *engine.CredentialSpec `json:"credential"`
 }
 
 // Issues returned when the model could not produce a valid config.
@@ -160,7 +164,8 @@ func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft
 				return nil, ErrUpstream
 			}
 			return &Draft{Config: norm, Notes: out.Notes, Needed: out.Needed, Optional: out.Optional, Sources: httpsOnly(out.Sources),
-				Data: decoded.Destination.Class, AlsoAvailable: alsoAvailable(out.Also, decoded.Destination.Class), Rounds: round}, nil
+				Data: decoded.Destination.Class, AlsoAvailable: alsoAvailable(out.Also, decoded.Destination.Class), Rounds: round,
+				Credential: engine.Credential(decoded.Auth, decoded.Request.URL)}, nil
 		}
 		// feed our validator's verdict back; the model fixes its own config
 		b, _ := json.Marshal(issues)
@@ -304,7 +309,7 @@ func systemPrompt() string {
 	return `You write connector configs for ConfigBridge, a platform that pulls JSON from a vendor REST API and stores every record as an OCSF 1.9.0 event.
 You only write the config. You never produce data records.
 
-Output: config_json = ONE complete config document (a JSON string), notes = short reasons for each non-obvious choice (endpoint, auth, paging, mappings); needed = the MINIMUM the customer must do to connect, normally just one item: which API key/token to create, where in the vendor console, and which read-only permission it needs; add the tenant address only if the host is customer-specific; never put anything you can decide yourself in needed; optional = a few settings they MAY tune later (filters, schedule, extra fields), never required to connect; also_available = other OCSF classes (from the available OCSF classes given in the request) this product's API genuinely offers besides the one you drafted, e.g. Okta drafted as user_inventory -> ["authentication"]; empty if none; sources = 1-3 official https documentation URLs of the vendor API you based the endpoint, auth and fields on (only real vendor doc pages you are confident exist; empty if unsure). If you are unsure of an endpoint or field name, still give your best guess and say so in notes; the platform tests every draft against the real API before it can go live.
+Output: config_json = ONE complete config document (a JSON string), notes = short reasons for each non-obvious choice (endpoint, auth, paging, mappings); needed = the MINIMUM the customer must do to connect: one item per credential to create (where in the vendor console, which read-only role/scope), naming every value they will paste (e.g. client ID AND client secret, key ID AND secret key); add the tenant address only if a host is customer-specific; never put anything you can decide yourself in needed; optional = a few settings they MAY tune later (filters, schedule, extra fields), never required to connect; also_available = other OCSF classes (from the available OCSF classes given in the request) this product's API genuinely offers besides the one you drafted, e.g. Okta drafted as user_inventory -> ["authentication"]; empty if none; sources = 1-3 official https documentation URLs of the vendor API you based the endpoint, auth and fields on (only real vendor doc pages you are confident exist; empty if unsure). If you are unsure of an endpoint or field name, still give your best guess and say so in notes; the platform tests every draft against the real API before it can go live.
 
 Config rules (the platform validator enforces them):
 - version 1; id: lowercase a-z 0-9 _ - (derive from product + data, e.g. <product>_<data>); name: human label; vendor: the maker's name (see below).
@@ -325,13 +330,16 @@ Supported classes:
 
 How to decide, for ANY vendor (these are patterns, not a vendor list):
 - vendor: always set the top-level "vendor" to the company that makes the product, as it is commonly written (e.g. "Microsoft", "CrowdStrike", "Atlassian"). It links sources to vulnerability feeds; never leave it empty.
+- Current API first: if the vendor has replaced an older API or auth (e.g. a new unified API platform with OAuth via a central identity service replacing session logins or legacy keys), use the current one.
+- The token host and the API host are often different (identity service vs API gateway); either may be customer-specific: put "your-tenant" wherever the customer's own name/domain goes.
+- Pull only: ConfigBridge pulls with GET. Many products deliver their logs only by streaming/export (syslog, log streaming services, S3/blob export). If the product's logs are not readable by a REST GET list, do NOT invent a logs endpoint: draft the main dataset that IS (users, devices/assets, findings) and say in notes that logs need the vendor's streaming export.
 - Host: use the vendor's documented public API host. If every customer has their own host or subdomain, use "your-tenant" for that part (your-tenant.vendor.com, vendor.your-tenant.com). If the vendor has regional hosts, pick the default/US one and mention the others in optional.
 - Auth, by what the vendor documents:
   * a key in a custom header (X-Api-Key, Key, X-Auth-Token)            -> api_key with header
   * "Authorization: Bearer <token>" (personal or API token)             -> bearer
   * "Authorization: <Scheme> <token>" with any other scheme             -> static with that exact scheme
   * two values sent in two headers (key id + secret)                    -> static, {{secret.<field>}} per header; needed names both fields
-  * username/email + password or API token over HTTP Basic             -> basic with username (secret holds the password/token)
+  * username/email + password or API token over HTTP Basic             -> basic; username = the customer's login, write "your-username" if unknown (secret holds the password/token)
   * client id + client secret exchanged at a token URL (OAuth2 client credentials, e.g. Microsoft Graph, most EDR/XDR APIs)
                                                                           -> oauth2_client_credentials with token_url, scopes, extra_params if documented (audience/resource); the secret holds fields client_id and client_secret
   * public data, no key                                                 -> none
@@ -348,8 +356,8 @@ Generic shapes (example.com hosts stand for any vendor):
 api_key header + page:   "auth":{"type":"api_key","secret":"vendor_key","header":"X-Api-Key"},"pagination":{"type":"page","page_param":"page","start_page":1,"size_param":"per_page","page_size":100}
 static scheme + cursor:  "auth":{"type":"static","secret":"vendor_token","headers":[{"name":"Authorization","value":"Token {{secret.value}}"}]},"pagination":{"type":"cursor","cursor_param":"cursor","cursor_path":"meta.next_cursor","size_param":"limit","page_size":100}
 two-header static:       "auth":{"type":"static","secret":"vendor_api","headers":[{"name":"X-Key-Id","value":"{{secret.key_id}}"},{"name":"X-Key-Secret","value":"{{secret.key}}"}]}
-basic + offset:          "auth":{"type":"basic","secret":"vendor_token","username":"you@your-company.com"},"pagination":{"type":"offset","offset_param":"startAt","size_param":"maxResults","page_size":100}
-oauth2 + cursor:         "auth":{"type":"oauth2_client_credentials","secret":"vendor_client","token_url":"https://auth.example.com/oauth2/token","scopes":["read"]},"pagination":{"type":"cursor","cursor_param":"after","cursor_path":"meta.pagination.after","size_param":"limit","page_size":100}
+basic + offset:          "auth":{"type":"basic","secret":"vendor_token","username":"your-username"},"pagination":{"type":"offset","offset_param":"startAt","size_param":"maxResults","page_size":100}
+oauth2 + cursor:         "auth":{"type":"oauth2_client_credentials","secret":"vendor_client","token_url":"https://your-tenant.id.example.com/oauth2/token","scopes":["read"],"extra_params":{"audience":"https://api.example.com"}},"pagination":{"type":"cursor","cursor_param":"after","cursor_path":"meta.pagination.after","size_param":"limit","page_size":100}
 
 Two real configs that are live in production (follow their overall shape):
 GitHub org members (bearer + Link paging):

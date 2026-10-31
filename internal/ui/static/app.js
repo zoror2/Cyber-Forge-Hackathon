@@ -874,7 +874,7 @@ function renderWizard(v) {
   const details = h('textarea', { rows: 2, value: W.details, placeholder: 'Anything special, or paste part of the vendor API docs', oninput: (e) => { W.details = e.target.value; } });
   const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
-    W.draft = null; W.progress = []; W.address = ''; say('Drafting…'); re();
+    W.draft = null; W.progress = []; W.address = ''; W.creds = {}; say('Drafting…'); re();
     const r = await api('POST', '/ai/draft', { product: W.product.trim(), data: W.data, details: W.details });
     say('');
     if (r.ok) {
@@ -911,26 +911,41 @@ function draftCard(v) {
   const isOAuth = a.type === 'oauth2_client_credentials';
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
   const apiHost = hostOf(c.request.url), keyHost = isOAuth ? hostOf(a.token_url) : apiHost;
-  const placeholder = /your-tenant/.test(apiHost + ' ' + keyHost);
-  // needed 1: the customer's own address, only when the vendor has per-customer hosts
-  const addr = h('input', { value: W.address || apiHost, autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.address = e.target.value.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase(); } });
+  // the customer part may be in a host or a path (e.g. login.microsoftonline.com/your-tenant/...)
+  const placeholder = /your-tenant/.test(c.request.url + ' ' + (a.token_url || ''));
+  // needed 1: the customer's own address, only when the vendor has per-customer hosts.
+  // A bare name ("acme") fills every "your-tenant" part (token + API host); a full host replaces it.
+  const addr = h('input', { value: W.address || '', placeholder: 'your company name or full host', autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.address = e.target.value.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase(); } });
   const applyAddr = h('button', { type: 'button', onclick: () => {
-    if (!W.address || /your-tenant/.test(W.address)) { toast('Enter your own address', true); return; }
-    const swap = (u) => u.replace(/\/\/[^/]*your-tenant[^/]*/, '//' + W.address);
+    if (!W.address || /your-tenant/.test(W.address) || !/^[a-z0-9.-]+$/.test(W.address)) { toast('Enter your own address', true); return; }
+    const swap = (u) => W.address.includes('.') ? u.replace(/\/\/[^/]*your-tenant[^/]*/, '//' + W.address) : u.replace(/your-tenant/g, W.address);
     B.f.url = swap(B.f.url); if (B.f.auth.token_url) B.f.auth.token_url = swap(B.f.auth.token_url);
     re();
   } }, 'Use this address');
-  // needed 2: the key, unless one is already stored for this exact host
+  // needed 2: every credential value the config uses (fields come from the server, derived
+  // from the config itself), unless a secret is already stored for this exact host
+  const spec = W.draft.credential || { secret: a.secret, fields: ['value'] };
+  const hosts = isOAuth && keyHost && keyHost !== apiHost ? [keyHost, apiHost] : [apiHost];
   const stored = B.secretNames.find(([n]) => n === a.secret);
-  const needsKey = a.type && a.type !== 'none' && !(stored && stored[1] === keyHost);
-  const keyInput = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'paste the key' });
+  const needsUser = !!spec.username;
+  const field = (t, control) => h('label', { class: 'f' }, h('span', {}, t), control);
+  const needsKey = a.type && a.type !== 'none' && !(stored && stored[1] === hosts[0]);
+  const LABEL = { value: 'API key', client_id: 'Client ID', client_secret: 'Client secret', key_id: 'Key ID', key: 'Secret key', api_key: 'API key', api_secret: 'API secret', password: 'Password' };
+  const label = (f) => LABEL[f] || f.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());
+  const vals = W.creds || (W.creds = {});
+  const credInputs = (spec.fields || ['value']).map((f) => field(label(f), h('input', { type: /(^|_)id$/.test(f) ? 'text' : 'password', autocomplete: 'new-password', spellcheck: 'false', value: vals[f] || '', placeholder: label(f), oninput: (e) => { vals[f] = e.target.value; } })));
+  const userInput = needsUser ? field('Username', h('input', { value: /your-|example\./.test(a.username || '') ? '' : (a.username || ''), autocomplete: 'off', spellcheck: 'false', placeholder: 'the account you sign in with', oninput: (e) => { B.f.auth.username = e.target.value.trim(); } })) : null;
   const saveKey = h('button', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
-    if (!keyInput.value) return;
-    const r = await api('PUT', '/secrets/' + encodeURIComponent(a.secret), { value: keyInput.value, allowed_host: keyHost });
-    keyInput.value = '';
-    if (r.status === 204) { B.secretNames = B.secretNames.filter(([n]) => n !== a.secret).concat([[a.secret, keyHost]]); toast('Key stored. It is only ever sent to ' + keyHost); re(); }
+    const fields = spec.fields || ['value'];
+    if (fields.some((f) => !vals[f])) { toast('Fill in ' + fields.map(label).join(' and '), true); return; }
+    if (needsUser && (!B.f.auth.username || /your-|example\./.test(B.f.auth.username))) { toast('Enter the username', true); return; }
+    const body = fields.length === 1 && fields[0] === 'value' ? { value: vals.value } : { fields: Object.fromEntries(fields.map((f) => [f, vals[f]])) };
+    if (hosts.length > 1) body.allowed_hosts = hosts; else body.allowed_host = hosts[0];
+    const r = await api('PUT', '/secrets/' + encodeURIComponent(a.secret), body);
+    W.creds = {};
+    if (r.status === 204) { B.secretNames = B.secretNames.filter(([n]) => n !== a.secret).concat([[a.secret, hosts[0]]]); toast('Stored. Only ever sent to ' + hosts.join(' and ')); re(); }
     else toast((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status, true);
-  }) }, 'Store key');
+  }) }, 'Store');
   const ready = !placeholder && !needsKey;
   const connect = h('button', { class: 'primary', type: 'button', disabled: !ready, onclick: (e) => busy(e.currentTarget, async () => {
     W.progress = [];
@@ -953,9 +968,9 @@ function draftCard(v) {
       W.draft.also_available.map((k) => h('button', { type: 'button', class: 'sm', title: 'Set up ' + kind(k) + ' as another source',
         onclick: () => { W.data = k; W.again = true; re(); } }, '+ ' + kind(k))), optTag()) : null,
     placeholder ? step(++n, 'Your ' + (W.product || 'vendor') + ' address', h('div', { class: 'row' }, addr, applyAddr)) : null,
-    needsKey ? step(++n, 'API key', neededHints.length ? h('ul', { class: 'small muted', style: 'margin:0;padding-left:18px' }, neededHints.map((x) => h('li', {}, x))) : null,
-      h('div', { class: 'row' }, keyInput, saveKey), h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + (keyHost || 'the vendor') + '.')) : null,
-    !placeholder && !needsKey && a.type !== 'none' ? h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ Key "' + a.secret + '" is stored for ' + keyHost) : null,
+    needsKey ? step(++n, (spec.fields || []).length > 1 ? 'Credentials' : 'API key', neededHints.length ? h('ul', { class: 'small muted', style: 'margin:0;padding-left:18px' }, neededHints.map((x) => h('li', {}, x))) : null,
+      h('div', { class: 'grid2' }, userInput, ...credInputs), h('div', { class: 'row' }, saveKey), h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + hosts.join(' and ') + '.')) : null,
+    !placeholder && !needsKey && a.type !== 'none' ? h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ "' + a.secret + '" is stored for ' + hosts.join(' and ')) : null,
     h('div', { class: 'row' }, connect, ready ? null : h('span', { class: 'small muted' }, 'Finish the step' + (placeholder && needsKey ? 's' : '') + ' above first.')),
     W.progress.length ? h('ul', { class: 'small', style: 'margin:0;padding-left:18px' }, W.progress.map(([ok, t]) => h('li', { style: ok ? '' : 'color:var(--bad)' }, (ok ? '✓ ' : '✗ ') + t))) : null,
     done ? h('a', { class: 'btn', href: '#/records?class=' + c.destination.class + '&source=' + encodeURIComponent(c.id) }, 'See the data') : null,
