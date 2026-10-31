@@ -2,6 +2,7 @@ package api
 
 import (
 	"configbridge/internal/aidraft"
+	"configbridge/internal/insights"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
 	"context"
@@ -22,6 +23,7 @@ type Drafting struct {
 	Sources        map[string]aidraft.Source
 	EnabledTenants map[string]bool
 	DailyLimit     int
+	TokenLimit     int64
 	mu             sync.Mutex
 	active         map[string]bool
 }
@@ -103,7 +105,11 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "invalid_ai_budget")
 		return
 	}
-	if err := scope.ReserveAI(r.Context(), limit, audit); err != nil {
+	tokenLimit := a.AI.TokenLimit
+	if tokenLimit == 0 {
+		tokenLimit = 400000
+	}
+	if err := scope.ReserveMeteredAI(r.Context(), limit, tokenLimit, audit, "config_draft"); err != nil {
 		if errors.Is(err, store.ErrAIBudget) {
 			fail(w, 429, "ai_daily_limit_reached")
 		} else {
@@ -111,7 +117,16 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	raw, err := a.AI.Provider.Generate(r.Context(), source)
+	var raw []byte
+	var usage insights.Usage
+	var err error
+	if metered, ok := a.AI.Provider.(interface {
+		GenerateMetered(context.Context, aidraft.Source) ([]byte, insights.Usage, error)
+	}); ok {
+		raw, usage, err = metered.GenerateMetered(r.Context(), source)
+	} else {
+		raw, err = a.AI.Provider.Generate(r.Context(), source)
+	}
 	var c config.Config
 	audit.Outcome = "provider_failed"
 	if err == nil {
@@ -128,6 +143,10 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	// contents, names or credential values are put into the audit table.
 	finish, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if e := scope.FinishTokens(finish, audit.RequestID, audit.Outcome, usage); e != nil {
+		dbFail(w, e)
+		return
+	}
 	if e := scope.RecordAI(finish, audit); e != nil {
 		dbFail(w, e)
 		return

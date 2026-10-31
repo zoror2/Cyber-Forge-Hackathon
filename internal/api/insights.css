@@ -1,0 +1,15 @@
+#ai-usage {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.card { margin-top: 24px; overflow-wrap: anywhere; }
+.check input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+}
+@media (max-width: 620px) {
+  #ai-usage { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

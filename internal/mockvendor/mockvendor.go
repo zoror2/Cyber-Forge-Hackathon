@@ -82,6 +82,19 @@ func window(total, start, size int) (int, int) {
 
 func Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /security-events", func(w http.ResponseWriter, r *http.Request) {
+		out := []map[string]any{}
+		now := time.Now().UTC().Add(-time.Minute)
+		for i := 0; i < 6; i++ {
+			out = append(out, map[string]any{"id": fmt.Sprintf("synthetic-auth-%d", i), "type": "authentication_failure", "severity": "low", "timestamp": now.Format(time.RFC3339), "description": "SYNTHETIC_PRIVATE_DESCRIPTION user@example.invalid 192.0.2.1"})
+		}
+		out = append(out, map[string]any{"id": "synthetic-high", "type": "security_alert", "severity": "high", "timestamp": now.Format(time.RFC3339), "description": "SYNTHETIC_PRIVATE_DESCRIPTION"})
+		// Old/future high events exercise event-time filtering, even when fetched now.
+		for _, at := range []time.Time{now.Add(-48 * time.Hour), now.Add(48 * time.Hour)} {
+			out = append(out, map[string]any{"id": "synthetic-time-" + at.Format("20060102"), "type": "security_alert", "severity": "critical", "timestamp": at.Format(time.RFC3339), "description": "SYNTHETIC_PRIVATE_DESCRIPTION"})
+		}
+		writeJSON(w, out)
+	})
 	mux.Handle("/incremental/", incrementalHandler())
 
 	// Page-number paging with a Link header, like GitHub.

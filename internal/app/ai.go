@@ -43,5 +43,21 @@ func Drafting(getenv func(string) string) (*api.Drafting, error) {
 	if err != nil {
 		return nil, errors.New("Groq configuration unavailable")
 	}
-	return &api.Drafting{Provider: provider, Sources: sources, EnabledTenants: tenants, DailyLimit: limit}, nil
+	tokens, err := AITokenLimit(getenv)
+	if err != nil {
+		return nil, err
+	}
+	return &api.Drafting{Provider: provider, Sources: sources, EnabledTenants: tenants, DailyLimit: limit, TokenLimit: tokens}, nil
+}
+
+func AITokenLimit(getenv func(string) string) (int64, error) {
+	limit := int64(400000)
+	if raw := getenv("CB_AI_DAILY_TOKEN_LIMIT"); raw != "" {
+		var err error
+		limit, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || limit < 40000 || limit > 100000000 {
+			return 0, errors.New("AI daily token limit must be 40000-100000000")
+		}
+	}
+	return limit, nil
 }

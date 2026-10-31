@@ -134,3 +134,14 @@ The short file explanations and localhost demo are in
 [docs/BONUS_B4_B5.md](docs/BONUS_B4_B5.md). The web form runs in Go with HTML/CSS;
 it sends no form data to AI. The optional JavaScript file automates browser tests
 only and is never served to users.
+
+## SIEM and selected-evidence AI
+
+“Our rules check collected events and collection health. PostgreSQL stores the
+findings; OpenSearch finds the relevant ones. We check search results against
+the customer's database scope again. AI receives counts and safe categories,
+explains the evidence and suggests review steps. A usage dashboard records
+actual provider-reported tokens for each customer.”
+
+See [docs/SIEM_AND_AI.md](docs/SIEM_AND_AI.md) for the file explanations, local
+demo, boundaries and the interface Mohit can implement for Bedrock.
