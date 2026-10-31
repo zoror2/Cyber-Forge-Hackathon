@@ -1,5 +1,6 @@
 // mockvendor is a fake vendor API for testing failure handling from Postman.
-// It is a test tool: never deploy it anywhere reachable from the internet.
+// It deliberately misbehaves on demand so we can prove the engine copes.
+// It is a TEST TOOL: never deploy it anywhere reachable from the internet.
 //
 //	GET  /users?page=N&per_page=M          page numbers + Link header (25 users)
 //	GET  /issues?startAt=N&maxResults=M    offset paging, Jira-style (25 issues)
@@ -27,11 +28,14 @@ import (
 	"time"
 )
 
+// counts remembers how many times each "key" was requested, so /flaky and
+// /ratelimit can fail the first N calls and succeed afterwards.
 var (
-	mu     sync.Mutex
+	mu     sync.Mutex // protects counts (requests arrive concurrently)
 	counts = map[string]int{}
 )
 
+// hit increments and returns the call count for key.
 func hit(key string) int {
 	mu.Lock()
 	defer mu.Unlock()
@@ -39,6 +43,7 @@ func hit(key string) int {
 	return counts[key]
 }
 
+// intParam reads an integer query param, or returns def if missing/invalid.
 func intParam(r *http.Request, name string, def int) int {
 	if v, err := strconv.Atoi(r.URL.Query().Get(name)); err == nil {
 		return v
@@ -46,11 +51,14 @@ func intParam(r *http.Request, name string, def int) int {
 	return def
 }
 
+// writeJSON sends v as a JSON response.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// users builds n fake user records starting at ID from. The nested "profile"
+// and the RFC 3339 "last_login" exercise Member B's mapper (nested paths, dates).
 func users(from, n int) []map[string]any {
 	out := []map[string]any{}
 	for i := from; i < from+n; i++ {
@@ -63,6 +71,8 @@ func users(from, n int) []map[string]any {
 	return out
 }
 
+// window returns which slice of a total-sized dataset a page covers:
+// (start index, number of records). Returns 0 records past the end.
 func window(total, start, size int) (int, int) {
 	if start >= total || size < 1 {
 		return start, 0
@@ -71,12 +81,15 @@ func window(total, start, size int) (int, int) {
 }
 
 func main() {
+	// Listen address; override with MOCK_ADDR, default port 8081.
 	addr := os.Getenv("MOCK_ADDR")
 	if addr == "" {
 		addr = ":8081"
 	}
 	mux := http.NewServeMux()
 
+	// Page-number paging with a Link header, like GitHub.
+	// Last page has no Link header, which tells the engine to stop.
 	mux.HandleFunc("GET /users", func(w http.ResponseWriter, r *http.Request) {
 		page, size := max(intParam(r, "page", 1), 1), intParam(r, "per_page", 10)
 		start, n := window(25, (page-1)*size, size)
@@ -86,6 +99,7 @@ func main() {
 		writeJSON(w, users(start+1, n))
 	})
 
+	// Offset paging like Jira: ?startAt=0&maxResults=10, records under "issues".
 	mux.HandleFunc("GET /issues", func(w http.ResponseWriter, r *http.Request) {
 		at, size := intParam(r, "startAt", 0), intParam(r, "maxResults", 10)
 		start, n := window(25, at, size)
@@ -97,6 +111,8 @@ func main() {
 		writeJSON(w, map[string]any{"startAt": at, "maxResults": size, "total": 25, "issues": issues})
 	})
 
+	// Cursor paging: records under "data", next cursor at "meta.next".
+	// Empty cursor on the last page means stop.
 	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("after") {
 		case "":
@@ -108,6 +124,8 @@ func main() {
 		}
 	})
 
+	// Wrong/expired key test: only "Bearer mock-token" is accepted.
+	// The engine must fail once with 401 and NOT retry.
 	mux.HandleFunc("GET /secure", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer mock-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -116,6 +134,9 @@ func main() {
 		writeJSON(w, users(1, 3))
 	})
 
+	// Retry test: fails `fail` times (default 3) with status `code` (default 500)
+	// for each distinct `key`, then succeeds. Use a new key per test run,
+	// or POST /reset.
 	mux.HandleFunc("GET /flaky", func(w http.ResponseWriter, r *http.Request) {
 		key := "flaky:" + r.URL.Query().Get("key")
 		if hit(key) <= intParam(r, "fail", 3) {
@@ -125,6 +146,8 @@ func main() {
 		writeJSON(w, users(1, 3))
 	})
 
+	// Rate-limit test: first call per key returns 429 with Retry-After,
+	// the next call succeeds. The engine must wait exactly that long.
 	mux.HandleFunc("GET /ratelimit", func(w http.ResponseWriter, r *http.Request) {
 		if hit("rl:"+r.URL.Query().Get("key")) == 1 {
 			w.Header().Set("Retry-After", strconv.Itoa(intParam(r, "retry_after", 5)))
@@ -134,18 +157,24 @@ func main() {
 		writeJSON(w, users(1, 3))
 	})
 
+	// Timeout test: waits `seconds` before answering (or until the client
+	// gives up). The engine must time out and retry with backoff.
 	mux.HandleFunc("GET /hang", func(w http.ResponseWriter, r *http.Request) {
 		select {
-		case <-r.Context().Done():
+		case <-r.Context().Done(): // client disconnected
 		case <-time.After(time.Duration(intParam(r, "seconds", 60)) * time.Second):
 			writeJSON(w, users(1, 1))
 		}
 	})
 
+	// SSRF test: redirects to the AWS metadata address. The engine must
+	// refuse to follow it.
 	mux.HandleFunc("GET /redirect", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/iam/security-credentials/", http.StatusFound)
 	})
 
+	// Size-cap test: streams `mb` megabytes (default 50) of valid JSON.
+	// The engine must stop reading at its limit and fail cleanly.
 	mux.HandleFunc("GET /huge", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		chunk := strings.Repeat(`{"id":1,"pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},`, 1000)
@@ -158,6 +187,9 @@ func main() {
 		fmt.Fprint(w, `{"id":2}]`)
 	})
 
+	// Bad-data test for Member B's mapper: one good record, then a missing
+	// ID, an unparseable date and a null email. Bad ones must be quarantined
+	// while the good one is stored.
 	mux.HandleFunc("GET /malformed", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, []map[string]any{
 			{"id": 1, "email": "ok@example.com", "last_login": "2026-10-01T09:00:00Z"},
@@ -167,11 +199,14 @@ func main() {
 		})
 	})
 
+	// Off-host pagination test: the "next page" link points at another
+	// domain. The engine must refuse to follow it (credentials would leak).
 	mux.HandleFunc("GET /offhost", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Link", `<https://evil.example/steal?page=2>; rel="next"`)
 		writeJSON(w, users(1, 10))
 	})
 
+	// Reset all /flaky and /ratelimit counters between test runs.
 	mux.HandleFunc("POST /reset", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		counts = map[string]int{}
@@ -179,6 +214,7 @@ func main() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// ReadHeaderTimeout stops slow-header (slowloris) connections from piling up.
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("mockvendor listening on %s (TEST TOOL, do not deploy)", addr)
 	log.Fatal(srv.ListenAndServe())

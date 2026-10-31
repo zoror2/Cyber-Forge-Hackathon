@@ -1,30 +1,41 @@
-# Local development only.
-#   docker compose run --rm test        vet + race-enabled tests, no network
-#   docker compose up -d mockvendor     fake vendor on http://localhost:8081
-# Member B adds postgres + the engine API service here.
+# Local development only. Never use this file for production.
+#
+#   docker compose --profile tools run --rm test   format check + vet + all tests, offline
+#   docker compose up -d --build mockvendor        fake vendor on http://127.0.0.1:8081
+#   docker compose down                            stop everything
+#
+# Member B adds the postgres and api services here.
 services:
+
+  # Runs every check. Only starts when asked for (profile "tools").
   test:
-    image: golang:1.27
+    image: golang:1.27            # official Go toolchain image
     working_dir: /src
     volumes:
-      - .:/src
-      - gomod:/go/pkg/mod
-      - gocache:/root/.cache/go-build
-    network_mode: none # tests must never touch the real internet
+      - .:/src                    # the repo, mounted into the container
+      - gomod:/go/pkg/mod         # cache downloaded modules between runs
+      - gocache:/root/.cache/go-build # cache compiled packages (faster reruns)
+    network_mode: none            # NO network: tests can never call real vendor APIs
+    # 1. fail if any file isn't gofmt-formatted (and list those files)
+    # 2. go vet: catches common mistakes
+    # 3. all tests with the race detector, never using cached results
+    # ($$ is how compose writes a literal $ for the shell)
     command: sh -c 'unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then echo "needs gofmt:"; echo "$$unformatted"; exit 1; fi; go vet ./... && go test -race -count=1 ./...'
     profiles: ["tools"]
 
+  # Fake vendor API for failure testing (see cmd/mockvendor/main.go).
   mockvendor:
     build:
       context: .
       args:
-        CMD: mockvendor
+        CMD: mockvendor           # Dockerfile builds ./cmd/mockvendor
     ports:
-      - "127.0.0.1:8081:8081" # loopback only, never exposed on the LAN
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+      - "127.0.0.1:8081:8081"     # loopback only, never exposed on your LAN
+    read_only: true               # container filesystem can't be modified
+    cap_drop: [ALL]               # drop every Linux capability
+    security_opt: ["no-new-privileges:true"] # can't gain privileges later
 
+# Named volumes for the Go caches above.
 volumes:
   gomod:
   gocache:

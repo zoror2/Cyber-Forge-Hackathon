@@ -1,5 +1,13 @@
 package engine
 
+// End-to-end tests for the engine. Each test starts a local HTTPS server that
+// pretends to be a vendor (httptest), points a Connector at it and checks the
+// engine's behaviour. Retry waits are recorded instead of slept, so the whole
+// suite runs in a few seconds.
+//
+// Sections: auth & secret binding, tenant isolation, retries & rate limits,
+// pagination, validation & leak prevention.
+
 import (
 	"bytes"
 	"context"

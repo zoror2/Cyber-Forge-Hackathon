@@ -1,5 +1,13 @@
 package egress
 
+// Tests for the egress guard. Each test proves one way of reaching something
+// we must never reach is refused:
+//   - TestCheckIP: ~20 internal / reserved IP forms (incl. metadata, IPv6 tricks)
+//   - TestCheckURL: non-https schemes and credentials in URLs
+//   - TestCheckSecretHost: look-alike hosts, wrong ports, missing binding
+//   - TestClientBlocksLoopbackAtDialTime: "localhost" refused at connect time
+//   - TestClientRefusesRedirects: redirect to the metadata IP not followed
+
 import (
 	"errors"
 	"net/http"
