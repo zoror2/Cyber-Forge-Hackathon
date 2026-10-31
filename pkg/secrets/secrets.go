@@ -1,112 +1,106 @@
-// Package secrets supplies Member A's host-bound secret interface. Never format
-// or return Value through logs, errors, run results, or HTTP responses.
+// Package secrets implements Member A's tenant-aware engine.SecretStore. Values
+// cross that boundary only inside engine.NewSecret's non-printable wrapper.
 package secrets
 
 import (
+	"configbridge/internal/engine"
+	"configbridge/internal/store"
+	"configbridge/pkg/config"
 	"context"
 	"errors"
-	"fmt"
-	"time"
-
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/config"
+	"time"
 )
 
 var ErrUnavailable = errors.New("secret_unavailable")
-var ErrBinding = errors.New("secret_host_binding_cannot_change")
+var ErrBinding = errors.New("secret_binding_is_immutable")
 
-type Secret struct {
-	Value       string `json:"-"`
-	AllowedHost string `json:"allowed_host"`
-}
-
-func (s Secret) String() string                { return "[redacted secret]" }
-func (s Secret) GoString() string              { return "[redacted secret]" }
-func (s Secret) Format(f fmt.State, verb rune) { fmt.Fprint(f, "[redacted secret]") }
-
-type Reader interface {
-	GetSecret(context.Context, string) (Secret, error)
-}
 type Backend interface {
-	GetSecret(context.Context, string) (Secret, error)
-	PutSecret(context.Context, string, Secret) error
+	Read(context.Context, string, string) (string, string, error)
+	Write(context.Context, string, string, string, string) error
+}
+type Service struct {
+	Store       *store.Store
+	Backend     Backend
+	BackendName string
 }
 type Metadata struct {
+	TenantID    string    `json:"tenant_id"`
 	Name        string    `json:"name"`
 	AllowedHost string    `json:"allowed_host"`
 	Backend     string    `json:"backend"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
-type Service struct {
-	Pool        *pgxpool.Pool
-	Backend     Backend
-	BackendName string
-}
 
-func (s *Service) Put(ctx context.Context, name, value, host string) error {
-	if !config.ValidID(name) || !config.ValidHost(host) || len(value) == 0 || len(value) > 32768 {
+func (s *Service) Put(ctx context.Context, tenant, name, value, host string) error {
+	if !config.ValidID(tenant) || !config.ValidID(name) || !config.ValidHost(host) || value == "" || len(value) > 32768 {
 		return errors.New("invalid_secret_input")
 	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return ErrUnavailable
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "secret:"+name); err != nil {
-		return ErrUnavailable
-	}
-	var previous, backend string
-	err = tx.QueryRow(ctx, "SELECT allowed_host,backend FROM credentials_meta WHERE name=$1", name).Scan(&previous, &backend)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return ErrUnavailable
-	}
-	if err == nil && (previous != host || backend != s.BackendName) {
+	e := s.Store.ForTenant(tenant).WithTx(ctx, func(tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", s.Store.ForTenant(tenant).LockKey("secret", name)); e != nil {
+			return e
+		}
+		var previous, backend string
+		e := tx.QueryRow(ctx, "SELECT allowed_host,backend FROM credentials_meta WHERE tenant_id=$1 AND name=$2", tenant, name).Scan(&previous, &backend)
+		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+			return ErrUnavailable
+		}
+		if e == nil && (previous != host || backend != s.BackendName) {
+			return ErrBinding
+		}
+		if e = s.Backend.Write(ctx, tenant, name, value, host); e != nil {
+			return ErrUnavailable
+		}
+		_, e = tx.Exec(ctx, "INSERT INTO credentials_meta(tenant_id,name,allowed_host,backend)VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,name) DO UPDATE SET updated_at=now()", tenant, name, host, s.BackendName)
+		return e
+	})
+	if errors.Is(e, ErrBinding) {
 		return ErrBinding
 	}
-	if err = s.Backend.PutSecret(ctx, name, Secret{Value: value, AllowedHost: host}); err != nil {
-		return ErrUnavailable
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO credentials_meta(name,allowed_host,backend) VALUES($1,$2,$3) ON CONFLICT(name) DO UPDATE SET updated_at=now()`, name, host, s.BackendName)
-	if err != nil {
-		return ErrUnavailable
-	}
-	if tx.Commit(ctx) != nil {
+	if e != nil {
 		return ErrUnavailable
 	}
 	return nil
 }
-func (s *Service) GetSecret(ctx context.Context, name string) (Secret, error) {
-	if !config.ValidID(name) {
-		return Secret{}, ErrUnavailable
+func (s *Service) Get(ctx context.Context, tenant, name string) (engine.Secret, error) {
+	if !config.ValidID(tenant) || !config.ValidID(name) {
+		return engine.Secret{}, ErrUnavailable
 	}
 	var host, backend string
-	if s.Pool.QueryRow(ctx, "SELECT allowed_host,backend FROM credentials_meta WHERE name=$1", name).Scan(&host, &backend) != nil || backend != s.BackendName {
-		return Secret{}, ErrUnavailable
+	e := s.Store.ForTenant(tenant).WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT allowed_host,backend FROM credentials_meta WHERE tenant_id=$1 AND name=$2", tenant, name).Scan(&host, &backend)
+	})
+	if e != nil || backend != s.BackendName {
+		return engine.Secret{}, ErrUnavailable
 	}
-	secret, err := s.Backend.GetSecret(ctx, name)
-	if err != nil || secret.AllowedHost != host {
-		return Secret{}, ErrUnavailable
+	value, bound, e := s.Backend.Read(ctx, tenant, name)
+	if e != nil || bound != host || value == "" {
+		return engine.Secret{}, ErrUnavailable
 	}
-	return secret, nil
+	return engine.NewSecret(value, bound), nil
 }
-func (s *Service) List(ctx context.Context, limit, offset int) ([]Metadata, error) {
-	rows, err := s.Pool.Query(ctx, "SELECT name,allowed_host,backend,created_at,updated_at FROM credentials_meta ORDER BY name LIMIT $1 OFFSET $2", limit, offset)
-	if err != nil {
-		return nil, ErrUnavailable
-	}
-	defer rows.Close()
-	out := []Metadata{}
-	for rows.Next() {
-		var m Metadata
-		if rows.Scan(&m.Name, &m.AllowedHost, &m.Backend, &m.CreatedAt, &m.UpdatedAt) != nil {
-			return nil, ErrUnavailable
+func (s *Service) List(ctx context.Context, tenant string, limit, offset int) (out []Metadata, err error) {
+	out = []Metadata{}
+	err = s.Store.ForTenant(tenant).WithTx(ctx, func(tx pgx.Tx) error {
+		rows, e := tx.Query(ctx, "SELECT tenant_id,name,allowed_host,backend,created_at,updated_at FROM credentials_meta WHERE tenant_id=$1 ORDER BY name LIMIT $2 OFFSET $3", tenant, limit, offset)
+		if e != nil {
+			return ErrUnavailable
 		}
-		out = append(out, m)
+		defer rows.Close()
+		for rows.Next() {
+			var m Metadata
+			if e = rows.Scan(&m.TenantID, &m.Name, &m.AllowedHost, &m.Backend, &m.CreatedAt, &m.UpdatedAt); e != nil {
+				return ErrUnavailable
+			}
+			out = append(out, m)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		err = ErrUnavailable
 	}
-	if rows.Err() != nil {
-		return nil, ErrUnavailable
-	}
-	return out, nil
+	return
 }
+
+var _ engine.SecretStore = (*Service)(nil)

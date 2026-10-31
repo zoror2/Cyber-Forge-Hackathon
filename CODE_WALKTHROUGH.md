@@ -1,65 +1,83 @@
-# Explain the Member B code to judges
+# Explain the combined Go code
 
-“Mohit's side obtains API responses safely. Our side checks the configuration,
-converts each row into a common format, saves it in PostgreSQL, and exposes a
-protected API to operate and inspect the integrations.”
+“One engine fetches different APIs using configuration. We map their records
+into a common format and save them without duplicates. Each customer can access
+only their own configs, data and secrets. A broken row gets a rejection reason;
+a broken request gets a failed run.”
 
-## Follow one fixture run
+## Follow one run
 
-1. Submit `configs/fixture_events.yaml` to `POST /configs`. `config.Decode` checks
-   it; `Store.SaveConfig` saves revision 1 as a draft.
-2. Activate that revision. `Store.Activate` makes it live. Sending a config
-   directly to the run endpoint cannot bypass this step.
-3. Call `POST /connectors/fixture_events/run`. `Engine.Run` takes a database lock,
-   reloads the live config and creates a run record.
-4. `Fetcher.Fetch` emits a page. The offline adapter emits four synthetic rows;
-   Member A's adapter will emit actual API pages.
-5. `mapping.Items` finds `vulnerabilities`. `mapping.Map` reads fields such as
-   `dates.added`, converts the date to UTC and validates the common Event.
-6. `Store.SavePage` upserts three good events and quarantines the missing-ID row.
-   A second run updates the same source/ID keys, so only three events remain.
-7. `Store.FinishRun` stores counts and `completed_with_errors`. `/health` shows
-   degraded status. `/quarantine` explains the rejected field without raw data.
+1. `POST /configs` checks a JSON config and stores a draft revision. Tenant
+   identity comes from the caller's API-key hash, not the JSON.
+2. Activation selects the live revision. A new draft never changes a running
+   connection automatically.
+3. `POST /connectors/{id}/run` passes only the connector ID to `runner.Run`.
+   It takes the tenant/connector database lock and loads the live DB config.
+4. Member A's `engine.Fetch` makes guarded HTTPS requests, applies auth,
+   retries temporary failures and follows the configured pagination style.
+5. Each page goes to `mapping.Map`. It finds nested fields, renames/converts
+   values, checks the typed User/Device/Event, and adds tenant/source/fetch time.
+6. `Scope.SavePage` upserts valid records and stores minimal quarantine reasons
+   in a short transaction. Network waits never hold these transactions open.
+7. `Scope.FinishRun` records counts/outcome. Health shows failed/partial/bad-row
+   states honestly. Repeating the sync updates the same stable record keys.
 
-## What each file is for
+The local TLS mock has 25 synthetic users over three pages. Running twice keeps
+25 rows. Its malformed response accepts two rows and quarantines two; the null
+optional email is valid, while a missing ID or invalid date is rejected.
 
-| File | Plain explanation |
+## Files and functions in simple terms
+
+| File | Purpose |
 |---|---|
-| `cmd/configbridge/main.go` | Reads environment settings, opens the DB, chooses the secret backend and starts API/scheduling |
-| `pkg/config/config.go` | Shared structs, strict YAML/JSON reading and validation |
-| `pkg/model/records.go` | Common User, Device, Event, rejection and run shapes |
-| `pkg/collector/collector.go` | Small interface where Mohit plugs in his safe request engine |
-| `pkg/mapping/mapping.go` | Finds nested values, renames fields, applies transforms and checks rows |
-| `internal/store/migrations/001_initial.sql` | Creates the PostgreSQL tables and indexes |
-| `internal/store/store.go` | Versions configs, locks connectors, upserts data and queries history/health |
-| `pkg/secrets/secrets.go` | Host-bound secret interface, immutable bindings and metadata queries |
-| `pkg/secrets/local.go` | Encrypts/decrypts local development secrets using an external master key |
-| `pkg/secrets/aws.go` | Uses the same interface with AWS Secrets Manager |
-| `internal/engine/engine.go` | Coordinates live config → pages → mapping → storage and scheduling |
-| `internal/api/api.go` | Admin authentication and the Postman-facing routes |
-| `internal/fixture/fixture.go` | Explicit offline adapter; produces synthetic data without HTTP |
-| `internal/fixture/testdata/events.json` | Three good records and one missing its ID |
-| `cmd/fixturevendor/main.go` | Serves that static JSON for development container wiring |
-| `configs/fixture_events.yaml` | Instructions describing how to map the sample response |
-| `pkg/*/*_test.go`, `internal/api/auth_test.go` | Focused config, mapping, secrets and authentication checks |
-| `tests/integration_test.go` | Exercises API, mapper, scheduler and store together against real PostgreSQL |
-| `postman/*.json` | Importable requests and an environment with empty credential placeholders |
-| `scripts/dev-env.ps1` | Generates private local environment values without printing them |
-| `scripts/smoke.ps1` | Repeats the fixture demo against the running API |
-| `Dockerfile`, `docker-compose.yml` | Package/start the application, PostgreSQL and static mock vendor |
-| `go.mod`, `go.sum` | Record dependency versions and checksums |
+| `cmd/api/main.go` | Connects the restricted DB role, secrets, engine, scheduler and protected API |
+| `cmd/bootstrap/main.go` | Operator command for migrations, initial tenant and hashed API key |
+| `cmd/mockvendor/main.go` | Starts the synthetic vendor, optionally with TLS |
+| `cmd/devcert/main.go` | Generates the local mock certificate; production never trusts it implicitly |
+| `internal/engine/spec.go` | Member A's request/auth/pagination config and validation |
+| `internal/engine/engine.go` | Makes requests, retries, enforces limits, decodes JSON and emits pages |
+| `internal/engine/auth.go` | Attaches a tenant's host-bound credential; caches OAuth tokens in memory |
+| `internal/engine/secret.go` | Secret wrapper that cannot print its value; tenant-aware backend interface |
+| `internal/engine/redact.go` | Removes URL credentials/query strings from errors and logs |
+| `internal/egress/egress.go` | Checks URL shape, real destination IP and exact secret host; refuses redirects |
+| `internal/app/policy.go` | Allows explicit TLS mock access in dev and rejects dev overrides in production |
+| `internal/mockvendor/mockvendor.go` | Reusable synthetic paging/auth/failure handlers |
+| `pkg/config/config.go` | Adds strict JSON, mapping, schedules and record budgets to A's contract |
+| `pkg/model/records.go` | Defines User, Device, Event, rejection and run shapes |
+| `pkg/mapping/mapping.go` | Follows paths, transforms values and validates a row |
+| `internal/store/migrations/001_initial.sql` | Creates tenant tables, RLS policies, indexes and narrow helper functions |
+| `internal/store/store.go` | Scoped transactions, config versions, locks, upserts, history/health and recovery |
+| `pkg/secrets/secrets.go` | Resolves only the authenticated tenant's secret and returns A's safe wrapper |
+| `pkg/secrets/local.go` | Development encryption with a different AES key per tenant |
+| `pkg/secrets/aws.go` | Same interface using tenant-prefixed AWS secrets and tenant-specific KMS keys |
+| `internal/runner/runner.go` | Coordinates pages → mapper → store and tenant-aware scheduling |
+| `internal/api/api.go` | Authenticates every route and exposes only tenant-scoped operations |
+| `internal/testutil/postgres.go` | Creates disposable test schemas and restricted DB roles |
+| `tests/integration_test.go` | Exercises actual TLS requests, API, mapper, secrets and PostgreSQL together |
+| `*_test.go` beside packages | Focused validation, encryption, egress, request and isolation tests |
+| `pkg/mapping/testdata/events.json` | Synthetic date/nested-field/missing-ID fixture |
+| `configs/*.json` | Declarative sample configs; fixture.invalid is test-only; mock_users runs locally |
+| `postman/*.json` | Request scenarios and blank credential placeholders |
+| `scripts/dev-env.ps1`, `load-env.ps1` | Generate private dev settings and load selected process variables |
+| `scripts/smoke.ps1` | Drives the compiled/native or Compose API through the local demo |
+| `scripts/check.ps1` | Blocks pushing until formatting, vet, race tests and builds pass |
+| `Dockerfile`, `docker-compose.yml` | Package binaries and configure local services/test network |
+| `go.mod`, `go.sum` | Dependency versions and checksums; request engine remains standard library only |
 | `.gitignore`, `.dockerignore`, `.gitattributes` | Exclude private/runtime files and keep text formatting consistent |
-| `.env.example` | Documents settings with empty credential placeholders |
-| `docs/WORK_SPLIT.md`, `docs/architecture.svg` | Mohit's team plan and architecture; preserved |
-| `docs/MEMBER_B.md` | Progress, integration contract, evidence and remaining work |
-| `PRD.md`, `README.md`, this file | Product context, setup and this short explanation |
+| `.env.example` | Documents settings with empty credential values |
+| `docs/WORK_SPLIT.md`, `MEMBER_B_HANDOFF.md`, `REQUEST_SIDE.md` | Team ownership, shared contracts and request-side detail |
+| `docs/MEMBER_B.md` | Current integration/test evidence and boundaries |
+| `docs/architecture.svg` | Original architecture reference; the text handoff contains the later tenant decision |
+| `PRD.md`, `README.md`, this file | Product history, current setup and this explanation |
 
-## Important distinctions
+## Questions judges may ask
 
-- Libraries provide YAML parsing, PostgreSQL access, encryption and AWS calls.
-  Our code connects those pieces into a declarative integration lifecycle.
-- Test connection checks a sample and writes no records, history or watermark.
-- Quarantine means a row failed validation; a network failure fails the run.
-- A partial run can retain earlier committed pages, but cannot claim success.
-- The fixture proves our data/API flow. Actual vendors require Member A's request
-  implementation and separate live verification.
+- **Why no duplicates?** Unique tenant/source/external-ID keys and SQL upsert.
+- **Can one tenant choose another tenant in JSON?** No; that key is rejected and
+  tenant identity comes from authentication. PostgreSQL RLS enforces it again.
+- **Where is a secret?** In the tenant's encrypted backend, referenced by name
+  in the config. The API never returns its value.
+- **What changes for a new supported API?** Its JSON config and credential setup.
+  A protocol/auth type the engine lacks still needs code.
+- **What have we proved?** The tested local capability set and failure cases.
+  Synthetic tests do not prove live vendor access, cloud security or capacity.

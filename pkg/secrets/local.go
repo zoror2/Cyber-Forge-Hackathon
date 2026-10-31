@@ -1,6 +1,8 @@
 package secrets
 
 import (
+	"configbridge/internal/store"
+	"configbridge/pkg/config"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -8,76 +10,98 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
-// Local stores AES-256-GCM ciphertext in Postgres. The key lives outside the DB.
+// Local is development-only. Each tenant must have a distinct key; there is no
+// global fallback. Production uses per-tenant KMS-backed AWS Secrets Manager.
 type Local struct {
-	Pool *pgxpool.Pool
-	aead cipher.AEAD
+	Store *store.Store
+	keys  map[string]cipher.AEAD
 }
 type envelope struct {
-	Value string `json:"value"`
-	Host  string `json:"allowed_host"`
+	Value  string `json:"value"`
+	Host   string `json:"allowed_host"`
+	Tenant string `json:"tenant_id"`
 }
 
-func NewLocal(pool *pgxpool.Pool, key string) (*Local, error) {
-	raw, err := base64.StdEncoding.DecodeString(key)
-	if err != nil || len(raw) != 32 {
-		return nil, errors.New("CONFIGBRIDGE_MASTER_KEY must be base64-encoded 32 random bytes")
+func NewLocal(s *store.Store, keys map[string]string) (*Local, error) {
+	if len(keys) == 0 {
+		return nil, errors.New("development tenant keyring is required")
 	}
-	block, err := aes.NewCipher(raw)
-	if err != nil {
-		return nil, ErrUnavailable
+	out := &Local{Store: s, keys: map[string]cipher.AEAD{}}
+	seen := map[string]bool{}
+	for tenant, key := range keys {
+		raw, e := base64.StdEncoding.DecodeString(key)
+		if !config.ValidID(tenant) || e != nil || len(raw) != 32 || seen[string(raw)] {
+			return nil, errors.New("each development tenant requires a distinct base64 32-byte key")
+		}
+		seen[string(raw)] = true
+		block, e := aes.NewCipher(raw)
+		if e != nil {
+			return nil, ErrUnavailable
+		}
+		aead, e := cipher.NewGCM(block)
+		if e != nil {
+			return nil, ErrUnavailable
+		}
+		out.keys[tenant] = aead
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, ErrUnavailable
-	}
-	return &Local{pool, aead}, nil
+	return out, nil
 }
-func (l *Local) seal(name string, s Secret) ([]byte, error) {
-	data, err := json.Marshal(envelope{s.Value, s.AllowedHost})
-	if err != nil {
+func (l *Local) seal(tenant, name, value, host string) ([]byte, error) {
+	aead := l.keys[tenant]
+	if aead == nil {
 		return nil, ErrUnavailable
 	}
-	nonce := make([]byte, l.aead.NonceSize())
-	if _, err = rand.Read(nonce); err != nil {
+	raw, e := json.Marshal(envelope{value, host, tenant})
+	if e != nil {
 		return nil, ErrUnavailable
 	}
-	return l.aead.Seal(nonce, nonce, data, []byte(name)), nil
+	nonce := make([]byte, aead.NonceSize())
+	if _, e = rand.Read(nonce); e != nil {
+		return nil, ErrUnavailable
+	}
+	return aead.Seal(nonce, nonce, raw, []byte(tenant+"/"+name)), nil
 }
-func (l *Local) open(name string, data []byte) (Secret, error) {
-	n := l.aead.NonceSize()
-	if len(data) < n {
-		return Secret{}, ErrUnavailable
+func (l *Local) open(tenant, name, raw string) (string, string, error) {
+	aead := l.keys[tenant]
+	data := []byte(raw)
+	if aead == nil || len(data) < aead.NonceSize() {
+		return "", "", ErrUnavailable
 	}
-	clear, err := l.aead.Open(nil, data[:n], data[n:], []byte(name))
-	if err != nil {
-		return Secret{}, ErrUnavailable
+	n := aead.NonceSize()
+	clear, e := aead.Open(nil, data[:n], data[n:], []byte(tenant+"/"+name))
+	if e != nil {
+		return "", "", ErrUnavailable
 	}
-	var e envelope
-	if json.Unmarshal(clear, &e) != nil {
-		return Secret{}, ErrUnavailable
+	var env envelope
+	if json.Unmarshal(clear, &env) != nil || env.Tenant != tenant {
+		return "", "", ErrUnavailable
 	}
-	return Secret{e.Value, e.Host}, nil
+	return env.Value, env.Host, nil
 }
-func (l *Local) PutSecret(ctx context.Context, name string, s Secret) error {
-	data, err := l.seal(name, s)
-	if err != nil {
+func (l *Local) Write(ctx context.Context, tenant, name, value, host string) error {
+	raw, e := l.seal(tenant, name, value, host)
+	if e != nil {
 		return ErrUnavailable
 	}
-	_, err = l.Pool.Exec(ctx, `INSERT INTO credentials_values(name,ciphertext) VALUES($1,$2) ON CONFLICT(name) DO UPDATE SET ciphertext=excluded.ciphertext`, name, data)
-	if err != nil {
+	e = l.Store.ForTenant(tenant).WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "INSERT INTO credentials_values(tenant_id,name,ciphertext)VALUES($1,$2,$3) ON CONFLICT(tenant_id,name) DO UPDATE SET ciphertext=excluded.ciphertext", tenant, name, raw)
+		return e
+	})
+	if e != nil {
 		return ErrUnavailable
 	}
 	return nil
 }
-func (l *Local) GetSecret(ctx context.Context, name string) (Secret, error) {
-	var data []byte
-	if l.Pool.QueryRow(ctx, "SELECT ciphertext FROM credentials_values WHERE name=$1", name).Scan(&data) != nil {
-		return Secret{}, ErrUnavailable
+func (l *Local) Read(ctx context.Context, tenant, name string) (string, string, error) {
+	var raw []byte
+	e := l.Store.ForTenant(tenant).WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT ciphertext FROM credentials_values WHERE tenant_id=$1 AND name=$2", tenant, name).Scan(&raw)
+	})
+	if e != nil {
+		return "", "", ErrUnavailable
 	}
-	return l.open(name, data)
+	return l.open(tenant, name, string(raw))
 }

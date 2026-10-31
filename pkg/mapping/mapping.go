@@ -9,8 +9,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/config"
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/model"
+	"configbridge/pkg/config"
+	"configbridge/pkg/model"
 )
 
 func Path(value any, path string) (any, bool) {
@@ -106,12 +106,15 @@ func transform(v any, s config.Field) (any, error) {
 	}
 	return nil, fmt.Errorf("unknown transform")
 }
-func Map(row any, c config.Config, fetched time.Time, index int) (model.Record, *model.Rejection) {
+func Map(row any, c config.Config, tenant string, fetched time.Time, index int) (model.Record, *model.Rejection) {
 	bad := func(field, reason string) (model.Record, *model.Rejection) {
 		return model.Record{}, &model.Rejection{Index: index, Field: field, Reason: reason}
 	}
 	if _, ok := row.(map[string]any); !ok {
 		return bad("record", "must be a JSON object")
+	}
+	if !config.ValidID(tenant) {
+		return bad("tenant_id", "trusted tenant identity is required")
 	}
 	values := map[string]any{}
 	for _, name := range config.Fields[c.Destination.Entity] {
@@ -142,6 +145,7 @@ func Map(row any, c config.Config, fetched time.Time, index int) (model.Record, 
 		return bad("id", "nonempty string ID (at most 512 bytes) required")
 	}
 	values["source"] = c.ID
+	values["tenant_id"] = tenant
 	values["fetched_at"] = fetched.UTC()
 	// Optional timestamps still require explicit conversion and timezone rules.
 	for _, name := range []string{"timestamp", "last_login", "last_seen"} {
@@ -196,5 +200,5 @@ func Map(row any, c config.Config, fetched time.Time, index int) (model.Record, 
 	if err != nil {
 		return bad("record", "cannot encode normalized record")
 	}
-	return model.Record{Entity: c.Destination.Entity, ID: id, Source: c.ID, FetchedAt: fetched.UTC(), Payload: raw}, nil
+	return model.Record{TenantID: tenant, Entity: c.Destination.Entity, ID: id, Source: c.ID, FetchedAt: fetched.UTC(), Payload: raw}, nil
 }

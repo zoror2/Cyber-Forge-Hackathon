@@ -1,3 +1,4 @@
+# Local development only. Real vendor network access is not part of the test profile.
 services:
   postgres:
     image: postgres:16
@@ -5,36 +6,101 @@ services:
       POSTGRES_USER: configbridge
       POSTGRES_DB: configbridge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate .env first}
-    ports:
-      - '127.0.0.1:5432:5432'
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    ports: ['127.0.0.1:5432:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U configbridge -d configbridge']
-      interval: 5s
+      test: ['CMD-SHELL','pg_isready -U configbridge -d configbridge']
+      interval: 2s
       timeout: 3s
-      retries: 10
-  engine:
-    build: .
+      retries: 15
+  bootstrap:
+    build:
+      context: .
+      args: {CMD: bootstrap}
     environment:
-      DATABASE_URL: postgres://configbridge:${POSTGRES_PASSWORD:?Generate .env first}@postgres:5432/configbridge?sslmode=disable
-      CONFIGBRIDGE_ADMIN_TOKEN: ${CONFIGBRIDGE_ADMIN_TOKEN:?Generate .env first}
-      CONFIGBRIDGE_MASTER_KEY: ${CONFIGBRIDGE_MASTER_KEY:?Generate .env first}
-      CONFIGBRIDGE_SECRETS_BACKEND: local
-      CONFIGBRIDGE_FIXTURE_MODE: ${CONFIGBRIDGE_FIXTURE_MODE:-0}
-      CONFIGBRIDGE_LISTEN: 0.0.0.0:8080
-    ports:
-      - '127.0.0.1:8080:8080'
+      MIGRATION_DATABASE_URL: postgres://configbridge:${POSTGRES_PASSWORD:?Generate .env first}@postgres:5432/configbridge?sslmode=disable
+      DATABASE_URL: postgres://configbridge_app:${CB_APP_DB_PASSWORD:?Generate .env first}@postgres:5432/configbridge?sslmode=disable
+      CB_ENV: dev
+      CB_CREATE_RUNTIME_ROLE: '1'
+      CB_BOOTSTRAP_TENANT: tenant-a
+      CB_BOOTSTRAP_API_KEY: ${CB_BOOTSTRAP_API_KEY:?Generate .env first}
     depends_on:
-      postgres:
-        condition: service_healthy
-  mock-vendor:
-    build: .
-    entrypoint: ['/app/fixturevendor']
-    ports:
-      - '127.0.0.1:8090:8090'
-    # Static synthetic vendor. Member A adds switchable failure scenarios
-    # and its explicit development egress policy. Offline fixture mode does
-    # not make network requests to this container.
+      postgres: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+  api:
+    build:
+      context: .
+      args: {CMD: api}
+    environment:
+      DATABASE_URL: postgres://configbridge_app:${CB_APP_DB_PASSWORD:?Generate .env first}@postgres:5432/configbridge?sslmode=disable
+      CB_ENV: dev
+      CB_SECRETS_BACKEND: local
+      CB_DEV_TENANT_KEYS: ${CB_DEV_TENANT_KEYS:?Generate .env first}
+      CB_DEV_ALLOW_PRIVATE: 172.30.0.0/24
+      CB_DEV_CA_FILE: /certs/cert.pem
+      CB_LISTEN: 0.0.0.0:8080
+    volumes: ['./data/devcert/cert.pem:/certs/cert.pem:ro']
+    ports: ['127.0.0.1:8080:8080']
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      mockvendor: {condition: service_started}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+  mockvendor:
+    build:
+      context: .
+      args: {CMD: mockvendor}
+    environment:
+      MOCK_ADDR: :8081
+      MOCK_TLS_CERT: /certs/cert.pem
+      MOCK_TLS_KEY: /certs/key.pem
+    volumes: ['./data/devcert:/certs:ro']
+    ports: ['127.0.0.1:8081:8081']
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+  deps:
+    image: golang:1.27
+    working_dir: /src
+    volumes: ['.:/src:ro','gomod:/go/pkg/mod']
+    command: go mod download
+    profiles: [tools]
+  testpostgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: configbridge
+      POSTGRES_DB: configbridge_test
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate .env first}
+    healthcheck:
+      test: ['CMD-SHELL','pg_isready -U configbridge -d configbridge_test']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    networks: [checks]
+    profiles: [tools]
+  test:
+    image: golang:1.27
+    working_dir: /src
+    volumes: ['.:/src:ro','gomod:/go/pkg/mod','gocache:/root/.cache/go-build']
+    environment:
+      TEST_DATABASE_URL: postgres://configbridge:${POSTGRES_PASSWORD:?Generate .env first}@testpostgres:5432/configbridge_test?sslmode=disable
+      GOPROXY: 'off'
+    command: sh -c 'unformatted=$$(gofmt -l cmd internal pkg tests); test -z "$$unformatted" || { echo "$$unformatted"; exit 1; }; go vet ./... && go test -race -count=1 -timeout=120s ./...'
+    depends_on:
+      deps: {condition: service_completed_successfully}
+      testpostgres: {condition: service_healthy}
+    networks: [checks]
+    profiles: [tools]
+networks:
+  default:
+    ipam:
+      config: [{subnet: 172.30.0.0/24}]
+  checks:
+    internal: true
 volumes:
   pgdata:
+  gomod:
+  gocache:

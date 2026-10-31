@@ -6,6 +6,7 @@ import (
 )
 
 type Provenance struct {
+	TenantID  string    `json:"tenant_id"`
 	ID        string    `json:"id"`
 	Source    string    `json:"source"`
 	FetchedAt time.Time `json:"fetched_at"`
@@ -34,11 +35,13 @@ type Event struct {
 	TimestampPrecision string    `json:"timestamp_precision,omitempty"`
 }
 type Record struct {
+	TenantID           string
 	Entity, ID, Source string
 	FetchedAt          time.Time
 	Payload            json.RawMessage
 }
 type Rejection struct {
+	Page   int    `json:"page"`
 	Index  int    `json:"record_index"`
 	Field  string `json:"field"`
 	Reason string `json:"reason"`
@@ -46,6 +49,7 @@ type Rejection struct {
 
 // Run is the shared persisted result; Error is always a safe, fixed category.
 type Run struct {
+	TenantID      string     `json:"tenant_id"`
 	ID            string     `json:"id"`
 	Connector     string     `json:"connector"`
 	ConfigVersion int        `json:"config_version"`

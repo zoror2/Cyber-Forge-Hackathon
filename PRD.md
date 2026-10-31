@@ -1,6 +1,8 @@
 # ConfigBridge
 
-> Implementation update: the team has chosen **Go + PostgreSQL** for Phase 1.
+> Implementation update: the team has chosen **Go + PostgreSQL**, strict JSON
+> configuration and tenant isolation for Phase 1. The updated multi-tenant
+> contract is in [docs/MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md), section 2.6.
 > [docs/WORK_SPLIT.md](docs/WORK_SPLIT.md) is the current implementation plan;
 > its language, database, API and ownership decisions supersede the earlier
 > Python/SQLite implementation choices below. Keep this document for product

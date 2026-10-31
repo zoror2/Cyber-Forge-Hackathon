@@ -1,8 +1,8 @@
 package mapping
 
 import (
+	"configbridge/pkg/config"
 	"encoding/json"
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/config"
 	"os"
 	"testing"
 	"time"
@@ -10,24 +10,24 @@ import (
 
 func ptr(s string) *string { return &s }
 func TestFixtureAndDatePrecision(t *testing.T) {
-	b, _ := os.ReadFile("../../configs/fixture_events.yaml")
+	b, _ := os.ReadFile("../../configs/fixture_events.json")
 	c, issues := config.Decode(b)
 	if len(issues) > 0 {
 		t.Fatal(issues)
 	}
-	raw, _ := os.ReadFile("../../internal/fixture/testdata/events.json")
+	raw, _ := os.ReadFile("testdata/events.json")
 	var p any
 	if err := json.Unmarshal(raw, &p); err != nil {
 		t.Fatal(err)
 	}
-	items, err := Items(p, c.Response.ItemsPath)
+	items, err := Items(p, c.ItemsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
 	good, bad := 0, 0
 	for i, row := range items {
-		r, q := Map(row, c, now, i)
+		r, q := Map(row, c, "tenant-a", now, i)
 		if q != nil {
 			bad++
 			if q.Field != "id" {
@@ -51,7 +51,7 @@ func TestUserDeviceNestedDefaultsAndZero(t *testing.T) {
 		"id": {Path: ptr("id"), Required: true, Transform: "string"}, "email": {Path: ptr("profile.contacts.0.email")}, "status": {Path: ptr("active"), Transform: "string"}, "name": {Path: ptr("missing"), Default: "anonymous"}, "last_login": {Path: ptr("last"), Transform: "datetime", Format: "02/01/2006 15:04", Timezone: "Asia/Kolkata"},
 	}}}
 	row := map[string]any{"id": 0, "active": false, "last": "31/10/2026 15:30", "profile": map[string]any{"contacts": []any{map[string]any{"email": "demo@example.invalid"}}}}
-	r, q := Map(row, c, time.Now(), 0)
+	r, q := Map(row, c, "tenant-a", time.Now(), 0)
 	if q != nil {
 		t.Fatal(q)
 	}
@@ -62,13 +62,13 @@ func TestUserDeviceNestedDefaultsAndZero(t *testing.T) {
 	}
 	c.Destination.Entity = "device"
 	c.Destination.Mapping = map[string]config.Field{"id": {Constant: "device-1"}}
-	r, q = Map(map[string]any{}, c, time.Now(), 0)
+	r, q = Map(map[string]any{}, c, "tenant-a", time.Now(), 0)
 	if q != nil {
 		t.Fatal(q)
 	}
 	v = map[string]any{}
 	json.Unmarshal(r.Payload, &v)
-	if len(v) != 8 || v["owner"] != nil || v["last_seen"] != nil {
+	if len(v) != 9 || v["owner"] != nil || v["last_seen"] != nil {
 		t.Fatal(v)
 	}
 }
@@ -92,7 +92,33 @@ func TestBadRecordsAndCollection(t *testing.T) {
 		t.Fatal(converted, err)
 	}
 	c := config.Config{ID: "test", Destination: config.Destination{Entity: "user", Mapping: map[string]config.Field{"id": {Constant: " "}}}}
-	if _, q := Map(map[string]any{}, c, time.Now(), 0); q == nil {
+	if _, q := Map(map[string]any{}, c, "tenant-a", time.Now(), 0); q == nil {
 		t.Fatal("blank ID accepted")
+	}
+}
+
+func TestExactIDsLookupAndMalformedRows(t *testing.T) {
+	c := config.Config{ID: "source", Destination: config.Destination{Entity: "user", Mapping: map[string]config.Field{
+		"id": {Path: ptr("id"), Transform: "string", Required: true}, "status": {Path: ptr("state"), Transform: "lookup", Lookup: map[string]string{"ACTIVE": "active"}},
+	}}}
+	r, q := Map(map[string]any{"id": json.Number("9007199254740993"), "state": "ACTIVE"}, c, "tenant-a", time.Now(), 0)
+	if q != nil || r.ID != "9007199254740993" {
+		t.Fatal("large numeric ID lost precision")
+	}
+	var payload map[string]any
+	json.Unmarshal(r.Payload, &payload)
+	if payload["status"] != "active" {
+		t.Fatal("lookup failed")
+	}
+	for _, row := range []any{nil, true, []any{}, map[string]any{"id": 1, "state": "unknown"}} {
+		if _, q := Map(row, c, "tenant-a", time.Now(), 0); q == nil {
+			t.Fatal("invalid row accepted")
+		}
+	}
+	if v, e := transform("0", config.Field{Transform: "integer"}); e != nil || v != int64(0) {
+		t.Fatal("zero integer transform failed")
+	}
+	if _, e := transform("1.5", config.Field{Transform: "integer"}); e == nil {
+		t.Fatal("fraction accepted as integer")
 	}
 }

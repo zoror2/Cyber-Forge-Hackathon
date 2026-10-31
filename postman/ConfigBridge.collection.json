@@ -1,187 +1,1140 @@
 {
   "info": {
-    "name": "ConfigBridge Member B Phase 1",
+    "name": "ConfigBridge Member B - integrated API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Offline fixture demo: run requests 1-11 in order with CONFIGBRIDGE_FIXTURE_MODE=1. All requests inherit admin authentication. Fill the admin token locally only; vendor_token belongs in Postman Vault. No live provider capability is claimed."
+    "description": "Synthetic TLS mock scenarios. Run core flow first. Failure scenarios create/activate their own configs. Isolation folder requires a separately provisioned tenant B and an ID belonging only to tenant A. API keys are local values; vendor keys belong in Vault. No exported credential values."
   },
   "auth": {
     "type": "bearer",
     "bearer": [
       {
         "key": "token",
-        "value": "{{admin_token}}",
+        "value": "{{api_key}}",
         "type": "string"
       }
     ]
   },
   "item": [
     {
-      "name": "1 Submit fixture config",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/yaml"
-          }
-        ],
-        "url": "{{base_url}}/configs",
-        "body": {
-          "mode": "raw",
-          "raw": "version: 1\nid: fixture_events\nname: Offline four-record demonstration\nrequest:\n  method: GET\n  url: https://fixture.invalid/events\n  params: {}\n  headers:\n    Accept: application/json\n  timeout_seconds: 5\nauth:\n  type: none\nresponse:\n  items_path: vulnerabilities\npagination:\n  type: none\nschedule:\n  enabled: false\n  interval_seconds: 60\ndestination:\n  entity: event\n  mapping:\n    id:\n      path: cveID\n      required: true\n      transform: string\n    type:\n      constant: known_exploited_vulnerability\n    severity:\n      constant: unknown\n    timestamp:\n      path: dates.added\n      required: true\n      transform: datetime\n      format: '2006-01-02'\n      timezone: UTC\n      precision: date\n    description:\n      path: shortDescription\n      required: true\n      transform: string\nlimits:\n  max_pages: 1\n  max_records: 100\n  max_run_seconds: 10\n  max_response_bytes: 1048576\nretry:\n  max_attempts: 1\n  base_delay_seconds: 1\n  max_backoff_seconds: 1\n"
-        }
-      },
-      "event": [
+      "name": "Core API flow",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Draft saved', () => pm.response.to.have.status(201));",
-              "if (pm.response.code === 201) { const c = pm.response.json(); pm.environment.set('connector', c.id); pm.environment.set('revision', c.revision); }"
-            ]
-          }
+          "name": "Submit mock users",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_users\",\n  \"name\": \"Synthetic paginated users\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/users\",\n    \"timeout_seconds\": 5\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"page\",\n    \"page_param\": \"page\",\n    \"size_param\": \"per_page\",\n    \"page_size\": 10\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 30\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 1000,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validate stored draft",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/configs/{{connector}}/validate"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate stored revision",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Test one page without writes",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/test"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run all pages (repeat for upsert)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/runs?connector={{connector}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/records/users?source={{connector}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Devices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/records/devices"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/records/events"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Quarantine",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/quarantine?connector={{connector}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Health JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Secret metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/secrets"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Health HTML",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/html"
+              }
+            ],
+            "url": "{{base_url}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "2 Validate stored config",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "url": "{{base_url}}/configs/{{connector}}/validate"
-      }
-    },
-    {
-      "name": "3 Activate stored revision",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/configs/{{connector}}/activate",
-        "body": {
-          "mode": "raw",
-          "raw": "{\"revision\": {{revision}}}"
-        }
-      }
-    },
-    {
-      "name": "4 Test connection without writes",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "url": "{{base_url}}/connectors/{{connector}}/test"
-      }
-    },
-    {
-      "name": "5 Run fixture (repeat to check upsert)",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "url": "{{base_url}}/connectors/{{connector}}/run"
-      },
-      "event": [
+      "name": "Failure scenarios (synthetic)",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Run returned', () => pm.response.to.have.status(200));",
-              "if (pm.response.code === 200 && pm.environment.get('connector') === 'fixture_events') { const r=pm.response.json(); pm.test('Fixture counters', () => { pm.expect(r.mode).to.eql('fixture'); pm.expect(r.accepted).to.eql(3); pm.expect(r.quarantined).to.eql(1); }); }"
-            ]
-          }
+          "name": "Save malformed scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_malformed\",\n  \"name\": \"Synthetic malformed\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/malformed\",\n    \"timeout_seconds\": 1,\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate malformed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run malformed",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save retry scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_retry\",\n  \"name\": \"Synthetic retry\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/flaky\",\n    \"timeout_seconds\": 1,\n    \"params\": {\n      \"scenario_id\": \"postman-retry\",\n      \"fail\": \"2\",\n      \"code\": \"500\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run retry",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save rate scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_rate\",\n  \"name\": \"Synthetic rate\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/ratelimit\",\n    \"timeout_seconds\": 1,\n    \"params\": {\n      \"scenario_id\": \"postman-rate\",\n      \"retry_after\": \"1\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate rate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run rate",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save timeout scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_timeout\",\n  \"name\": \"Synthetic timeout\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/hang\",\n    \"timeout_seconds\": 1,\n    \"params\": {\n      \"seconds\": \"60\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate timeout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run timeout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 502',()=>pm.response.to.have.status(502));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save redirect scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_redirect\",\n  \"name\": \"Synthetic redirect\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/redirect\",\n    \"timeout_seconds\": 1,\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate redirect",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run redirect",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 502',()=>pm.response.to.have.status(502));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save huge scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_huge\",\n  \"name\": \"Synthetic huge\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/huge\",\n    \"timeout_seconds\": 1,\n    \"params\": {\n      \"mb\": \"50\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate huge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run huge",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 502',()=>pm.response.to.have.status(502));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save offhost scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_offhost\",\n  \"name\": \"Synthetic offhost\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/offhost\",\n    \"timeout_seconds\": 1,\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"link\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate offhost",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":{{revision}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run offhost",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{connector}}/run"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 502',()=>pm.response.to.have.status(502));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "6 Run history",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/runs?connector={{connector}}&limit=100&offset=0"
-      }
-    },
-    {
-      "name": "7 Events",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/records/events?source={{connector}}&limit=100&offset=0"
-      }
-    },
-    {
-      "name": "8 Users",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/records/users?limit=100&offset=0"
-      }
-    },
-    {
-      "name": "9 Devices",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/records/devices?limit=100&offset=0"
-      }
-    },
-    {
-      "name": "10 Quarantine reasons",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/quarantine?connector={{connector}}&limit=100&offset=0"
-      }
-    },
-    {
-      "name": "11 Health JSON",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/health"
-      }
-    },
-    {
-      "name": "12 Secret metadata only",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/secrets"
-      }
-    },
-    {
-      "name": "13 Provision secret (set Postman Vault value first)",
-      "request": {
-        "method": "PUT",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/secrets/{{secret_name}}",
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"value\": \"{{vault:vendor_token}}\",\n  \"allowed_host\": \"{{allowed_host}}\"\n}"
+      "name": "Tenant isolation (requires two tenants)",
+      "item": [
+        {
+          "name": "Tenant B refuses /configs/{{a_only_connector}}/validate",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/configs/{{a_only_connector}}/validate",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /configs/{{a_only_connector}}/activate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs/{{a_only_connector}}/activate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"revision\":1}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /connectors/{{a_only_connector}}/test",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{a_only_connector}}/test",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /connectors/{{a_only_connector}}/run",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/connectors/{{a_only_connector}}/run",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /runs?connector={{a_only_connector}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/runs?connector={{a_only_connector}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /quarantine?connector={{a_only_connector}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/quarantine?connector={{a_only_connector}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /records/users?source={{a_only_connector}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/records/users?source={{a_only_connector}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /records/devices?source={{a_only_connector}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/records/devices?source={{a_only_connector}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant B refuses /records/events?source={{a_only_connector}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/records/events?source={{a_only_connector}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_b_api_key}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 404',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         }
-      }
+      ]
     },
     {
-      "name": "Health HTML (admin auth required)",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Accept",
-            "value": "text/html"
-          }
-        ],
-        "url": "{{base_url}}/health"
-      }
+      "name": "Optional secret provisioning",
+      "item": [
+        {
+          "name": "Provision vendor secret (Vault only)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/secrets/{{secret_name}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"{{vault:vendor_token}}\",\n  \"allowed_host\": \"{{allowed_host}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 204',()=>pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

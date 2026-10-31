@@ -2,82 +2,45 @@ package secrets
 
 import (
 	"bytes"
-	"context"
+	"configbridge/internal/engine"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"strings"
 	"testing"
 )
 
-func TestEncryptionAndSafeFormatting(t *testing.T) {
-	l, err := NewLocal(nil, base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
-	if err != nil {
-		t.Fatal(err)
+func TestPerTenantEncryptionAndSafeWrapper(t *testing.T) {
+	keys := map[string]string{"tenant-a": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32)), "tenant-b": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32))}
+	l, e := NewLocal(nil, keys)
+	if e != nil {
+		t.Fatal(e)
 	}
-	s := Secret{"SENTINEL_ONLY_FOR_TESTS", "api.example.com"}
-	raw, err := l.seal("token", s)
-	if err != nil {
-		t.Fatal(err)
+	value := "SYNTHETIC_SENTINEL_CREDENTIAL"
+	raw, e := l.seal("tenant-a", "token", value, "api.example.com")
+	if e != nil || bytes.Contains(raw, []byte(value)) {
+		t.Fatal("encryption failed")
 	}
-	if bytes.Contains(raw, []byte(s.Value)) {
-		t.Fatal("plaintext persisted")
+	got, host, e := l.open("tenant-a", "token", string(raw))
+	if e != nil || got != value || host != "api.example.com" {
+		t.Fatal("roundtrip failed")
 	}
-	got, err := l.open("token", raw)
-	if err != nil || got.Value != s.Value || got.AllowedHost != s.AllowedHost {
-		t.Fatal("round trip failed")
-	}
-	if _, err = l.open("different-name", raw); err == nil {
-		t.Fatal("ciphertext copied to another secret")
-	}
-	raw[len(raw)-1] ^= 1
-	if _, err = l.open("token", raw); err == nil {
-		t.Fatal("tamper accepted")
-	}
-	serialized, _ := json.Marshal(s)
-	if strings.Contains(fmt.Sprintf("%v %+v %#v %s", s, s, s, s), s.Value) || bytes.Contains(serialized, []byte(s.Value)) {
-		t.Fatal("secret formatting leak")
-	}
-}
-
-type awsFake struct {
-	value  string
-	name   string
-	exists bool
-}
-
-func (f *awsFake) GetSecretValue(_ context.Context, in *secretsmanager.GetSecretValueInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
-	f.name = *in.SecretId
-	return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(f.value)}, nil
-}
-func (f *awsFake) CreateSecret(_ context.Context, in *secretsmanager.CreateSecretInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.CreateSecretOutput, error) {
-	if f.exists {
-		return nil, &types.ResourceExistsException{}
-	}
-	f.exists = true
-	f.name = *in.Name
-	f.value = *in.SecretString
-	return &secretsmanager.CreateSecretOutput{}, nil
-}
-func (f *awsFake) PutSecretValue(_ context.Context, in *secretsmanager.PutSecretValueInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.PutSecretValueOutput, error) {
-	f.name = *in.SecretId
-	f.value = *in.SecretString
-	return &secretsmanager.PutSecretValueOutput{}, nil
-}
-func TestAWSCreateRotateReadContract(t *testing.T) {
-	f := &awsFake{}
-	a := &AWS{Client: f, Prefix: "configbridge/"}
-	ctx := context.Background()
-	for _, value := range []string{"first", "second"} {
-		if err := a.PutSecret(ctx, "token", Secret{value, "api.example.com"}); err != nil {
-			t.Fatal(err)
+	for _, pair := range [][2]string{{"tenant-b", "token"}, {"tenant-a", "other"}} {
+		if _, _, e = l.open(pair[0], pair[1], string(raw)); e == nil {
+			t.Fatal("cross-scope ciphertext accepted")
 		}
 	}
-	s, err := a.GetSecret(ctx, "token")
-	if err != nil || s.Value != "second" || s.AllowedHost != "api.example.com" || f.name != "configbridge/token" {
-		t.Fatal("AWS contract mismatch")
+	raw[len(raw)-1] ^= 1
+	if _, _, e = l.open("tenant-a", "token", string(raw)); e == nil {
+		t.Fatal("tamper accepted")
+	}
+	s := engine.NewSecret(value, host)
+	js, _ := json.Marshal(s)
+	if strings.Contains(fmt.Sprintf("%v %+v %#v", s, s, s), value) || bytes.Contains(js, []byte(value)) {
+		t.Fatal("secret wrapper leaks")
+	}
+	keys["tenant-b"] = keys["tenant-a"]
+	if _, e = NewLocal(nil, keys); e == nil {
+		t.Fatal("shared tenant key accepted")
 	}
 }

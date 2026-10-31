@@ -1,9 +1,8 @@
-// Package api exposes Member B's admin-only Phase 1 interface.
+// Package api derives tenant identity from hashed API keys for every endpoint.
 package api
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -12,22 +11,32 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zoror2/Cyber-Forge-Hackathon/internal/engine"
-	"github.com/zoror2/Cyber-Forge-Hackathon/internal/store"
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/collector"
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/config"
-	"github.com/zoror2/Cyber-Forge-Hackathon/pkg/secrets"
+	"configbridge/internal/runner"
+	"configbridge/internal/store"
+	"configbridge/pkg/config"
+	"configbridge/pkg/secrets"
 )
 
 type API struct {
 	Store   *store.Store
-	Engine  *engine.Engine
+	Engine  *runner.Runner
 	Secrets *secrets.Service
+	// Test seam only; the binary always uses Store.Authenticate.
+	Authenticate func(context.Context, string) (string, error)
 }
 
-func New(a *API, token string) (http.Handler, error) {
-	if len(token) < 32 {
-		return nil, errors.New("admin token must have at least 32 characters")
+type tenantKey struct{}
+
+func (a *API) scope(r *http.Request) store.Scope {
+	return a.Store.ForTenant(r.Context().Value(tenantKey{}).(string))
+}
+func New(a *API) (http.Handler, error) {
+	lookup := a.Authenticate
+	if lookup == nil {
+		if a.Store == nil {
+			return nil, errors.New("authentication store required")
+		}
+		lookup = a.Store.Authenticate
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /configs", a.submit)
@@ -41,14 +50,17 @@ func New(a *API, token string) (http.Handler, error) {
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /records/{entity}", a.records)
 	mux.HandleFunc("GET /quarantine", a.quarantine)
-	expected := sha256.Sum256([]byte(token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 		supplied := r.Header.Get("Authorization")
-		got := sha256.Sum256([]byte(strings.TrimPrefix(supplied, "Bearer ")))
-		if !strings.HasPrefix(supplied, "Bearer ") || subtle.ConstantTimeCompare(expected[:], got[:]) != 1 {
+		token := strings.TrimPrefix(supplied, "Bearer ")
+		var tenant string
+		if strings.HasPrefix(supplied, "Bearer ") && len(token) >= 32 && len(token) <= 512 {
+			tenant, _ = lookup(r.Context(), token)
+		}
+		if !config.ValidID(tenant) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			fail(w, 401, "unauthorized")
 			return
@@ -57,7 +69,7 @@ func New(a *API, token string) (http.Handler, error) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
 			return
 		}
-		mux.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), tenantKey{}, tenant)))
 	}), nil
 }
 func write(w http.ResponseWriter, status int, value any) {
@@ -80,7 +92,12 @@ func dbFail(w http.ResponseWriter, err error) {
 }
 func jsonBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	d := json.NewDecoder(r.Body)
+	body, err := io.ReadAll(r.Body)
+	if err != nil || config.CheckJSON(body) != nil {
+		fail(w, 400, "invalid_json_body")
+		return false
+	}
+	d := json.NewDecoder(strings.NewReader(string(body)))
 	d.DisallowUnknownFields()
 	if err := d.Decode(dst); err != nil {
 		fail(w, 400, "invalid_json_body")
@@ -128,7 +145,7 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) {
 		write(w, 422, map[string]any{"errors": issues})
 		return
 	}
-	saved, e := a.Store.SaveConfig(r.Context(), c)
+	saved, e := a.scope(r).SaveConfig(r.Context(), c)
 	if e != nil {
 		dbFail(w, e)
 		return
@@ -136,7 +153,7 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, map[string]any{"id": c.ID, "revision": saved.Revision, "status": saved.Status, "hash": saved.Hash})
 }
 func (a *API) validate(w http.ResponseWriter, r *http.Request) {
-	s, e := a.Store.Config(r.Context(), r.PathValue("id"), false)
+	s, e := a.scope(r).Config(r.Context(), r.PathValue("id"), false)
 	if e != nil {
 		dbFail(w, e)
 		return
@@ -154,7 +171,7 @@ func (a *API) activate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "revision_required")
 		return
 	}
-	if e := a.Store.Activate(r.Context(), r.PathValue("id"), body.Revision); e != nil {
+	if e := a.scope(r).Activate(r.Context(), r.PathValue("id"), body.Revision); e != nil {
 		dbFail(w, e)
 		return
 	}
@@ -172,7 +189,7 @@ func (a *API) putSecret(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "invalid_secret_input")
 		return
 	}
-	e := a.Secrets.Put(r.Context(), r.PathValue("name"), body.Value, body.Host)
+	e := a.Secrets.Put(r.Context(), a.scope(r).Tenant, r.PathValue("name"), body.Value, body.Host)
 	if errors.Is(e, secrets.ErrBinding) {
 		fail(w, 409, "host_binding_is_immutable")
 		return
@@ -188,7 +205,7 @@ func (a *API) listSecrets(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, e := a.Secrets.List(r.Context(), l, o)
+	data, e := a.Secrets.List(r.Context(), a.scope(r).Tenant, l, o)
 	if e != nil {
 		fail(w, 503, "secret_backend_unavailable")
 		return
@@ -204,7 +221,7 @@ func (a *API) execute(w http.ResponseWriter, r *http.Request, test bool) {
 		fail(w, 400, "run_body_must_be_empty")
 		return
 	}
-	result, e := a.Engine.Run(r.Context(), r.PathValue("id"), test, false)
+	result, e := a.Engine.Run(r.Context(), a.scope(r).Tenant, r.PathValue("id"), test, false)
 	if e != nil && result.ID == "" {
 		dbFail(w, e)
 		return
@@ -213,9 +230,6 @@ func (a *API) execute(w http.ResponseWriter, r *http.Request, test bool) {
 	if e != nil {
 		status = 502
 	}
-	if errors.Is(e, collector.ErrUnavailable) {
-		status = 503
-	}
 	write(w, status, result)
 }
 func (a *API) runs(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +237,11 @@ func (a *API) runs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, e := a.Store.Runs(r.Context(), r.URL.Query().Get("connector"), l, o)
+	id := r.URL.Query().Get("connector")
+	if !a.checkFilter(w, r, id) {
+		return
+	}
+	data, e := a.scope(r).Runs(r.Context(), id, l, o)
 	if e != nil {
 		dbFail(w, e)
 		return
@@ -241,7 +259,11 @@ func (a *API) records(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, e := a.Store.Records(r.Context(), entity, r.URL.Query().Get("source"), l, o)
+	source := r.URL.Query().Get("source")
+	if !a.checkFilter(w, r, source) {
+		return
+	}
+	data, e := a.scope(r).Records(r.Context(), entity, source, l, o)
 	if e != nil {
 		dbFail(w, e)
 		return
@@ -253,7 +275,11 @@ func (a *API) quarantine(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, e := a.Store.Quarantine(r.Context(), r.URL.Query().Get("connector"), l, o)
+	id := r.URL.Query().Get("connector")
+	if !a.checkFilter(w, r, id) {
+		return
+	}
+	data, e := a.scope(r).Quarantine(r.Context(), id, l, o)
 	if e != nil {
 		dbFail(w, e)
 		return
@@ -268,7 +294,7 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, e := a.Store.Health(r.Context(), l, o)
+	data, e := a.scope(r).Health(r.Context(), l, o)
 	if e != nil {
 		dbFail(w, e)
 		return
@@ -279,4 +305,14 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 200, data)
+}
+func (a *API) checkFilter(w http.ResponseWriter, r *http.Request, id string) bool {
+	if id == "" {
+		return true
+	}
+	if _, e := a.scope(r).Config(r.Context(), id, false); e != nil {
+		dbFail(w, e)
+		return false
+	}
+	return true
 }

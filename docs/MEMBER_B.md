@@ -1,144 +1,100 @@
-# Prajwal — Member B delivery and Member A handoff
+# Member B integration record
 
-Branch: `member-b` (previously `prajwal/go-phase1`), based on main at
-`eac038711220e683bb32d7865c0fd50e483292c4`.
+Branch: `member-b`. Integrated Member A's main commit
+`d0bbe2f2f25279e91143cbda3aa2e45b9b68d97e` before adapting the data/API features.
+Current contracts are in [MEMBER_B_HANDOFF.md](MEMBER_B_HANDOFF.md), especially
+multi-tenancy in §2.6. The earlier single-tenant Member B implementation is
+superseded by the integration described here.
 
-The user confirmed Prajwal is **Member B (data + API)**. The authoritative split
-is [WORK_SPLIT.md](WORK_SPLIT.md). That document supersedes the earlier PRD's
-Python, SQLite and unauthenticated-local-interface choices. Mohit's architecture
-diagram and work-split document are preserved.
+## Feature order and evidence
 
-## Delivery status
-
-| Task | Delivered | Verification / remaining work |
+| Stage | Local verification | Result |
 |---|---|---|
-| B1 Config contract | Strict Go YAML/JSON models, defaults and semantic errors | Tests cover unknown/duplicate keys, custom tags, invalid URLs, credential fields, transforms, timezone, auth and paging fields. Shared contract needs Member A review. |
-| B2 Mapping | User/Device/Event, nested paths and array indices, defaults, scalar/lookup/date transforms, UTC and date precision, metadata-only quarantine | Unit tests and four-row PostgreSQL/API flow; no invented missing user/device fields. |
-| B3 PostgreSQL | Embedded versioned migration, config revisions, metadata, common entity tables, quarantine, runs, sync state, upserts and recovery | Actual PostgreSQL 16.9 integration tests, including source isolation and abandoned-worker fencing. Watermarks remain unused. |
-| B4 Secrets | AES-256-GCM local development backend + AWS SDK backend behind the same interface; immutable API host bindings, metadata-only reads | Local encryption/tampering/API tests and mocked AWS create/rotate/read tests. Live AWS is unverified. Member A must cross-review this security-sensitive code. |
-| B5 Scheduling | Two workers, bounded queue, cross-process PostgreSQL connector locks shared with manual runs, due check inside the lock, clean cancellation | Two accelerated 1-second scheduled runs; overlapping run and activation refusal; disabled-schedule check. |
-| B6 API + health | All planned routes, admin token on every route, bounded inputs/lists, escaped health HTML | Auth tests and real HTTP/DB integration flow. Member A must cross-review authentication. |
-| B7 Postman | Importable collection and blank-secret local environment | JSON artifacts checked; collection not executed in the Postman app. PowerShell smoke and Go HTTP integration tests exercise the same routes. |
-| B8 Compose | PostgreSQL + engine + static mock-vendor service, nonroot application container, loopback published ports | Docker is unavailable on this machine, so the Compose build/start remains unverified. The compiled native app is tested separately. Member A owns the richer failure simulator. |
+| A baseline | Isolated checkout of `d0bbe2f`: all request/egress tests + vet | Passed before merge |
+| Config + mapper | A request structs, strict JSON, nested/array paths, UTC/date precision, enums, defaults, exact numeric IDs | Passed alongside A tests |
+| All entity tables | Actual offset paging into Events with a non-ISO date/lookup, plus Device mapping and upsert | Passed against PostgreSQL |
+| PostgreSQL | Fresh isolated schemas and restricted login roles; migrations, tenant keys, RLS, cross-tenant inserts/updates, pooled-session cleanup, upserts | Passed against PostgreSQL 16.9 |
+| Secrets | Two tenant keyrings, name/tenant AAD, ciphertext/tampering, same-name isolation, rotation/binding refusal, AWS tenant namespace + KMS fake client | Passed; no live AWS claim |
+| API + real fetch | Actual TLS HTTP client → A engine → mapper → PostgreSQL → HTTP API | Passed for both tenants |
+| Failure handling | 401 no retry storm; API-key/Basic/Bearer/OAuth; 500 recovery/exhaustion; 429 wait/delay cap; timeout; redirect; huge/invalid/trailing body; off-host link; cut connection; page/record limits | Passed |
+| Lifecycle | Draft vs live revisions, activation refusal during a lock, test without writes, source/provenance, quarantine, HTML escaping, body/list limits | Passed |
+| Scheduling/recovery | Tenant A locked while B progresses; independent tenant locks, two scheduled runs each, disable, recover abandoned work, fence stale writers | Passed |
+| Native smoke | Built bootstrap/API/TLS mock. Three pages, 25 accepted, 25 unique after repeat; malformed endpoint accepted two/quarantined two | Passed |
+| Final local gate | Formatting + vet + `go test -race -count=1` with actual PG + all native builds | Passed |
 
-## Contracts for Mohit
+The final parallel run exposed a cross-schema advisory-lock collision. Lock
+names now include application schema + tenant + connector (and purpose), with
+a dedicated regression test proving schema and tenant independence. The push
+gate was rerun after that correction; earlier passing runs were not used to
+override the failure.
 
-### Request engine integration
+Native machine: Windows/amd64, Go 1.27.3, PostgreSQL 16.9, portable GCC 16.2.0 for
+the race detector. Inputs are synthetic. Local database credentials, generated
+keys, reports and installed tools remain ignored and are not part of the PR.
 
-Implement `pkg/collector.Fetcher`:
+Postman collection execution through Newman: **44 requests, 44 assertions,
+zero failures** against the compiled native API/TLS mock/PostgreSQL stack.
+This included core routes, failure scenarios, cross-tenant 404s and write-only
+secret provisioning. Vault substitution used an ignored local copy with a
+synthetic mock credential; no populated environment was committed.
 
-```go
-Fetch(ctx context.Context, cfg config.Config, emit func(collector.Page) error) error
+Gitleaks staged-source scan: **zero leaks**. Compose configuration/environment
+validation: passed. Linux/amd64 static builds for all commands: passed.
+
+Docker container startup, real vendor accounts, real AWS
+access, deployment and throughput measurements remain unverified.
+
+## What changed during integration
+
+- Preserved A's request engine and egress guard. Moved our lifecycle coordinator
+  into `internal/runner`; deleted the parallel collector/offline stub.
+- Adopted module `configbridge`, JSON configs and A's request/paging/auth fields.
+  Removed YAML parsing and its dependency. The CLI binary is now `cmd/api`.
+- Replaced the global admin token with DB-hashed tenant API keys. Tenant identity
+  comes only from authentication. Configs, secrets, caches, records, history,
+  quarantine, scheduler jobs and locks all carry tenant scope.
+- Split DB migration/provisioning from the runtime role. Forced RLS covers all
+  customer tables; operational `schema_migrations` is not customer data. Narrow
+  security-definer functions authenticate hashes and list only job identities.
+- Replaced the shared local master key with distinct development keys per tenant.
+  AWS names and configured KMS bindings are tenant-specific; no runtime API can
+  rebind a secret to another host/backend or choose another tenant.
+- Extracted the existing synthetic vendor handlers for reuse in integration
+  tests, and added optional TLS startup. This keeps A's HTTPS validator intact.
+  Mock retry counters use `scenario_id`, since credential-like `key` params are
+  correctly rejected by A's config validator.
+- Added request attempt counts to A's result; rejected trailing JSON after a
+  successful decode; removed untrusted OAuth token-type values from errors.
+- Kept quarantine metadata-only, following the PRD's safer option. The handoff's
+  optional raw-record copy is omitted to avoid persisting unknown credentials or
+  PII. This is an explicit scope choice, not a claim of a raw-payload recovery UI.
+
+## Important remaining boundaries
+
+- Result attempts count logical API attempts, including retries, not separate
+  OAuth token exchanges. Partial runs retain already committed pages and report
+  incomplete outcomes. Only clean successes update `last_success`; no watermark
+  is advanced.
+- Retry-After timing is tested. Persisting a server's next eligible retry time
+  across process restarts is still a shared extension; it is not implemented.
+- AWS SDK behavior is tested through a fake client with actual PostgreSQL tenant
+  metadata. IAM permissions, KMS configuration and live AWS access need separate
+  verification. Phase 2 must separate provisioning from read-only runtime IAM.
+- The local schema is for the Go implementation; it is not an in-place migration
+  of old Python SQLite data or an earlier development DB. Use a fresh dev DB.
+- `data/` contains temporary local test artifacts only. The PR has no Python
+  runtime files. A diff may show deleted Python paths until this branch merges.
+
+## Reproduce the local gate
+
+```powershell
+$env:TEST_DATABASE_URL = $env:MIGRATION_DATABASE_URL
+.\scripts\check.ps1
 ```
 
-`Page.Payload` is the decoded JSON response (`map[string]any` / `[]any`), not an
-already-normalized record list. `mapping.Items` extracts `response.items_path`.
-Use `json.Decoder.UseNumber()` when preserving large numeric IDs. `Page.Attempts`
-counts HTTP attempts for that emitted page. The current count cannot include
-failed attempts that never emit a page; extend the result contract together if
-full failed-attempt metrics are needed.
+The test DB account must be able to create temporary schemas and restricted test
+roles. The application itself always connects as the restricted runtime role.
+Test schemas/roles are scoped to each test and cleaned up afterward.
 
-Call `emit` sequentially and stop immediately on its error. Return only after the
-configured collection is exhausted. Respect context cancellation and enforce
-response bytes, HTTP timeout, retry budgets and destination policy before and
-while fetching. The runner independently enforces page/record/run limits and
-stores each accepted page in a short transaction.
-
-Wire the production adapter in `cmd/configbridge/main.go` where
-`collector.Unavailable{}` is currently selected. Pass `secretService` as the
-`pkg/secrets.Reader`; do not expose the writable service to HTTP auth handlers.
-The engine entry point accepts only a connector ID and always loads a `live`
-database revision. `test` uses the same rule, stops after one page/100 rows and
-does not save production records, run history, quarantine or sync state.
-
-Allowed failure codes are defined in `collector.Category`; arbitrary provider
-errors are reduced to `collection_failed`. Never put a URL, response body, header
-or secret value in a public error. `collector.Failure` intentionally prints only
-a fixed message. Persistent 429 eligibility/`next_retry_at` still needs a shared
-contract and migration with Member A; do not claim that part of FR-8 complete.
-
-### Config details
-
-The structs in `pkg/config` are the proposed shared Phase 1 contract. Sample:
-`configs/fixture_events.yaml`. Config schema `version: 1` is separate from the
-database revision number returned by `POST /configs`.
-
-- GET/HTTPS only. Query values use `request.params`; URLs themselves cannot carry
-  credentials, a query string, or a fragment.
-- Auth types: `none`, `api_key`, `basic`, `bearer`, `oauth2_client_credentials`.
-  Credential references use `auth.secret_name`, not the old Python `secret_env`.
-- Basic and client-credentials secrets are strings; agree their JSON envelope
-  shape in Member A's handler before live setup. The secrets backend treats the
-  value as opaque and does not guess how credentials are split.
-- A secret includes an exact lower-case `allowed_host`. The request engine must
-  compare that binding to every credential-bearing destination, including OAuth
-  token requests. Do not forward a secret to another host.
-- Pagination types: `none`, `next_link`, `offset`, `page_number`, `cursor`.
-- Date layouts use Go layouts (`2006-01-02`, `02/01/2006 15:04`), not `%Y-%m-%d`.
-  Naive dates require an IANA timezone. Dates with an explicit offset normalize
-  directly to UTC. Date-only Event timestamps retain `timestamp_precision`.
-- Only `Accept` and `User-Agent` config headers are currently accepted. Member A
-  can propose additional noncredential headers with validation tests.
-- No request policy knob in a connector config can enable private-network access.
-  DNS and connection-time checks remain Member A's responsibility.
-
-### Database and lifecycle
-
-Migration SQL lives with `internal/store` and is embedded in the binary. Migration
-history and a PostgreSQL advisory lock make application startup repeatable.
-`SaveConfig` writes a new draft revision and hash; `Activate` explicitly selects
-one revision. There is at most one live revision per connector.
-
-Records use `(source, external_id)` within separate `users`, `devices`, `events`
-tables. Payload JSON is validated through common typed models before storing;
-every record has `source` and UTC `fetched_at`. Rows reference their producing run.
-Missing optional fields remain JSON null.
-
-Run outcomes: `running`, `success`, `completed_with_errors`, `failed`,
-`incomplete`, `interrupted`. Quarantined rows produce `completed_with_errors` and
-degraded health. A failed later page may leave earlier pages committed, but the
-run is incomplete. Only a clean success updates `sync_state.last_success`.
-No watermark is advanced by this branch.
-
-Connector session locks use dedicated pool connections. Heartbeats cancel a run
-if that session is lost; database run-status checks also fence an abandoned
-writer after recovery/replacement. Startup recovery takes each connector lock
-before marking its abandoned runs interrupted. A healthy run in another process
-is left alone. This expects direct/session-based PostgreSQL connections; do not
-put transaction-mode PgBouncer in front of session advisory locks.
-
-## Measured evidence (31 October 2026)
-
-- Official Go archive checksum checked; toolchain reports `go1.27.3 windows/amd64`.
-- Temporary PostgreSQL reports `16.9` and listens on loopback port 55432. Test
-  schemas are random and isolated; this is synthetic local verification.
-- `go test ./... -count=1`: passed, including four real PostgreSQL integration
-  tests. They exercise authenticated HTTP requests, fixtures, uniqueness,
-  quarantine, secret ciphertext/rotation, config versions, source isolation,
-  locks, partial failure, limits, scheduling and restart recovery.
-- `go vet ./...`: passed.
-- `go build -o bin/configbridge.exe ./cmd/configbridge`: passed.
-- Compiled native server + `scripts/smoke.ps1`: passed. The actual HTTP flow
-  submitted/activated the fixture revision, tested it without writes, ran it
-  twice, and confirmed three unique database events. Both runs accepted three
-  and quarantined one. Startup log contained only the labelled fixture mode and
-  authentication requirement.
-- Postman artifact parsing: passed (14 requests, six environment variables;
-  credential values empty). `git diff --check`: passed.
-
-Not verified: live GitHub/Jira/NVD/Okta/CISA collection, real AWS Secrets Manager,
-Docker image/Compose execution, a Postman-app run, throughput benchmark or a
-60-second live-provider schedule. Phase 1 as a whole is not complete.
-
-## Cleanup
-
-Removed the obsolete Python package, Python package specification and Python
-test. Moved the synthetic JSON to Go's embedded fixture directory and removed its
-duplicate under `tests/fixtures`. Replaced Python setup/walkthrough text with Go
-instructions. Kept the original product PRD with an explicit current-plan note,
-plus Mohit's work split and architecture. Download archives and extraction
-staging were removed; installed tools, caches, runtime databases and private
-environment values remain ignored locally and must not be committed.
-
-Cross-review requirement: Member A reviews B4 and B6 authentication before merge.
-This branch must not be self-merged into main.
+Security-sensitive changes remain subject to cross-review before merge. This
+branch updates PR #4 only; it does not merge or publish the application.

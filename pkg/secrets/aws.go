@@ -1,13 +1,15 @@
 package secrets
 
 import (
+	"configbridge/internal/store"
+	"configbridge/pkg/config"
 	"context"
 	"encoding/json"
 	"errors"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/jackc/pgx/v5"
 )
 
 type AWSClient interface {
@@ -17,31 +19,57 @@ type AWSClient interface {
 }
 type AWS struct {
 	Client AWSClient
+	Store  *store.Store
 	Prefix string
 }
 
-func (a *AWS) GetSecret(ctx context.Context, name string) (Secret, error) {
-	out, err := a.Client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(a.Prefix + name)})
-	if err != nil || out == nil || out.SecretString == nil {
-		return Secret{}, ErrUnavailable
+func (a *AWS) path(tenant, name string) (string, error) {
+	if !config.ValidID(tenant) || !config.ValidID(name) {
+		return "", ErrUnavailable
 	}
-	var e envelope
-	if json.Unmarshal([]byte(*out.SecretString), &e) != nil {
-		return Secret{}, ErrUnavailable
-	}
-	return Secret{e.Value, e.Host}, nil
+	return a.Prefix + tenant + "/" + name, nil
 }
-func (a *AWS) PutSecret(ctx context.Context, name string, s Secret) error {
-	raw, err := json.Marshal(envelope{s.Value, s.AllowedHost})
-	if err != nil {
+func (a *AWS) Read(ctx context.Context, tenant, name string) (string, string, error) {
+	path, e := a.path(tenant, name)
+	if e != nil {
+		return "", "", e
+	}
+	out, e := a.Client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(path)})
+	if e != nil || out == nil || out.SecretString == nil {
+		return "", "", ErrUnavailable
+	}
+	var env envelope
+	if json.Unmarshal([]byte(*out.SecretString), &env) != nil || env.Tenant != tenant {
+		return "", "", ErrUnavailable
+	}
+	return env.Value, env.Host, nil
+}
+func (a *AWS) Write(ctx context.Context, tenant, name, value, host string) error {
+	path, e := a.path(tenant, name)
+	if e != nil {
+		return e
+	}
+	var key string
+	e = a.Store.ForTenant(tenant).WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT kms_key_id FROM tenants WHERE tenant_id=$1", tenant).Scan(&key)
+	})
+	if e != nil || key == "" {
 		return ErrUnavailable
 	}
-	_, err = a.Client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{Name: aws.String(a.Prefix + name), SecretString: aws.String(string(raw))})
-	var exists *types.ResourceExistsException
-	if errors.As(err, &exists) {
-		_, err = a.Client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{SecretId: aws.String(a.Prefix + name), SecretString: aws.String(string(raw))})
+	raw, e := json.Marshal(envelope{value, host, tenant})
+	if e != nil {
+		return ErrUnavailable
 	}
-	if err != nil {
+	_, e = a.Client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{Name: aws.String(path), KmsKeyId: aws.String(key), SecretString: aws.String(string(raw))})
+	var exists *types.ResourceExistsException
+	if errors.As(e, &exists) {
+		_, bound, readErr := a.Read(ctx, tenant, name)
+		if readErr != nil || bound != host {
+			return ErrBinding
+		}
+		_, e = a.Client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{SecretId: aws.String(path), SecretString: aws.String(string(raw))})
+	}
+	if e != nil {
 		return ErrUnavailable
 	}
 	return nil
