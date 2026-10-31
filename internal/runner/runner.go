@@ -49,6 +49,18 @@ func (r *Runner) capacity(tenant string) (func(), bool) {
 	return func() { r.mu.Lock(); delete(r.tenants, tenant); <-r.slots; r.mu.Unlock() }, true
 }
 func (r *Runner) Run(ctx context.Context, tenant, id string, test, scheduled bool) (model.Run, error) {
+	return r.run(ctx, tenant, id, test, scheduled, 0)
+}
+
+// Preview tests an exact saved draft revision without activating it or writing
+// records, run history, quarantine or schedule state.
+func (r *Runner) Preview(ctx context.Context, tenant, id string, revision int) (model.Run, error) {
+	if revision < 1 {
+		return model.Run{}, store.ErrNotFound
+	}
+	return r.run(ctx, tenant, id, true, false, revision)
+}
+func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled bool, revision int) (model.Run, error) {
 	release, ok := r.capacity(tenant)
 	if !ok {
 		return model.Run{}, store.ErrBusy
@@ -60,7 +72,12 @@ func (r *Runner) Run(ctx context.Context, tenant, id string, test, scheduled boo
 		return model.Run{}, e
 	}
 	defer unlock()
-	saved, e := scope.Config(ctx, id, true)
+	var saved store.SavedConfig
+	if revision > 0 {
+		saved, e = scope.ConfigRevision(ctx, id, revision)
+	} else {
+		saved, e = scope.Config(ctx, id, true)
+	}
 	if e != nil {
 		return model.Run{}, e
 	}

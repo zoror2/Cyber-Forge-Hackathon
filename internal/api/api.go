@@ -21,27 +21,28 @@ type API struct {
 	Store   *store.Store
 	Engine  *runner.Runner
 	Secrets *secrets.Service
+	AI      *Drafting
 	// Test seam only; the binary always uses Store.Authenticate.
 	Authenticate func(context.Context, string) (string, error)
 }
 
 type tenantKey struct{}
+type callerKey struct{}
 
 func (a *API) scope(r *http.Request) store.Scope {
 	return a.Store.ForTenant(r.Context().Value(tenantKey{}).(string))
 }
 func New(a *API) (http.Handler, error) {
-	lookup := a.Authenticate
-	if lookup == nil {
+	if a.Authenticate == nil {
 		if a.Store == nil {
 			return nil, errors.New("authentication store required")
 		}
-		lookup = a.Store.Authenticate
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /configs", a.submit)
 	mux.HandleFunc("POST /configs/{id}/validate", a.validate)
 	mux.HandleFunc("POST /configs/{id}/activate", a.activate)
+	mux.HandleFunc("POST /configs/{id}/test", a.preview)
 	mux.HandleFunc("PUT /secrets/{name}", a.putSecret)
 	mux.HandleFunc("GET /secrets", a.listSecrets)
 	mux.HandleFunc("POST /connectors/{id}/test", a.test)
@@ -50,6 +51,10 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /records/{entity}", a.records)
 	mux.HandleFunc("GET /quarantine", a.quarantine)
+	mux.HandleFunc("GET /exposure", a.exposure)
+	mux.HandleFunc("GET /ai/sources", a.aiSources)
+	mux.HandleFunc("POST /ai/config-draft", a.aiDraft)
+	mux.HandleFunc("GET /ai/audit", a.aiAudit)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -57,8 +62,15 @@ func New(a *API) (http.Handler, error) {
 		supplied := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(supplied, "Bearer ")
 		var tenant string
+		var caller store.Caller
 		if strings.HasPrefix(supplied, "Bearer ") && len(token) >= 32 && len(token) <= 512 {
-			tenant, _ = lookup(r.Context(), token)
+			if a.Authenticate != nil {
+				tenant, _ = a.Authenticate(r.Context(), token)
+				caller = store.Caller{Tenant: tenant, Actor: "test:principal"}
+			} else {
+				caller, _ = a.Store.AuthenticateCaller(r.Context(), token)
+				tenant = caller.Tenant
+			}
 		}
 		if !config.ValidID(tenant) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
@@ -69,7 +81,8 @@ func New(a *API) (http.Handler, error) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
 			return
 		}
-		mux.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), tenantKey{}, tenant)))
+		ctx := context.WithValue(r.Context(), tenantKey{}, tenant)
+		mux.ServeHTTP(w, r.WithContext(context.WithValue(ctx, callerKey{}, caller)))
 	}), nil
 }
 func write(w http.ResponseWriter, status int, value any) {
@@ -178,18 +191,15 @@ func (a *API) activate(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]any{"id": r.PathValue("id"), "revision": body.Revision, "status": "live"})
 }
 func (a *API) putSecret(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Value string `json:"value"`
-		Host  string `json:"allowed_host"`
-	}
+	var body secrets.Input
 	if !jsonBody(w, r, &body) {
 		return
 	}
-	if !config.ValidID(r.PathValue("name")) || !config.ValidHost(body.Host) || body.Value == "" || len(body.Value) > 32768 {
+	if _, _, err := body.Normalize(); !config.ValidID(r.PathValue("name")) || err != nil {
 		fail(w, 422, "invalid_secret_input")
 		return
 	}
-	e := a.Secrets.Put(r.Context(), a.scope(r).Tenant, r.PathValue("name"), body.Value, body.Host)
+	e := a.Secrets.PutCredential(r.Context(), r.Context().Value(callerKey{}).(store.Caller), r.PathValue("name"), body)
 	if errors.Is(e, secrets.ErrBinding) {
 		fail(w, 409, "host_binding_is_immutable")
 		return

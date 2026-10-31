@@ -19,7 +19,7 @@ func TestAllRoutesRequireTenantKey(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, path := range []string{"/health", "/configs", "/configs/x/validate", "/configs/x/activate", "/secrets", "/secrets/x", "/connectors/x/test", "/connectors/x/run", "/runs", "/records/users", "/records/devices", "/records/events", "/quarantine", "/unknown"} {
+	for _, path := range []string{"/health", "/configs", "/configs/x/validate", "/configs/x/activate", "/configs/x/test", "/secrets", "/secrets/x", "/connectors/x/test", "/connectors/x/run", "/runs", "/records/users", "/records/devices", "/records/events", "/quarantine", "/exposure", "/ai/sources", "/ai/config-draft", "/ai/audit", "/unknown"} {
 		for _, auth := range []string{"", "Bearer wrong", "Bearer " + strings.Repeat("bad", 20)} {
 			r := httptest.NewRequest("GET", path, nil)
 			r.Header.Set("Authorization", auth)

@@ -41,6 +41,11 @@ services:
       CB_DEV_ALLOW_PRIVATE: 172.30.0.0/24
       CB_DEV_CA_FILE: /certs/cert.pem
       CB_LISTEN: 0.0.0.0:8080
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      CB_AI_ENABLED_TENANTS: ${CB_AI_ENABLED_TENANTS:-}
+      CB_AI_MODEL: ${CB_AI_MODEL:-qwen/qwen3.8-27b}
+      CB_AI_DAILY_LIMIT: ${CB_AI_DAILY_LIMIT:-20}
+      CB_AI_SOURCES_DIR: /public_sources
     volumes: ['./data/devcert/cert.pem:/certs/cert.pem:ro']
     ports: ['127.0.0.1:8080:8080']
     depends_on:

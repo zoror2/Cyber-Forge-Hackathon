@@ -127,7 +127,8 @@ return 404. Collection routes return only the authenticated tenant's data.
 | `POST /configs` | Strict JSON → new draft revision, no network call |
 | `POST /configs/{id}/validate` | Validate the stored config |
 | `POST /configs/{id}/activate` | Body `{"revision":1}`; select the live version |
-| `PUT /secrets/{name}` | Body `{value,allowed_host}`; 204 and no value returned |
+| `POST /configs/{id}/test` | Body `{"revision":1}`; sample a saved draft before activation, no production writes |
+| `PUT /secrets/{name}` | `{value,allowed_host}` or `{fields,allowed_hosts}`; write-only |
 | `GET /secrets` | Names, host bindings and dates only |
 | `POST /connectors/{id}/test` | Empty body; one-page/100-row sample, no writes |
 | `POST /connectors/{id}/run` | Empty body; synchronously run the live DB config |
@@ -135,6 +136,10 @@ return 404. Collection routes return only the authenticated tenant's data.
 | `GET /health` | JSON health, or escaped HTML with `Accept: text/html` |
 | `GET /records/{users\|devices\|events}?source=` | Paginated common records |
 | `GET /quarantine?connector=` | Paginated rejection metadata |
+| `GET /exposure?connector=` | Reviewed KEV vendor matches and credential metadata; deployment review required |
+| `GET /ai/sources` | Reviewed public descriptions available for drafting |
+| `POST /ai/config-draft` | Explicit consent → Groq proposal; never saves or activates a connector |
+| `GET /ai/audit` | Tenant-scoped draft audit metadata/hashes |
 
 List defaults: `limit=100&offset=0`; maximum limit 500. Busy connectors/capacity
 return 409. Failed vendor collections return 502 with a sanitized persisted run
@@ -147,6 +152,27 @@ request half uses Member A's exact field names: `auth.secret`, `items_path`,
 pagination `none/page/offset/link/cursor`, and retry `base_delay_ms`. Date layouts
 use Go notation (`2006-01-02`), with an explicit IANA timezone for naive dates.
 User-supplied `tenant_id`, unknown keys and duplicate JSON keys are rejected.
+
+## KEV and AI config drafts
+
+KEV events now retain optional `vendor`/`product` fields. A reviewed alias table
+matches those to live connector `vendor` labels. `/exposure` identifies candidate
+vendor associations and the credential ID/owner for each connector. It does not
+establish that a customer's deployment is affected or automate key rotation.
+Resync KEV after upgrading so old records gain the new fields.
+
+Groq drafting is opt-in per tenant and per request. It receives only reviewed
+public descriptions and synthetic examples in `public_sources/`. Customer
+names/IDs are filled locally; credentials, private samples and stored records
+never enter its prompt. A new vendor needs a reviewed public source file first.
+The AI proposes mapping/paging, then strict validation tests it against the
+examples. Download/edit the config, save it as a draft, test that exact revision,
+then explicitly activate it. The future local-model adapter is separate work.
+
+See [docs/KEV_AND_AI.md](docs/KEV_AND_AI.md) for localhost commands, limits,
+privacy boundaries, migration compatibility and the test matrix. Use the
+separate `postman/ConfigBridge.KEV-AI.collection.json` deliberately: it calls
+Groq and public CISA, while the original collection remains synthetic/local.
 
 ## Security boundaries
 

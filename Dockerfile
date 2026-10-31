@@ -32,6 +32,7 @@ RUN test -n "$CMD" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/
 # ---- Stage 2: run ----
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/app /app
+COPY public_sources /public_sources
 # UID 65532, never root
 USER nonroot:nonroot
 ENTRYPOINT ["/app"]

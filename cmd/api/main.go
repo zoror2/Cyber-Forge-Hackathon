@@ -36,6 +36,11 @@ func run() error {
 	if e != nil {
 		return e
 	}
+	if os.Getenv("CB_ENV") != "dev" {
+		if e = policy.ProductionSafe(); e != nil {
+			return e
+		}
+	}
 	db, e := store.Open(setup, os.Getenv("DATABASE_URL"))
 	if e != nil {
 		return e
@@ -71,7 +76,11 @@ func run() error {
 	svc := &secrets.Service{Store: db, Backend: backend, BackendName: name}
 	requests := engine.New(svc, policy, slog.Default())
 	runs := runner.New(db, requests)
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc})
+	drafting, e := app.Drafting(os.Getenv)
+	if e != nil {
+		return e
+	}
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, AI: drafting})
 	if e != nil {
 		return e
 	}

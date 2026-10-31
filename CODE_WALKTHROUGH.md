@@ -81,3 +81,33 @@ optional email is valid, while a missing ID or invalid date is rejected.
   A protocol/auth type the engine lacks still needs code.
 - **What have we proved?** The tested local capability set and failure cases.
   Synthetic tests do not prove live vendor access, cloud security or capacity.
+## KEV and AI additions
+
+For the new mentor demo, use [docs/KEV_AND_AI.md](docs/KEV_AND_AI.md).
+
+| File | Simple explanation |
+|---|---|
+| `internal/aidraft/source.go` | Loads public vendor descriptions that an engineer reviewed. |
+| `internal/aidraft/groq.go` | Sends that public description to Groq with the private server key. |
+| `internal/aidraft/draft.go` | Checks the AI's mapping and builds a bounded, inactive config. |
+| `internal/api/draft.go` | Handles consent, quotas, audit and testing a saved draft. |
+| `internal/app/ai.go` | Enables AI only for explicitly selected tenants. |
+| `internal/store/ai.go` | Counts daily AI calls and stores audit metadata. |
+| `internal/store/exposure.go` | Matches KEV vendor/product names to a customer's connected tools. |
+| `internal/api/exposure.go` | Returns those matches through the authenticated API. |
+| `002_exposure.sql` | Adds credential IDs/owners and the reviewed name lookup table. |
+| `003_ai_drafts.sql` | Adds tenant-separated AI usage and audit tables. |
+| `public_sources/*.json` | Public vendor facts and invented examples the AI may read. |
+| `scripts/draft-config.ps1` | Downloads the proposed config to a local JSON file. |
+| `scripts/test-draft.ps1` | Saves/tests the reviewed draft without turning it on. |
+| `postman/ConfigBridge.KEV-AI.collection.json` | Clickable demo requests for the new flow. |
+
+`pkg/config`, `pkg/model` and `pkg/mapping` now keep event vendor/product and trim
+dirty names. `pkg/secrets` preserves encrypted legacy values while adding stable
+IDs, authenticated ownership, multiple fields and exact host lists. The runner
+can sample an exact draft revision without writing production records.
+
+Mentor explanation: “Mohit fetches the feed. Our mapper keeps the vendor and
+product, and SQL finds connected tools worth checking. AI helps write a new
+integration config using public examples. We review and test the draft before
+activation; credentials are entered locally.”

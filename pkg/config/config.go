@@ -26,6 +26,7 @@ type Config struct {
 	Version     int               `json:"version"`
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
+	Vendor      string            `json:"vendor,omitempty"`
 	Request     engine.Request    `json:"request"`
 	Auth        engine.Auth       `json:"auth"`
 	ItemsPath   string            `json:"items_path"`
@@ -181,7 +182,7 @@ func (c *Config) Defaults() {
 	}
 }
 
-var Fields = map[string][]string{"user": {"id", "name", "email", "status", "last_login"}, "device": {"id", "hostname", "ip", "os", "owner", "last_seen"}, "event": {"id", "type", "severity", "timestamp", "description"}}
+var Fields = map[string][]string{"user": {"id", "name", "email", "status", "last_login"}, "device": {"id", "hostname", "ip", "os", "owner", "last_seen"}, "event": {"id", "type", "severity", "timestamp", "description", "vendor", "product"}}
 
 func (c Config) Validate() []Issue {
 	out := []Issue{}
@@ -205,6 +206,9 @@ func (c Config) Validate() []Issue {
 	}
 	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 200 {
 		add("name", "must contain 1-200 characters")
+	}
+	if c.Vendor != "" && (strings.TrimSpace(c.Vendor) == "" || len(c.Vendor) > 200) {
+		add("vendor", "must contain 1-200 characters when supplied")
 	}
 	if c.Limits.MaxRecords < 1 || c.Limits.MaxRecords > 1000000 {
 		add("limits.max_records", "must be 1-1000000")
@@ -240,7 +244,7 @@ func (c Config) Validate() []Issue {
 			add(key, "provide exactly one path or non-null constant")
 		}
 		switch spec.Transform {
-		case "", "string", "integer", "datetime", "lookup":
+		case "", "string", "trim", "integer", "datetime", "lookup":
 		default:
 			add(key+".transform", "unsupported transform")
 		}
@@ -271,7 +275,7 @@ func (c Config) Validate() []Issue {
 	return out
 }
 func ValidHost(host string) bool {
-	if host == "" || host != strings.ToLower(host) || strings.ContainsAny(host, "/@?# \\\t\r\n") {
+	if host == "" || len(host) > 253 || host != strings.ToLower(host) || strings.ContainsAny(host, "*,/@?# \\\t\r\n") {
 		return false
 	}
 	u, e := url.Parse("https://" + host)

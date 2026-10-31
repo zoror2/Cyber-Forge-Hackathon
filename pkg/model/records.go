@@ -32,6 +32,8 @@ type Event struct {
 	Severity           string    `json:"severity"`
 	Timestamp          time.Time `json:"timestamp"`
 	Description        string    `json:"description"`
+	Vendor             *string   `json:"vendor,omitempty"`
+	Product            *string   `json:"product,omitempty"`
 	TimestampPrecision string    `json:"timestamp_precision,omitempty"`
 }
 type Record struct {

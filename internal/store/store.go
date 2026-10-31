@@ -21,6 +21,12 @@ import (
 
 //go:embed migrations/001_initial.sql
 var migration string
+
+//go:embed migrations/002_exposure.sql
+var exposureMigration string
+
+//go:embed migrations/003_ai_drafts.sql
+var aiMigration string
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
 
@@ -106,8 +112,40 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 			return e
 		}
 	}
+	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)").Scan(&exists); e != nil {
+		return e
+	}
+	if !exists {
+		sql := strings.ReplaceAll(exposureMigration, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
+		if _, e = tx.Exec(ctx, sql); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(2)"); e != nil {
+			return e
+		}
+	}
+	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)").Scan(&exists); e != nil {
+		return e
+	}
+	if !exists {
+		policies := ""
+		for _, table := range []string{"ai_usage", "ai_audit"} {
+			q := pgx.Identifier{schema, table}.Sanitize()
+			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", q, q, q, literal(owner), literal(owner))
+		}
+		sql := strings.Replace(aiMigration, "__RLS_POLICIES__", policies, 1)
+		if _, e = tx.Exec(ctx, sql); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(3)"); e != nil {
+			return e
+		}
+	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage TO "+role); e != nil {
+		return e
+	}
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
@@ -119,10 +157,13 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT SELECT ON "+sch+".tenants TO "+role); e != nil {
 		return e
 	}
+	if _, e = tx.Exec(ctx, "GRANT SELECT ON "+sch+".vendor_aliases TO "+role); e != nil {
+		return e
+	}
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON ALL SEQUENCES IN SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, fn := range []string{"authenticate_api_key(bytea)", "due_connectors()", "running_connectors()"} {
+	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e
 		}
@@ -172,18 +213,28 @@ func Bootstrap(ctx context.Context, dsn, tenant, apiKey, kmsKey string) error {
 	return tx.Commit(ctx)
 }
 func (s *Store) Authenticate(ctx context.Context, key string) (string, error) {
+	caller, err := s.AuthenticateCaller(ctx, key)
+	return caller.Tenant, err
+}
+
+type Caller struct {
+	Tenant string
+	Actor  string
+}
+
+func (s *Store) AuthenticateCaller(ctx context.Context, key string) (Caller, error) {
 	hash := sha256.Sum256([]byte(key))
-	var tenant string
+	var tenant, principal string
 	var stored []byte
-	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash FROM authenticate_api_key($1)", hash[:]).Scan(&tenant, &stored)
+	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash,principal_id FROM authenticate_api_key_identity($1)", hash[:]).Scan(&tenant, &stored, &principal)
 	if e != nil || !config.ValidID(tenant) {
-		return "", ErrNotFound
+		return Caller{}, ErrNotFound
 	}
 	// The narrow security-definer lookup returns no unhashed key or customer data.
 	if e != nil || subtle.ConstantTimeCompare(stored, hash[:]) != 1 {
-		return "", ErrNotFound
+		return Caller{}, ErrNotFound
 	}
-	return tenant, nil
+	return Caller{Tenant: tenant, Actor: "api_key:" + principal}, nil
 }
 func (s Scope) WithTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if !config.ValidID(s.Tenant) {
@@ -285,6 +336,20 @@ func (s Scope) Activate(ctx context.Context, id string, revision int) error {
 		_, e := tx.Exec(ctx, "INSERT INTO sync_state(tenant_id,connector,next_due)VALUES($1,$2,now()) ON CONFLICT(tenant_id,connector) DO UPDATE SET next_due=now()", s.Tenant, id)
 		return e
 	})
+}
+func (s Scope) ConfigRevision(ctx context.Context, id string, revision int) (out SavedConfig, err error) {
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		var body []byte
+		e := tx.QueryRow(ctx, "SELECT body,version,status,config_hash FROM configs WHERE tenant_id=$1 AND id=$2 AND version=$3", s.Tenant, id, revision).Scan(&body, &out.Revision, &out.Status, &out.Hash)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if e != nil {
+			return e
+		}
+		return json.Unmarshal(body, &out.Config)
+	})
+	return
 }
 
 // Lock holds a session lock on a dedicated connection and cancels work if that
