@@ -111,3 +111,14 @@ Mentor explanation: “Mohit fetches the feed. Our mapper keeps the vendor and
 product, and SQL finds connected tools worth checking. AI helps write a new
 integration config using public examples. We review and test the draft before
 activation; credentials are entered locally.”
+
+## Bonus B-1: fetch changes only
+
+“We keep a bookmark for the last completely collected time range. On the next
+run, we ask the API for changes since that bookmark. We move it only after all
+pages succeed. A failed run replays the range, and upserts prevent duplicates.”
+
+The first localhost pull gets three users; after changing one and adding one,
+the next gets two records; a further pull gets zero. Four unique users remain.
+The file-by-file explanation, supported API assumptions, demo command and
+failure tests are in [docs/BONUS_B1.md](docs/BONUS_B1.md).

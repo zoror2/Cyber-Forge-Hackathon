@@ -132,6 +132,7 @@ return 404. Collection routes return only the authenticated tenant's data.
 | `GET /secrets` | Names, host bindings and dates only |
 | `POST /connectors/{id}/test` | Empty body; one-page/100-row sample, no writes |
 | `POST /connectors/{id}/run` | Empty body; synchronously run the live DB config |
+| `GET /connectors/{id}/sync-state` | Inspect the tenant's durable incremental bookmark and next due time |
 | `GET /runs?connector=` | Paginated history |
 | `GET /health` | JSON health, or escaped HTML with `Accept: text/html` |
 | `GET /records/{users\|devices\|events}?source=` | Paginated common records |
@@ -144,8 +145,11 @@ return 404. Collection routes return only the authenticated tenant's data.
 List defaults: `limit=100&offset=0`; maximum limit 500. Busy connectors/capacity
 return 409. Failed vendor collections return 502 with a sanitized persisted run
 result. Runs with invalid rows complete with errors and show degraded health.
-Only a clean success changes `last_success`; partial runs never advance a
-watermark. The watermark column is reserved and unused.
+Only a clean success changes `last_success`. B-1 time-window incremental sync
+advances its tenant-scoped bookmark only after every page succeeds with no
+quarantine; partial, failed and preview runs never advance it. Ordinary configs
+remain full syncs. See [docs/BONUS_B1.md](docs/BONUS_B1.md) for the supported
+filter contract and the localhost 3 → 2 → 0 download demonstration.
 
 See [configs/mock_users.json](configs/mock_users.json) for the full config. The
 request half uses Member A's exact field names: `auth.secret`, `items_path`,

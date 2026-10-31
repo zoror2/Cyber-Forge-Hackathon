@@ -6,6 +6,7 @@ import (
 	"configbridge/internal/egress"
 	"configbridge/internal/engine"
 	"configbridge/internal/store"
+	"configbridge/pkg/incremental"
 	"configbridge/pkg/mapping"
 	"configbridge/pkg/model"
 	"context"
@@ -29,10 +30,20 @@ type Runner struct {
 	slots   chan struct{}
 	mu      sync.Mutex
 	tenants map[string]bool
+	clock   func() time.Time
 }
 
 func New(s *store.Store, f Fetcher) *Runner {
-	return &Runner{Store: s, Fetcher: f, slots: make(chan struct{}, 2), tenants: map[string]bool{}}
+	return NewWithClock(s, f, time.Now)
+}
+
+// Clock injection makes boundary/restart tests deterministic. API callers cannot
+// supply a clock; the executable always uses New and the platform clock.
+func NewWithClock(s *store.Store, f Fetcher, clock func() time.Time) *Runner {
+	if clock == nil {
+		clock = time.Now
+	}
+	return &Runner{Store: s, Fetcher: f, slots: make(chan struct{}, 2), tenants: map[string]bool{}, clock: clock}
 }
 func (r *Runner) capacity(tenant string) (func(), bool) {
 	r.mu.Lock()
@@ -104,7 +115,17 @@ func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled boo
 	if _, e = rand.Read(b); e != nil {
 		return model.Run{}, errors.New("run_id_unavailable")
 	}
-	run := model.Run{TenantID: tenant, ID: hex.EncodeToString(b), Connector: id, ConfigVersion: saved.Revision, ConfigHash: saved.Hash, Mode: "live", StartedAt: time.Now().UTC(), Outcome: "running"}
+	run := model.Run{TenantID: tenant, ID: hex.EncodeToString(b), Connector: id, ConfigVersion: saved.Revision, ConfigHash: saved.Hash, Mode: "live", StartedAt: r.clock().UTC(), Outcome: "running"}
+	if c.Incremental != nil {
+		state, err := scope.SyncState(ctx, id)
+		if err != nil {
+			return model.Run{}, err
+		}
+		run.Incremental, e = incremental.Begin(c, saved.Hash, state.Watermark, run.StartedAt)
+		if e != nil {
+			return model.Run{}, e
+		}
+	}
 	if test {
 		run.Mode = "test"
 	}
@@ -114,52 +135,68 @@ func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled boo
 		}
 	}
 	sampleDone := errors.New("sample_complete")
-	result, e := r.Fetcher.Fetch(ctx, c.Connector(tenant), func(page engine.Page) error {
-		if e := ctx.Err(); e != nil {
-			return e
-		}
-		items := page.Items
-		if test && len(items) > 100 {
-			items = items[:100]
-		}
-		if len(items) > c.Limits.MaxRecords-run.Received {
-			return ErrLimit
-		}
-		records := []model.Record{}
-		bad := []model.Rejection{}
-		now := time.Now().UTC()
-		for i, row := range items {
+	fetch := func() (engine.Result, error) {
+		return r.Fetcher.Fetch(ctx, incremental.Apply(c.Connector(tenant), c.Incremental, run.Incremental), func(page engine.Page) error {
 			if e := ctx.Err(); e != nil {
 				return e
 			}
-			rec, q := mapping.Map(row, c, tenant, now, run.Received+i)
-			if q != nil {
-				q.Page = page.Number
-				bad = append(bad, *q)
-			} else {
-				records = append(records, rec)
+			items := page.Items
+			if test && len(items) > 100 {
+				items = items[:100]
 			}
-		}
-		if !test {
-			if e := scope.SavePage(ctx, run.ID, id, records, bad); e != nil {
-				return errors.New("storage_failed")
+			if len(items) > c.Limits.MaxRecords-run.Received {
+				return ErrLimit
 			}
-		}
-		run.Pages++
-		run.Received += len(items)
-		run.Accepted += len(records)
-		run.Quarantined += len(bad)
-		if test {
-			return sampleDone
-		}
-		return nil
-	})
+			records := []model.Record{}
+			bad := []model.Rejection{}
+			now := time.Now().UTC()
+			for i, row := range items {
+				if e := ctx.Err(); e != nil {
+					return e
+				}
+				q, err := incremental.CheckRow(row, c.Incremental, run.Incremental, run.Received+i)
+				if err != nil {
+					return err
+				}
+				if q != nil {
+					q.Page = page.Number
+					bad = append(bad, *q)
+					continue
+				}
+				rec, q := mapping.Map(row, c, tenant, now, run.Received+i)
+				if q != nil {
+					q.Page = page.Number
+					bad = append(bad, *q)
+				} else {
+					records = append(records, rec)
+				}
+			}
+			if !test {
+				if e := scope.SavePage(ctx, run.ID, id, records, bad); e != nil {
+					return errors.New("storage_failed")
+				}
+			}
+			run.Pages++
+			run.Received += len(items)
+			run.Accepted += len(records)
+			run.Quarantined += len(bad)
+			if test {
+				return sampleDone
+			}
+			return nil
+		})
+	}
+	var result engine.Result
+	emptyWindow := run.Incremental != nil && run.Incremental.Since.Equal(run.Incremental.Until)
+	if !emptyWindow {
+		result, e = fetch()
+	}
 	// Counts include failed logical API attempts; OAuth exchanges are separate.
 	run.Attempts = result.Attempts
 	if test && errors.Is(e, sampleDone) {
 		e = nil
 	}
-	if e == nil && run.Pages == 0 {
+	if e == nil && run.Pages == 0 && !emptyWindow {
 		e = errors.New("no_pages")
 	}
 	run.Outcome = "success"
@@ -186,10 +223,16 @@ func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled boo
 			run.Error = "run_finalization_failed"
 			return run, errors.New(run.Error)
 		}
+		if run.Incremental != nil && run.Outcome == "success" && run.Quarantined == 0 {
+			run.Incremental.Committed = true
+		}
 	}
 	return run, e
 }
 func Category(e error) string {
+	if errors.Is(e, incremental.ErrOutsideWindow) {
+		return "incremental_filter_not_respected"
+	}
 	// Credential problems first: binding_mismatch is also an egress block, and
 	// 401/403 are also StatusErrors, but the credential status is more useful.
 	var ae *engine.AuthError

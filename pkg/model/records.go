@@ -51,19 +51,27 @@ type Rejection struct {
 
 // Run is the shared persisted result; Error is always a safe, fixed category.
 type Run struct {
-	TenantID      string     `json:"tenant_id"`
-	ID            string     `json:"id"`
-	Connector     string     `json:"connector"`
-	ConfigVersion int        `json:"config_version"`
-	ConfigHash    string     `json:"config_hash"`
-	Mode          string     `json:"mode"`
-	StartedAt     time.Time  `json:"started_at"`
-	EndedAt       *time.Time `json:"ended_at"`
-	Outcome       string     `json:"outcome"`
-	Pages         int        `json:"pages"`
-	Attempts      int        `json:"attempts"`
-	Received      int        `json:"received"`
-	Accepted      int        `json:"accepted"`
-	Quarantined   int        `json:"quarantined"`
-	Error         string     `json:"error"`
+	TenantID      string      `json:"tenant_id"`
+	ID            string      `json:"id"`
+	Connector     string      `json:"connector"`
+	ConfigVersion int         `json:"config_version"`
+	ConfigHash    string      `json:"config_hash"`
+	Mode          string      `json:"mode"`
+	StartedAt     time.Time   `json:"started_at"`
+	EndedAt       *time.Time  `json:"ended_at"`
+	Outcome       string      `json:"outcome"`
+	Pages         int         `json:"pages"`
+	Attempts      int         `json:"attempts"`
+	Received      int         `json:"received"`
+	Accepted      int         `json:"accepted"`
+	Quarantined   int         `json:"quarantined"`
+	Error         string      `json:"error"`
+	Incremental   *SyncWindow `json:"incremental,omitempty"`
+}
+type SyncWindow struct {
+	Since           time.Time  `json:"since"`
+	Until           time.Time  `json:"until"`
+	PreviousThrough *time.Time `json:"previous_through,omitempty"`
+	Committed       bool       `json:"checkpoint_committed"`
+	Reset           bool       `json:"config_changed_reset,omitempty"`
 }

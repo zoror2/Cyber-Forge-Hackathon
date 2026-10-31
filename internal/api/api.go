@@ -14,6 +14,7 @@ import (
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
+	"configbridge/pkg/incremental"
 	"configbridge/pkg/secrets"
 )
 
@@ -47,6 +48,7 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /secrets", a.listSecrets)
 	mux.HandleFunc("POST /connectors/{id}/test", a.test)
 	mux.HandleFunc("POST /connectors/{id}/run", a.run)
+	mux.HandleFunc("GET /connectors/{id}/sync-state", a.syncState)
 	mux.HandleFunc("GET /runs", a.runs)
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /records/{entity}", a.records)
@@ -95,6 +97,10 @@ func fail(w http.ResponseWriter, status int, category string) {
 }
 func dbFail(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, incremental.ErrState):
+		fail(w, 503, "incremental_state_invalid")
+	case errors.Is(err, incremental.ErrNotReady):
+		fail(w, 409, "incremental_window_not_ready")
 	case errors.Is(err, store.ErrNotFound):
 		fail(w, 404, "config_not_found_or_not_live")
 	case errors.Is(err, store.ErrBusy):

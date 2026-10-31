@@ -35,6 +35,19 @@ type Config struct {
 	Retry       engine.Retry      `json:"retry"`
 	Schedule    Schedule          `json:"schedule"`
 	Destination Destination       `json:"destination"`
+	Incremental *Incremental      `json:"incremental,omitempty"`
+}
+
+// Time windows require a documented inclusive lower bound, exclusive upper
+// bound and stable pagination from the vendor. They are never inferred by AI.
+type Incremental struct {
+	Type             string `json:"type"`
+	StartTime        string `json:"start_time"`
+	SinceParam       string `json:"since_param"`
+	UntilParam       string `json:"until_param"`
+	UpdatedAtPath    string `json:"updated_at_path"`
+	OverlapSeconds   int    `json:"overlap_seconds"`
+	SafetyLagSeconds int    `json:"safety_lag_seconds"`
 }
 type Limits struct {
 	MaxResponseBytes int64 `json:"max_response_bytes"`
@@ -216,6 +229,7 @@ func (c Config) Validate() []Issue {
 	if c.Schedule.Enabled && (c.Schedule.IntervalSeconds < 1 || c.Schedule.IntervalSeconds > 31536000) {
 		add("schedule.interval_seconds", "must be 1-31536000 when enabled")
 	}
+	out = append(out, c.validateIncremental()...)
 	// URLs must carry noncredential query values through params, never inline.
 	for _, raw := range []string{c.Request.URL, c.Auth.TokenURL} {
 		if raw == "" {

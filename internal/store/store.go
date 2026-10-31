@@ -4,6 +4,7 @@ package store
 
 import (
 	"configbridge/pkg/config"
+	"configbridge/pkg/incremental"
 	"configbridge/pkg/model"
 	"context"
 	"crypto/sha256"
@@ -27,6 +28,9 @@ var exposureMigration string
 
 //go:embed migrations/003_ai_drafts.sql
 var aiMigration string
+
+//go:embed migrations/004_incremental.sql
+var incrementalMigration string
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
 
@@ -138,6 +142,17 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 			return e
 		}
 		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(3)"); e != nil {
+			return e
+		}
+	}
+	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)").Scan(&exists); e != nil {
+		return e
+	}
+	if !exists {
+		if _, e = tx.Exec(ctx, incrementalMigration); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(4)"); e != nil {
 			return e
 		}
 	}
@@ -413,7 +428,11 @@ func (s Scope) StartRun(ctx context.Context, r model.Run) error {
 		if _, e := tx.Exec(ctx, "UPDATE runs SET outcome='interrupted',ended_at=now(),error='interrupted' WHERE tenant_id=$1 AND connector=$2 AND outcome='running'", s.Tenant, r.Connector); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx, "INSERT INTO runs(tenant_id,id,connector,config_version,config_hash,mode,started_at,outcome)VALUES($1,$2,$3,$4,$5,$6,$7,'running')", s.Tenant, r.ID, r.Connector, r.ConfigVersion, r.ConfigHash, r.Mode, r.StartedAt)
+		var window []byte
+		if r.Incremental != nil {
+			window, _ = json.Marshal(r.Incremental)
+		}
+		_, e := tx.Exec(ctx, "INSERT INTO runs(tenant_id,id,connector,config_version,config_hash,mode,started_at,outcome,incremental)VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8)", s.Tenant, r.ID, r.Connector, r.ConfigVersion, r.ConfigHash, r.Mode, r.StartedAt, window)
 		return e
 	})
 }
@@ -455,7 +474,19 @@ func (s Scope) SavePage(ctx context.Context, runID, source string, records []mod
 }
 func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
-		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error)
+		var window, checkpoint []byte
+		if r.Incremental != nil {
+			copy := *r.Incremental
+			copy.Committed = r.Outcome == "success" && r.Quarantined == 0 && r.Mode == "live"
+			if copy.Until.Before(copy.Since) {
+				return incremental.ErrState
+			}
+			window, _ = json.Marshal(copy)
+			if copy.Committed {
+				checkpoint, _ = json.Marshal(incremental.Checkpoint{Version: 1, ConfigHash: r.ConfigHash, Through: copy.Until})
+			}
+		}
+		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10,incremental=$11 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error, window)
 		if e != nil {
 			return e
 		}
@@ -465,7 +496,7 @@ func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 		if interval < 1 {
 			interval = 60
 		}
-		_, e = tx.Exec(ctx, `INSERT INTO sync_state(tenant_id,connector,last_success,next_due)VALUES($1,$2,CASE WHEN $3 THEN $4::timestamptz ELSE NULL END,now()+make_interval(secs=>$5)) ON CONFLICT(tenant_id,connector) DO UPDATE SET last_success=CASE WHEN $3 THEN $4::timestamptz ELSE sync_state.last_success END,next_due=now()+make_interval(secs=>$5)`, s.Tenant, r.Connector, r.Outcome == "success", r.EndedAt, interval)
+		_, e = tx.Exec(ctx, `INSERT INTO sync_state(tenant_id,connector,last_success,next_due,watermark)VALUES($1,$2,CASE WHEN $3 THEN $4::timestamptz ELSE NULL END,now()+make_interval(secs=>$5),$6) ON CONFLICT(tenant_id,connector) DO UPDATE SET last_success=CASE WHEN $3 THEN $4::timestamptz ELSE sync_state.last_success END,next_due=now()+make_interval(secs=>$5),watermark=COALESCE($6,sync_state.watermark)`, s.Tenant, r.Connector, r.Outcome == "success", r.EndedAt, interval, checkpoint)
 		return e
 	})
 }
@@ -526,15 +557,19 @@ func (s Scope) IsDue(ctx context.Context, id string) (due bool, err error) {
 func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []model.Run, err error) {
 	out = []model.Run{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
-		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
+		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error,incremental FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var r model.Run
-			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error); e != nil {
+			var window []byte
+			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error, &window); e != nil {
 				return e
+			}
+			if len(window) > 0 && json.Unmarshal(window, &r.Incremental) != nil {
+				return incremental.ErrState
 			}
 			out = append(out, r)
 		}

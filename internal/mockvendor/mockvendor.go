@@ -82,6 +82,7 @@ func window(total, start, size int) (int, int) {
 
 func Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("/incremental/", incrementalHandler())
 
 	// Page-number paging with a Link header, like GitHub.
 	// Last page has no Link header, which tells the engine to stop.
