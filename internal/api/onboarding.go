@@ -217,5 +217,5 @@ func (a *API) consoleTest(w http.ResponseWriter, r *http.Request) {
 	a.renderConsole(w, status, v)
 }
 func isConsole(path string) bool {
-	return path == "/onboarding" || strings.HasPrefix(path, "/onboarding/")
+	return path == "/onboarding" || strings.HasPrefix(path, "/onboarding/") || path == "/insights" || strings.HasPrefix(path, "/insights/")
 }

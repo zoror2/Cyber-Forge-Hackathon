@@ -34,6 +34,9 @@ var incrementalMigration string
 
 //go:embed migrations/005_notifications.sql
 var notificationsMigration string
+
+//go:embed migrations/006_siem.sql
+var siemMigration string
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
 
@@ -177,8 +180,27 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 			return e
 		}
 	}
+	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)").Scan(&exists); e != nil {
+		return e
+	}
+	if !exists {
+		policies := ""
+		for _, table := range []string{"siem_snapshots", "siem_findings", "ai_requests"} {
+			q := pgx.Identifier{schema, table}.Sanitize()
+			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", q, q, q, literal(owner), literal(owner))
+		}
+		if _, e = tx.Exec(ctx, strings.Replace(siemMigration, "__RLS_POLICIES__", policies, 1)); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(6)"); e != nil {
+			return e
+		}
+	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+sch+".siem_snapshots,"+sch+".siem_findings TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_requests TO "+role); e != nil {
+		return e
+	}
 	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage TO "+role); e != nil {
 		return e
 	}

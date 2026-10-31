@@ -94,7 +94,11 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, AI: drafting, NotificationTenants: notificationTenants, UI: console})
+	siem, e := app.SIEM(os.Getenv)
+	if e != nil {
+		return e
+	}
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, AI: drafting, SIEM: siem, NotificationTenants: notificationTenants, UI: console})
 	if e != nil {
 		return e
 	}

@@ -24,6 +24,7 @@ type API struct {
 	Engine              *runner.Runner
 	Secrets             *secrets.Service
 	AI                  *Drafting
+	SIEM                *SIEM
 	NotificationTenants map[string]bool
 	UI                  *onboarding.Console
 	// Test seam only; the binary always uses Store.Authenticate.
@@ -43,6 +44,13 @@ func New(a *API) (http.Handler, error) {
 		}
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /siem/refresh", a.siemRefresh)
+	mux.HandleFunc("GET /siem/findings", a.siemFindings)
+	mux.HandleFunc("POST /siem/ask", a.siemAsk)
+	mux.HandleFunc("GET /ai/usage", a.aiUsage)
+	mux.HandleFunc("GET /insights", a.insightsPage)
+	mux.HandleFunc("GET /insights/style.css", a.insightsStyles)
+	mux.HandleFunc("POST /insights/action", a.insightsAction)
 	mux.HandleFunc("GET /onboarding", a.consoleForm)
 	mux.HandleFunc("GET /onboarding/{$}", a.consoleForm)
 	mux.HandleFunc("GET /onboarding/style.css", a.consoleCSS)
