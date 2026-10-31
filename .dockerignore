@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.venv
+data
+docs
+*.pdf
+*.pptx
+**/__pycache__
+configbridge
+tests
