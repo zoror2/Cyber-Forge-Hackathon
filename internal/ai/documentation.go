@@ -70,36 +70,9 @@ func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
 	u, _ := url.Parse(raw)
 	fragment := u.Fragment
 	u.Fragment = ""
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	select {
-	case documentationSlots <- struct{}{}:
-		defer func() { <-documentationSlots }()
-	case <-ctx.Done():
-		return "", fmt.Errorf("%w: documentation reader busy", ErrDocumentation)
-	}
-	client := (egress.Policy{}).Client(15 * time.Second)
-	defer client.CloseIdleConnections()
-	req, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	b, contentType, e := fetchPublic(ctx, u, "text/html, text/plain, application/json", maxDocumentationBytes)
 	if e != nil {
-		return "", ErrDocumentation
-	}
-	req.Header.Set("Accept", "text/html, text/plain, application/json")
-	res, e := client.Do(req)
-	if e != nil {
-		return "", fmt.Errorf("%w: public documentation could not be reached", ErrDocumentation)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return "", fmt.Errorf("%w: documentation returned HTTP %d; provide its final public URL", ErrDocumentation, res.StatusCode)
-	}
-	contentType := strings.ToLower(res.Header.Get("Content-Type"))
-	if !strings.Contains(contentType, "text/") && !strings.Contains(contentType, "json") {
-		return "", fmt.Errorf("%w: use a text, HTML or JSON reference", ErrDocumentation)
-	}
-	b, e := io.ReadAll(io.LimitReader(res.Body, maxDocumentationBytes+1))
-	if e != nil || len(b) > maxDocumentationBytes {
-		return "", fmt.Errorf("%w: document unavailable or larger than 8 MiB", ErrDocumentation)
+		return "", e
 	}
 	text := string(b)
 	if strings.Contains(contentType, "html") {
@@ -118,6 +91,44 @@ func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
 		text = strings.Clone(text[:maxDocumentationText])
 	}
 	return text, nil
+}
+
+// fetchPublic downloads one public HTTPS reference: egress guarded, no
+// redirects, bounded in time, concurrency and size. Shared by documentation
+// pages and OpenAPI specs.
+func fetchPublic(ctx context.Context, u *url.URL, accept string, limit int) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	select {
+	case documentationSlots <- struct{}{}:
+		defer func() { <-documentationSlots }()
+	case <-ctx.Done():
+		return nil, "", fmt.Errorf("%w: documentation reader busy", ErrDocumentation)
+	}
+	client := (egress.Policy{}).Client(15 * time.Second)
+	defer client.CloseIdleConnections()
+	req, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if e != nil {
+		return nil, "", ErrDocumentation
+	}
+	req.Header.Set("Accept", accept)
+	res, e := client.Do(req)
+	if e != nil {
+		return nil, "", fmt.Errorf("%w: public documentation could not be reached", ErrDocumentation)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		return nil, "", fmt.Errorf("%w: documentation returned HTTP %d; provide its final public URL", ErrDocumentation, res.StatusCode)
+	}
+	contentType := strings.ToLower(res.Header.Get("Content-Type"))
+	if !strings.Contains(contentType, "text/") && !strings.Contains(contentType, "json") && !strings.Contains(contentType, "yaml") {
+		return nil, "", fmt.Errorf("%w: use a text, HTML, JSON or YAML reference", ErrDocumentation)
+	}
+	b, e := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
+	if e != nil || len(b) > limit {
+		return nil, "", fmt.Errorf("%w: document unavailable or larger than %d MiB", ErrDocumentation, limit>>20)
+	}
+	return b, contentType, nil
 }
 
 // A supplied heading fragment focuses a large API reference on the operation
@@ -351,17 +362,7 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 	}) {
 		problem("pagination", "documented pagination strategy and configured parameters required")
 	}
-	for dest, field := range cfg.Destination.Mapping {
-		if field.Default != nil && !(dest == "severity_id" && fmt.Sprint(field.Default) == "0") {
-			problem("destination.mapping."+dest, "do not invent fallback record values; leave missing optional fields empty and quarantine missing required fields")
-		}
-		if field.Path == nil {
-			if !strings.HasPrefix(dest, "metadata.product.") && !(dest == "severity_id" && fmt.Sprint(field.Constant) == "0") {
-				problem("destination.mapping."+dest, "AI must map vendor facts from documented response fields rather than invent constant record values")
-			}
-			continue
-		}
-		path := *field.Path
+	for dest, path := range mappedPaths(cfg, problem) {
 		if !proven("field", path, func(q string) bool {
 			v, ok := jsonExample(q)
 			if !ok {
@@ -381,20 +382,46 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 	return issues
 }
 
+// mappedPaths enforces the no-invented-values rules every grounded draft
+// shares and returns destination -> mapped response path for proof.
+func mappedPaths(cfg config.Config, problem func(field, msg string)) map[string]string {
+	paths := map[string]string{}
+	for dest, field := range cfg.Destination.Mapping {
+		if field.Default != nil && !(dest == "severity_id" && fmt.Sprint(field.Default) == "0") {
+			problem("destination.mapping."+dest, "do not invent fallback record values; leave missing optional fields empty and quarantine missing required fields")
+		}
+		if field.Path == nil {
+			if !strings.HasPrefix(dest, "metadata.product.") && !(dest == "severity_id" && fmt.Sprint(field.Constant) == "0") {
+				problem("destination.mapping."+dest, "AI must map vendor facts from documented response fields rather than invent constant record values")
+			}
+			continue
+		}
+		paths[dest] = *field.Path
+	}
+	return paths
+}
+
 var inputPlaceholder = regexp.MustCompile(`your-[a-zA-Z0-9_-]+`)
 
-func documentedMetadata(d *Draft, r Request, cfg config.Config, out *modelOutput) {
-	d.Sources = []string{}
+// citedDocuments: the fetched references and the evidence that quotes them.
+func citedDocuments(r Request, out *modelOutput) ([]string, []Evidence) {
+	sources, cited := []string{}, []Evidence(nil)
 	for source := range r.documents {
-		d.Sources = append(d.Sources, source)
+		sources = append(sources, source)
 	}
-	sort.Strings(d.Sources)
-	d.Evidence = nil
+	sort.Strings(sources)
 	for _, e := range out.Evidence {
 		if doc, ok := r.documents[e.URL]; ok && strings.Contains(doc, compact(e.Quote)) {
-			d.Evidence = append(d.Evidence, e)
+			cited = append(cited, e)
 		}
 	}
+	return sources, cited
+}
+
+const documentedAccess = "Evidence checked against the public references you supplied. Review the publisher, permissions and preview result before activation."
+
+func documentedMetadata(d *Draft, r Request, cfg config.Config, sources []string, evidence []Evidence, profile, access string) {
+	d.Sources, d.Evidence = sources, evidence
 	d.AlsoAvailable = nil
 	d.Optional = []string{"Review collection limits and schedule locally; every draft starts disabled."}
 	d.Notes = []string{"The requested dataset and scope were retained. Execution settings have cited public-reference evidence; this is not a guarantee of publisher authenticity, subscription eligibility or working credentials.", "No customer notes, stored-secret metadata or collected records were supplied to the hosted model. Preview before activation.", "Scheduling, incremental checkpoints and notifications are configured separately after the API contract is tested."}
@@ -409,7 +436,7 @@ func documentedMetadata(d *Draft, r Request, cfg config.Config, out *modelOutput
 		}
 	}
 	sort.Strings(fields)
-	d.Contract = &Contract{Profile: "documented_vendor", Scope: r.Dataset + " (" + r.Scope + ")", Access: "Evidence checked against the public references you supplied. Review the publisher, permissions and preview result before activation.", Method: cfg.Request.Method, Endpoint: cfg.Request.URL, Auth: cfg.Auth.Type, ItemsPath: cfg.ItemsPath, Pagination: cfg.Pagination.Type, Fields: fields, Status: "documented_candidate"}
+	d.Contract = &Contract{Profile: profile, Scope: r.Dataset + " (" + r.Scope + ")", Access: access, Method: cfg.Request.Method, Endpoint: cfg.Request.URL, Auth: cfg.Auth.Type, ItemsPath: cfg.ItemsPath, Pagination: cfg.Pagination.Type, Fields: fields, Status: "documented_candidate"}
 	seen := map[string]bool{}
 	for _, x := range inputPlaceholder.FindAllString(cfg.Request.URL, -1) {
 		if x == "your-tenant" {

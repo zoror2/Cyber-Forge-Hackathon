@@ -98,7 +98,8 @@ func TestNameOnlyDiscoversVerifiesAndMetersBothCalls(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if strings.Join(*calls, ",") != "search,draft" || d.Contract.Status != "documented_candidate" || len(d.Evidence) == 0 || d.Usage.Total != 60 {
+	// spec search first (finds none), then the documentation search
+	if strings.Join(*calls, ",") != "search,search,draft" || d.Contract.Status != "documented_candidate" || len(d.Evidence) == 0 || d.Usage.Total != 90 {
 		t.Fatal(*calls, d.Contract, d.Usage)
 	}
 }
@@ -121,7 +122,7 @@ func TestNameOnlySkipsDeadLinksAndFailsWithoutAnyPage(t *testing.T) {
 		t.Fatal("dead link not skipped", d, e)
 	}
 	c, calls := fakeGemini(t, "DATASET: organization members\nSCOPE: organization", out) // no URL, no grounding
-	if _, e = c.Draft(context.Background(), Request{Product: "ExampleVendor", Data: "user_inventory"}, nil); !errors.Is(e, ErrDocumentation) || len(*calls) != 1 {
+	if _, e = c.Draft(context.Background(), Request{Product: "ExampleVendor", Data: "user_inventory"}, nil); !errors.Is(e, ErrDocumentation) || len(*calls) != 2 {
 		t.Fatal("drafted without any real reference", e, *calls)
 	}
 }
