@@ -870,11 +870,11 @@ function renderWizard(v) {
   const re = () => renderWizard(v);
   const say = (msg, bad) => { W.msg = msg; W.bad = !!bad; };
   const kinds = Object.keys(KIND).filter((k) => classes()[k]);
-  const product = h('input', { value: W.product, placeholder: 'e.g. Okta, AbuseIPDB, CrowdStrike', autocomplete: 'off', oninput: (e) => { W.product = e.target.value; } });
+  const product = h('input', { value: W.product, placeholder: 'e.g. Okta, AbuseIPDB, CrowdStrike', autocomplete: 'off', oninput: (e) => { W.product = e.target.value; W.queue = []; } });
   const details = h('textarea', { rows: 2, value: W.details, placeholder: 'Anything special, or paste part of the vendor API docs', oninput: (e) => { W.details = e.target.value; } });
   const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
-    W.draft = null; W.progress = []; W.address = ''; W.creds = {}; say('Drafting…'); re();
+    W.draft = null; W.progress = []; W.address = ''; W.addressRaw = ''; W.creds = {}; say('Drafting…'); re();
     const r = await api('POST', '/ai/draft', { product: W.product.trim(), data: W.data, details: W.details });
     say('');
     if (r.ok) {
@@ -913,15 +913,34 @@ function draftCard(v) {
   const apiHost = hostOf(c.request.url), keyHost = isOAuth ? hostOf(a.token_url) : apiHost;
   // the customer part may be in a host or a path (e.g. login.microsoftonline.com/your-tenant/...)
   const placeholder = /your-tenant/.test(c.request.url + ' ' + (a.token_url || ''));
-  // needed 1: the customer's own address, only when the vendor has per-customer hosts.
-  // A bare name ("acme") fills every "your-tenant" part (token + API host); a full host replaces it.
-  const addr = h('input', { value: W.address || '', placeholder: 'your company name or full host', autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.address = e.target.value.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase(); } });
+  // needed 1: the customer's own part of the address (Okta domain, enterprise slug, tenant id, device IP)
+  const what = W.draft.tenant_hint || 'your ' + (W.product || 'vendor') + ' address';
+  const addr = h('input', { value: W.addressRaw || '', placeholder: what, autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.addressRaw = e.target.value.trim(); } });
+  // the blank sits in a host (acme.okta.com, a firewall IP) or in a path (/enterprises/acme, /tenant-id/)
+  const inHost = /\/\/[^/]*your-tenant/.test(c.request.url + ' ' + (a.token_url || ''));
   const applyAddr = h('button', { type: 'button', onclick: () => {
-    if (!W.address || /your-tenant/.test(W.address) || !/^[a-z0-9.-]+$/.test(W.address)) { toast('Enter your own address', true); return; }
-    const swap = (u) => W.address.includes('.') ? u.replace(/\/\/[^/]*your-tenant[^/]*/, '//' + W.address) : u.replace(/your-tenant/g, W.address);
+    const raw = (W.addressRaw || '').toLowerCase().replace(/^https?:\/\//, '');
+    const [host, ...rest] = raw.split('/'); const segs = rest.filter(Boolean);
+    // a pasted link: in a path blank take its last part (github.com/enterprises/acme -> acme)
+    W.address = inHost ? host : (segs.length ? segs[segs.length - 1] : host);
+    const vendorHosts = [apiHost, keyHost].filter((x) => x && !/your-tenant/.test(x));
+    if (!inHost && !segs.length && vendorHosts.some((v) => v === host || v.endsWith('.' + host))) {
+      toast(host + ' is ' + (W.product || 'the vendor') + '’s own address. Enter ' + what + ' instead.', true); return;
+    }
+    if (!W.address || /your-tenant/.test(W.address) || !/^[a-z0-9._-]+(:\d{1,5})?$/.test(W.address)) { toast('Enter ' + what, true); return; }
+    // "your-tenant" becomes exactly what was typed, wherever it sits (host, subdomain,
+    // path). Typing the whole host ("acme.okta.com" for your-tenant.okta.com) also works.
+    const swap = (u) => {
+      const m = /\/\/your-tenant(\.[^/:]+)/.exec(u);
+      const v = m && W.address.endsWith(m[1]) ? W.address.slice(0, -m[1].length) : W.address;
+      return u.replace(/your-tenant/g, v);
+    };
     B.f.url = swap(B.f.url); if (B.f.auth.token_url) B.f.auth.token_url = swap(B.f.auth.token_url);
+    // an appliance on a non-443 port: that port must be allowed explicitly
+    const port = (/:(\d{1,5})$/.exec(W.address) || [])[1];
+    if (port && port !== '443') B.f.ports = [...new Set(B.f.ports.split(',').map((x) => x.trim()).filter(Boolean).concat(['443', port]))].join(', ');
     re();
-  } }, 'Use this address');
+  } }, 'Use this');
   // needed 2: every credential value the config uses (fields come from the server, derived
   // from the config itself), unless a secret is already stored for this exact host
   const spec = W.draft.credential || { secret: a.secret, fields: ['value'] };
@@ -966,14 +985,20 @@ function draftCard(v) {
     h('div', {}, h('h2', {}, c.name || c.id), h('div', { class: 'small muted' }, 'Pulling ', h('strong', {}, kind(c.destination.class)), ' from ' + (apiHost || c.request.url))),
     (W.draft.also_available || []).length ? h('div', { class: 'row small' }, h('span', { class: 'muted' }, 'Also available from ' + (W.product.trim() || 'this product') + ':'),
       W.draft.also_available.map((k) => h('button', { type: 'button', class: 'sm', title: 'Set up ' + kind(k) + ' as another source',
-        onclick: () => { W.data = k; W.again = true; re(); } }, '+ ' + kind(k))), optTag()) : null,
-    placeholder ? step(++n, 'Your ' + (W.product || 'vendor') + ' address', h('div', { class: 'row' }, addr, applyAddr)) : null,
+        onclick: () => { W.data = k; W.again = true; re(); } }, '+ ' + kind(k))),
+      W.draft.also_available.length > 1 && !(W.queue || []).length ? h('button', { type: 'button', class: 'sm', title: 'Connect this one, then each of the others in turn (same key)',
+        onclick: () => { W.queue = W.draft.also_available.slice(); re(); } }, 'Add all') : null, optTag()) : null,
+    (W.queue || []).length ? h('div', { class: 'small muted' }, 'After this: ' + W.queue.map(kind).join(', ') + '. ',
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); W.queue = []; re(); } }, 'cancel')) : null,
+    placeholder ? step(++n, 'Your ' + (W.draft.tenant_hint || (W.product || 'vendor') + ' address'), h('div', { class: 'row' }, addr, applyAddr)) : null,
     needsKey ? step(++n, (spec.fields || []).length > 1 ? 'Credentials' : 'API key', neededHints.length ? h('ul', { class: 'small muted', style: 'margin:0;padding-left:18px' }, neededHints.map((x) => h('li', {}, x))) : null,
       h('div', { class: 'grid2' }, userInput, ...credInputs), h('div', { class: 'row' }, saveKey), h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + hosts.join(' and ') + '.')) : null,
     !placeholder && !needsKey && a.type !== 'none' ? h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ "' + a.secret + '" is stored for ' + hosts.join(' and ')) : null,
     h('div', { class: 'row' }, connect, ready ? null : h('span', { class: 'small muted' }, 'Finish the step' + (placeholder && needsKey ? 's' : '') + ' above first.')),
     W.progress.length ? h('ul', { class: 'small', style: 'margin:0;padding-left:18px' }, W.progress.map(([ok, t]) => h('li', { style: ok ? '' : 'color:var(--bad)' }, (ok ? '✓ ' : '✗ ') + t))) : null,
-    done ? h('a', { class: 'btn', href: '#/records?class=' + c.destination.class + '&source=' + encodeURIComponent(c.id) }, 'See the data') : null,
+    done ? h('div', { class: 'row' }, h('a', { class: 'btn', href: '#/records?class=' + c.destination.class + '&source=' + encodeURIComponent(c.id) }, 'See the data'),
+      (W.queue || []).length ? h('button', { class: 'primary', type: 'button', onclick: () => { W.data = W.queue.shift(); W.again = true; re(); } },
+        'Next: ' + kind(W.queue[0]) + (W.queue.length > 1 ? ' (' + W.queue.length + ' left)' : '')) : null) : null,
     (W.draft.optional || []).length ? h('details', {}, h('summary', {}, 'Optional settings'),
       h('ul', { class: 'small', style: 'margin:6px 0 0;padding-left:18px' }, W.draft.optional.map((x) => h('li', {}, x, optTag()))),
       h('button', { class: 'ghost sm', type: 'button', onclick: () => { B.advanced = true; route(); } }, 'Change settings')) : null,

@@ -73,3 +73,22 @@ func TestCheckHostsRejectsMadeUpHost(t *testing.T) {
 		t.Fatal(is)
 	}
 }
+
+func TestGeminiResearchCachedWithoutNotes(t *testing.T) {
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		json.NewEncoder(w).Encode(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"text": "facts"}}}}}})
+	}))
+	defer srv.Close()
+	c := NewGemini("k", "m")
+	c.URL, c.HTTP = srv.URL+"/", srv.Client()
+	for _, r := range []Request{{Product: "Okta"}, {Product: " okta ", Data: "auto"}, {Product: "Okta", Details: "private notes"}} {
+		if _, err := c.research(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n != 2 { // second is a cache hit; notes always search
+		t.Fatalf("searches %d", n)
+	}
+}

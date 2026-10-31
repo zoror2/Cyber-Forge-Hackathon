@@ -11,8 +11,15 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
+
+// geminiCache holds researched vendor facts (public docs only).
+type geminiCache struct {
+	mu    sync.Mutex
+	cache map[string]researchHit
+}
 
 // NewGemini drafts with the Gemini API. Every draft first researches the
 // vendor's CURRENT docs with Google Search, then writes the config from those
@@ -36,9 +43,45 @@ func LookupDNS(ctx context.Context, host string) error {
 	return nil
 }
 
+// researchTTL: vendor docs are public and change slowly; one search per
+// product+dataset a week, shared by all accounts.
+const researchTTL = 7 * 24 * time.Hour
+
+type researchHit struct {
+	text string
+	at   time.Time
+}
+
 // research asks Gemini (with Google Search) for the facts a config needs.
+// Cached only when the request has no customer notes (those may be private).
 func (c *Client) research(ctx context.Context, r Request) (string, error) {
-	data := "its main security dataset (users, devices, logins or findings, whichever the product is mainly about)"
+	key := strings.ToLower(strings.Join(strings.Fields(r.Product), " ")) + "|" + r.Data
+	if r.Auto() {
+		key = strings.ToLower(strings.Join(strings.Fields(r.Product), " ")) + "|auto"
+	}
+	cacheable := strings.TrimSpace(r.Details) == ""
+	if cacheable {
+		c.mu.Lock()
+		hit, ok := c.cache[key]
+		c.mu.Unlock()
+		if ok && time.Since(hit.at) < researchTTL {
+			return hit.text, nil
+		}
+	}
+	text, e := c.search(ctx, r)
+	if e == nil && cacheable && text != "" {
+		c.mu.Lock()
+		if c.cache == nil || len(c.cache) >= 1000 {
+			c.cache = map[string]researchHit{}
+		}
+		c.cache[key] = researchHit{text, time.Now()}
+		c.mu.Unlock()
+	}
+	return text, e
+}
+
+func (c *Client) search(ctx context.Context, r Request) (string, error) {
+	data := "its main security dataset that EVERY customer has on the standard plan (users, devices, logins or findings); if a richer dataset needs a premium/enterprise tier, name it and its tier separately"
 	if !r.Auto() {
 		data = "OCSF class " + r.Data
 	}
@@ -50,7 +93,7 @@ func (c *Client) research(ctx context.Context, r Request) (string, error) {
 0. If the name is a company with several products that each have their own API, list them in one line each (product, API host, cloud or on-prem) and research the one a security team would mean by this name; say which one you picked.
 1. Where the API runs: vendor cloud (exact host, regional hosts) or on the customer's own appliance/tenant (what part is customer-specific).
 2. The current recommended auth (not deprecated ones): scheme, EVERY credential value the customer must create, token URL and token request parameters (audience/scope) if OAuth.
-3. The REST GET endpoint that LISTS those records (path), and if logs/events are only available by streaming/export (syslog, S3, SIEM forwarders), say so.
+3. The organization/account-wide REST GET endpoint that LISTS those records across everything the customer owns (not one repo/project) (path) and which plan/tier/license it requires, and if logs/events are only available by streaming/export (syslog, S3, SIEM forwarders), say so.
 4. Pagination: request parameters and the response field or header that gives the next page; the JSON path of the records array.
 5. Key record fields (id, name/email, status, timestamps).
 6. The exact official documentation URLs you used.
@@ -58,6 +101,9 @@ Say "unknown" for anything the docs do not state. Do not guess.`
 	body := map[string]any{
 		"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": q}}}},
 		"tools":    []map[string]any{{"google_search": map[string]any{}}},
+		// fact lookup, not puzzle solving: low thinking cuts latency ~4x.
+		// (Search + strict JSON in ONE call skips the search, so it stays two calls.)
+		"generationConfig": map[string]any{"thinkingConfig": map[string]any{"thinkingLevel": "low"}},
 	}
 	var text string
 	e := c.retry(ctx, func() (time.Duration, error) {
@@ -74,7 +120,8 @@ Say "unknown" for anything the docs do not state. Do not guess.`
 // geminiOnce: one strict-JSON drafting call.
 func (c *Client) geminiOnce(ctx context.Context, msgs []message) (*modelOutput, time.Duration, error) {
 	body := map[string]any{"generationConfig": map[string]any{
-		"responseMimeType": "application/json", "responseJsonSchema": outputSchema, "temperature": 0.2}}
+		"responseMimeType": "application/json", "responseJsonSchema": outputSchema, "temperature": 0.2,
+		"thinkingConfig": map[string]any{"thinkingLevel": "low"}}}
 	var contents []map[string]any
 	for _, m := range msgs {
 		part := []map[string]any{{"text": m.Content}}
