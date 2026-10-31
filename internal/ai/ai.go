@@ -52,12 +52,20 @@ type Client struct {
 	MaxWait time.Duration
 	// Bedrock, when set, is used instead of the Groq HTTP API (CB_AI_PROVIDER=bedrock).
 	Bedrock Converser
+	// gemini: Gemini API with a Google Search research step (NewGemini).
+	gemini bool
+	// Resolve, when set, rejects drafts whose API/token host does not exist
+	// and drops doc links that don't resolve (LookupDNS in production).
+	Resolve func(ctx context.Context, host string) error
 }
 
 // Provider names the backend for ai_audit.
 func (c *Client) Provider() string {
-	if c != nil && c.Bedrock != nil {
+	switch {
+	case c != nil && c.Bedrock != nil:
 		return "bedrock"
+	case c != nil && c.gemini:
+		return "gemini"
 	}
 	return "groq"
 }
@@ -144,6 +152,13 @@ func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft
 		return nil, ErrNotConfigured
 	}
 	msgs := []message{{Role: "system", Content: systemPrompt()}, {Role: "user", Content: userPrompt(r, secrets)}}
+	if c.gemini {
+		facts, e := c.research(ctx, r)
+		if e != nil {
+			return nil, e
+		}
+		msgs[1].Content += "\nResearch from the vendor's CURRENT official docs, found just now with web search. It overrides your memory; take endpoint, auth, paging and sources from it. Where it says unknown, say so in notes:\n" + facts
+	}
 	var last json.RawMessage
 	var issues []config.Issue
 	for round := 1; round <= 1+MaxRepairs; round++ {
@@ -159,11 +174,14 @@ func (c *Client) Draft(ctx context.Context, r Request, secrets []Secret) (*Draft
 			issues = []config.Issue{{Field: "config_json", Message: "not valid JSON"}}
 		}
 		if len(issues) == 0 {
+			issues = c.checkHosts(ctx, decoded.Request.URL, decoded.Auth.TokenURL)
+		}
+		if len(issues) == 0 {
 			norm, e := json.MarshalIndent(decoded, "", "  ")
 			if e != nil {
 				return nil, ErrUpstream
 			}
-			return &Draft{Config: norm, Notes: out.Notes, Needed: out.Needed, Optional: out.Optional, Sources: httpsOnly(out.Sources),
+			return &Draft{Config: norm, Notes: out.Notes, Needed: out.Needed, Optional: out.Optional, Sources: c.liveLinks(ctx, httpsOnly(out.Sources)),
 				Data: decoded.Destination.Class, AlsoAvailable: alsoAvailable(out.Also, decoded.Destination.Class), Rounds: round,
 				Credential: engine.Credential(decoded.Auth, decoded.Request.URL)}, nil
 		}
@@ -232,22 +250,70 @@ var outputSchema = map[string]any{
 
 // call asks the model once; a provider 429 is waited out once (Retry-After, at most 30 s).
 func (c *Client) call(ctx context.Context, msgs []message) (*modelOutput, error) {
-	out, wait, e := c.callOnce(ctx, msgs)
-	// retryable (rate limit, bad structured output): at most 2 more tries
-	for try := 0; try < 2 && wait > 0 && wait <= c.maxWait(); try++ {
+	var out *modelOutput
+	e := c.retry(ctx, func() (time.Duration, error) {
+		o, wait, e := c.callOnce(ctx, msgs)
+		out = o
+		return wait, e
+	})
+	return out, e
+}
+
+// retry runs f; a retryable failure (rate limit, bad structured output)
+// is tried at most 2 more times, waiting what the provider asked (<= maxWait).
+func (c *Client) retry(ctx context.Context, f func() (time.Duration, error)) error {
+	wait, e := f()
+	for try := 0; try < 2 && e != nil && wait > 0 && wait <= c.maxWait(); try++ {
 		select {
 		case <-ctx.Done():
-			return nil, ErrUpstream
+			return ErrUpstream
 		case <-time.After(wait):
 		}
-		out, wait, e = c.callOnce(ctx, msgs)
+		wait, e = f()
 	}
-	return out, e
+	return e
+}
+
+// checkHosts: a host that doesn't exist is a made-up endpoint. Hosts with the
+// customer placeholder can't be checked until the customer fills them in.
+func (c *Client) checkHosts(ctx context.Context, urls ...string) []config.Issue {
+	if c.Resolve == nil {
+		return nil
+	}
+	var out []config.Issue
+	for i, raw := range urls {
+		u, e := url.Parse(raw)
+		if e != nil || u.Hostname() == "" || strings.Contains(u.Hostname(), "your-tenant") {
+			continue
+		}
+		if c.Resolve(ctx, u.Hostname()) != nil {
+			field := []string{"request.url", "auth.token_url"}[min(i, 1)]
+			out = append(out, config.Issue{Field: field, Message: "host " + u.Hostname() + " does not exist (DNS lookup failed): use the vendor's real documented host, or your-tenant if it is customer-specific"})
+		}
+	}
+	return out
+}
+
+// liveLinks drops doc links whose host does not resolve.
+func (c *Client) liveLinks(ctx context.Context, in []string) []string {
+	if c.Resolve == nil {
+		return in
+	}
+	out := []string{}
+	for _, s := range in {
+		if u, e := url.Parse(s); e == nil && c.Resolve(ctx, u.Hostname()) == nil {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (c *Client) callOnce(ctx context.Context, msgs []message) (*modelOutput, time.Duration, error) {
 	if c.Bedrock != nil {
 		return c.bedrockOnce(ctx, msgs)
+	}
+	if c.gemini {
+		return c.geminiOnce(ctx, msgs)
 	}
 	body, _ := json.Marshal(map[string]any{
 		"model": c.Model, "messages": msgs, "temperature": 0.2,
@@ -332,6 +398,7 @@ How to decide, for ANY vendor (these are patterns, not a vendor list):
 - vendor: always set the top-level "vendor" to the company that makes the product, as it is commonly written (e.g. "Microsoft", "CrowdStrike", "Atlassian"). It links sources to vulnerability feeds; never leave it empty.
 - Current API first: if the vendor has replaced an older API or auth (e.g. a new unified API platform with OAuth via a central identity service replacing session logins or legacy keys), use the current one.
 - The token host and the API host are often different (identity service vs API gateway); either may be customer-specific: put "your-tenant" wherever the customer's own name/domain goes.
+- On-prem appliances (firewalls, on-prem servers): the API runs on the customer's own device. Use host "your-tenant" for the appliance address (e.g. https://your-tenant/api/...), set request.allowed_ports if the documented management port is not 443, and say in needed that the address must be reachable from ConfigBridge's collector.
 - Pull only: ConfigBridge pulls with GET. Many products deliver their logs only by streaming/export (syslog, log streaming services, S3/blob export). If the product's logs are not readable by a REST GET list, do NOT invent a logs endpoint: draft the main dataset that IS (users, devices/assets, findings) and say in notes that logs need the vendor's streaming export.
 - Host: use the vendor's documented public API host. If every customer has their own host or subdomain, use "your-tenant" for that part (your-tenant.vendor.com, vendor.your-tenant.com). If the vendor has regional hosts, pick the default/US one and mention the others in optional.
 - Auth, by what the vendor documents:

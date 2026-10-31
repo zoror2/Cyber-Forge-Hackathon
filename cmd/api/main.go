@@ -128,6 +128,12 @@ func run() error {
 			}
 			drafter = ai.NewBedrock(bedrockruntime.NewFromConfig(awsCfg), model)
 			slog.Info("ai drafter", "provider", "bedrock", "region", region, "model", model)
+		case "gemini":
+			if os.Getenv("GEMINI_API_KEY") == "" {
+				return errors.New("CB_AI_PROVIDER=gemini: GEMINI_API_KEY is required")
+			}
+			drafter = ai.NewGemini(os.Getenv("GEMINI_API_KEY"), model)
+			slog.Info("ai drafter", "provider", "gemini", "model", model, "research", "google_search")
 		case "groq":
 			if os.Getenv("GROQ_API_KEY") == "" {
 				return errors.New("CB_AI_PROVIDER=groq: GROQ_API_KEY is required")
@@ -135,9 +141,10 @@ func run() error {
 			drafter = ai.New(os.Getenv("GROQ_API_KEY"), model)
 			slog.Info("ai drafter", "provider", "groq", "model", model)
 		default:
-			return errors.New("CB_AI_PROVIDER must be groq, bedrock or empty")
+			return errors.New("CB_AI_PROVIDER must be gemini, groq, bedrock or empty")
 		}
 		drafter.DailyLimit = limit
+		drafter.Resolve = ai.LookupDNS
 	}
 	if raw := strings.TrimSpace(os.Getenv("CB_AI_ENABLED_TENANTS")); raw != "" {
 		drafter.Tenants = map[string]bool{}
