@@ -29,7 +29,7 @@ Adding a new tool means writing a **connector config**, not new code. The engine
 ```
  config (approved, live) ─┐
                           ▼
- secret store ──► AUTH: attach credential (only if request host = secret's bound host)
+ secret store ──► AUTH: attach credential (only if request host is one of the secret's exact bound hosts, on an allowed port)
                           ▼
                  EGRESS GUARD: HTTPS only · public IPs only (checked after DNS) · no redirects
                           ▼
@@ -139,6 +139,8 @@ internal/
     engine_test.go
 cmd/
   mockvendor/main.go            fake vendor API for failure testing (never deploy)
+  fetch/main.go                 dev CLI: run one connector JSON through the real engine
+examples/                       connector configs for the mock (link/offset/cursor/bearer/bad port)
 Dockerfile                      builds any cmd/<name> into a distroless non-root image
 docker-compose.yml              test runner + mock vendor (Member B adds Postgres + API)
 .dockerignore                   keeps .git, .env, docs, legacy code out of builds
@@ -179,6 +181,20 @@ Every outbound request goes through it.
 ### `cmd/mockvendor`: failure testing
 
 A fake vendor that misbehaves on demand. See [Mock vendor](#mock-vendor).
+
+### `cmd/fetch`: run one connector by hand
+
+Reads a connector JSON (max 1 MB, unknown fields rejected), runs it through the real engine and prints each page and a summary. Exit code 1 on any failure. Secrets come from env vars only: `CB_SECRET_<NAME>` holds the value and `CB_SECRET_<NAME>_HOSTS` the comma-separated exact hosts it may go to.
+
+```bash
+docker compose up -d --build mockvendor
+docker compose --profile tools run --rm fetch -config /examples/mock_users.json      # 3 pages, 25 records
+docker compose --profile tools run --rm fetch -config /examples/mock_bad_port.json   # egress_blocked, exit 1
+```
+
+On Git Bash for Windows, set `MSYS_NO_PATHCONV=1` first, or `/examples/...` gets rewritten into a Windows path.
+
+`-dev-allow-http` and `-dev-allow-private` loosen the egress rules for the mock only, and the CLI prints a warning whenever they're on. Without them, production rules apply.
 
 ### Docker
 

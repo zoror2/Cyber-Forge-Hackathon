@@ -38,16 +38,18 @@ type SecretStore interface {
     Get(ctx context.Context, tenantID, name string) (Secret, error)
 }
 
-func NewSecret(value, allowedHost string) Secret
+func NewSecret(value string, allowedHosts ...string) Secret
 ```
 
 Rules for your backend:
 
 - **Multi-tenant:** secrets are looked up by **(tenant, name)**. Two tenants may both have a secret called `crowdstrike`; they must never resolve to each other's. Encrypt each tenant's secrets with **that tenant's own KMS key**.
 
-- **Every secret is stored with exactly one allowed host** (e.g. `api.github.com`, or `localhost:8081` for the mock in dev). No host means it's unusable; the engine refuses it.
-- Return secrets **only** via `engine.NewSecret(value, host)`. Never put raw values in your own structs, logs or errors.
-- **Write-only API:** `PUT /secrets/{name}` accepts `{value, allowed_host}` and returns 204. `GET /secrets` returns names, hosts and timestamps, **never values**. No endpoint ever returns a value.
+- **Every secret is stored with a list of exact allowed hosts**, usually one (e.g. `api.github.com`, or `mockvendor:8081` for the mock in dev). Two only when a vendor needs it (Wiz: `auth.app.wiz.io` + `api.us17.app.wiz.io`). **No wildcards**: reject `*` at write time (the engine refuses them too). No host means unusable.
+- Show the host list to the approver in the two-person review. A secret's hosts and the connector's `allowed_ports` are security decisions, not details.
+- Return secrets **only** via `engine.NewSecret(value, hosts...)`. Never put raw values in your own structs, logs or errors.
+- **Write-only API:** `PUT /secrets/{name}` accepts `{value, allowed_hosts: [..]}` and returns 204. `GET /secrets` returns names, hosts and timestamps, **never values**. No endpoint ever returns a value.
+- **Startup check:** outside dev, the API's `main()` must call `policy.ProductionSafe()` and exit if it errors.
 - **Two backends, one interface:**
   - **dev:** env vars or a local encrypted file. Never a plaintext file in the repo.
   - **prod:** AWS Secrets Manager (phase 2 wiring). The app's IAM role can *read*; changing a host binding is a separate admin action.

@@ -63,8 +63,8 @@ func (e *Engine) authorize(ctx context.Context, client *http.Client, c Connector
 	return nil
 }
 
-// boundSecret loads a tenant's secret and refuses it unless its bound host
-// matches target. This is where secret-to-host binding is enforced.
+// boundSecret loads a tenant's secret and refuses it unless one of its bound
+// hosts matches target exactly. This is where secret-to-host binding is enforced.
 func (e *Engine) boundSecret(ctx context.Context, tenantID, name string, target *url.URL) (Secret, error) {
 	if e.Secrets == nil {
 		return Secret{}, errors.New("no secret store configured")
@@ -77,7 +77,7 @@ func (e *Engine) boundSecret(ctx context.Context, tenantID, name string, target 
 		// Only the NAME goes into the error, never the value.
 		return Secret{}, fmt.Errorf("secret %q: %w", name, err)
 	}
-	if err := egress.CheckSecretHost(s.host, target); err != nil {
+	if err := egress.CheckSecretHosts(s.hosts, target); err != nil {
 		return Secret{}, fmt.Errorf("secret %q: %w", name, err)
 	}
 	return s, nil
@@ -90,8 +90,10 @@ func (e *Engine) boundSecret(ctx context.Context, tenantID, name string, target 
 //  3. use the access token as a Bearer token on API calls
 //
 // Security rules:
-//   - the client secret goes ONLY to its bound host (the token URL host)
-//   - the resulting access token goes ONLY to that same host
+//   - the token URL must be one of the secret's bound hosts, on an allowed port
+//   - the resulting access token may only be used on the secret's bound hosts
+//     (for vendors like Wiz the secret is bound to both the token host and
+//     the API host; for most vendors it's one host)
 //   - tokens are cached in memory per tenant + connector, refreshed 30s early
 func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connector, target *url.URL) (string, error) {
 	a := c.Auth
@@ -102,13 +104,16 @@ func (e *Engine) oauthToken(ctx context.Context, client *http.Client, c Connecto
 	if err := e.Policy.CheckURL(tokenURL); err != nil { // token URL must be https too
 		return "", err
 	}
+	if err := egress.CheckPort(tokenURL, c.Request.AllowedPorts); err != nil {
+		return "", err
+	}
 	// Client secret may only go to the token endpoint's bound host...
 	s, err := e.boundSecret(ctx, c.TenantID, a.Secret, tokenURL)
 	if err != nil {
 		return "", err
 	}
-	// ...and the token it produces may only be used on that same host.
-	if err := egress.CheckSecretHost(s.host, target); err != nil {
+	// ...and the token it produces may only be used on the secret's bound hosts.
+	if err := egress.CheckSecretHosts(s.hosts, target); err != nil {
 		return "", fmt.Errorf("oauth token for %q: %w", a.Secret, err)
 	}
 

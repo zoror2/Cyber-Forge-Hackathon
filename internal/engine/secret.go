@@ -9,7 +9,7 @@ import (
 	"log/slog"
 )
 
-// Secret is a credential value plus the ONE host it may be sent to.
+// Secret is a credential value plus the exact hosts it may be sent to.
 //
 // Why the value is hidden inside a function ("reveal"):
 // Go's fmt package can print unexported struct fields using reflection, which
@@ -18,13 +18,21 @@ import (
 // `fmt.Printf("%+v", someStructContainingASecret)` cannot leak the value.
 type Secret struct {
 	reveal func() string // returns the real value; only engine code calls it
-	host   string        // the only host this secret may be sent to
+	hosts  []string      // the only hosts this secret may be sent to (exact match)
 }
 
 // NewSecret is how a secrets backend (Member B) hands a secret to the engine.
 // The value is captured inside the closure and is not stored in a field.
-func NewSecret(value, allowedHost string) Secret {
-	return Secret{reveal: func() string { return value }, host: allowedHost}
+//
+// allowedHosts is usually ONE host ("api.crowdstrike.com"). Use more only when
+// a vendor really needs it, e.g. OAuth with a separate token host:
+//
+//	NewSecret(v, "auth.app.wiz.io", "api.us17.app.wiz.io")
+//
+// Wildcards are refused when the secret is used.
+func NewSecret(value string, allowedHosts ...string) Secret {
+	hosts := append([]string(nil), allowedHosts...) // own copy: caller can't change it later
+	return Secret{reveal: func() string { return value }, hosts: hosts}
 }
 
 // value returns the real secret. It is lowercase (unexported), so only code
@@ -36,8 +44,8 @@ func (s Secret) value() string {
 	return s.reveal()
 }
 
-// AllowedHost returns the host this secret is bound to (safe to log).
-func (s Secret) AllowedHost() string { return s.host }
+// AllowedHosts returns a copy of the bound hosts (safe to log or display).
+func (s Secret) AllowedHosts() []string { return append([]string(nil), s.hosts...) }
 
 // Every way of turning a Secret into text returns "[redacted]":
 func (Secret) String() string               { return "[redacted]" }                   // fmt %v, %s, Println

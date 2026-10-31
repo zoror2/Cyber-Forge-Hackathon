@@ -84,8 +84,9 @@ func New(secrets SecretStore, policy egress.Policy, log *slog.Logger) *Engine {
 // if a later page fails, so the caller should record the run as "partial".
 func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) (Result, error) {
 	// 1. Fill defaults and validate. Nothing is sent for an invalid connector.
+	//    (http:// is accepted only when the dev-only Policy.AllowHTTP is set.)
 	c = c.withDefaults()
-	if err := c.Validate(); err != nil {
+	if err := c.validate(e.Policy.AllowHTTP); err != nil {
 		return Result{}, fmt.Errorf("invalid connector: %w", err)
 	}
 
@@ -216,7 +217,10 @@ func (c Connector) pagedURL(base *url.URL, page, offset int, cursor string) *url
 // get performs one logical request: it calls once() and retries on
 // temporary failures, waiting between attempts as retryDelay decides.
 func (e *Engine) get(ctx context.Context, client *http.Client, c Connector, u *url.URL) ([]byte, http.Header, error) {
-	if err := e.Policy.CheckURL(u); err != nil { // https / no-credentials check
+	if err := e.Policy.CheckURL(u); err != nil { // https, no credentials, no odd hosts
+		return nil, nil, err
+	}
+	if err := egress.CheckPort(u, c.Request.AllowedPorts); err != nil { // 443 unless approved
 		return nil, nil, err
 	}
 	for attempt := 1; ; attempt++ {
@@ -317,14 +321,21 @@ func (e *Engine) once(ctx context.Context, client *http.Client, c Connector, u *
 	return body, resp.Header, nil
 }
 
-// logFailure records a failed request. Egress blocks are logged at ERROR
-// because they can mean someone is trying to misuse a config.
+// logFailure records a failed request.
+//
+// Egress blocks are SECURITY EVENTS: logged at ERROR with a fixed
+// event="egress_blocked" field, so log-based alerting can match on it.
+// A block can mean a misconfigured connector or someone trying to misuse one.
 func (e *Engine) logFailure(c Connector, u *url.URL, err error) {
-	level := slog.LevelWarn
 	if errors.Is(err, egress.ErrBlocked) {
-		level = slog.LevelError
+		e.Log.Error("egress blocked",
+			"event", "egress_blocked",
+			"tenant", c.TenantID, "connector", c.ID,
+			"url", RedactURL(u), "reason", err.Error())
+		return
 	}
-	e.Log.Log(context.Background(), level, "vendor request failed",
+	e.Log.Warn("vendor request failed",
+		"event", "vendor_request_failed",
 		"tenant", c.TenantID, "connector", c.ID, "url", RedactURL(u), "error", err.Error())
 }
 

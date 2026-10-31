@@ -41,6 +41,10 @@ type Request struct {
 	Params         map[string]string `json:"params"`          // query params, NON-secret only (e.g. limit=100)
 	Headers        map[string]string `json:"headers"`         // extra headers, NON-secret only (e.g. Accept)
 	TimeoutSeconds int               `json:"timeout_seconds"` // max time per request
+	// AllowedPorts lists the ports this connector may connect to (API, next
+	// pages and OAuth token URL). Default [443]. Anything else must be listed
+	// explicitly so the approver sees it.
+	AllowedPorts []int `json:"allowed_ports"`
 }
 
 // Auth says how to log in (FR-1). It holds the secret's NAME, never its value;
@@ -87,6 +91,9 @@ type Retry struct {
 func (c Connector) withDefaults() Connector {
 	setDefault(&c.Request.Method, "GET")
 	setDefault(&c.Request.TimeoutSeconds, 30)
+	if len(c.Request.AllowedPorts) == 0 {
+		c.Request.AllowedPorts = []int{443} // standard HTTPS only
+	}
 	setDefault(&c.Auth.Type, "none")
 	setDefault(&c.Pagination.Type, "none")
 	if c.Pagination.Type == "page" {
@@ -170,8 +177,16 @@ func splitWords(s string) []string {
 
 // Validate checks the connector and returns EVERY problem at once (joined),
 // so the UI/API can show all errors together instead of one at a time.
-func (c Connector) Validate() error {
+// URLs must be https. This is what the API and UI must call.
+func (c Connector) Validate() error { return c.validate(false) }
+
+// validate is Validate with one dev-only switch: allowHTTP also accepts
+// http:// URLs. The engine passes egress.Policy.AllowHTTP here, which is
+// refused in production by Policy.ProductionSafe, so plain HTTP can only ever
+// work against the local mock vendor.
+func (c Connector) validate(allowHTTP bool) error {
 	c = c.withDefaults()
+	okScheme := func(s string) bool { return s == "https" || (allowHTTP && s == "http") }
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 
@@ -187,11 +202,19 @@ func (c Connector) Validate() error {
 	if c.Request.Method != "GET" {
 		bad("request.method must be GET (platform is read-only)")
 	}
-	if u, err := url.Parse(c.Request.URL); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+	if u, err := url.Parse(c.Request.URL); err != nil || !okScheme(u.Scheme) || u.Host == "" || u.User != nil {
 		bad("request.url must be an absolute https URL without credentials")
 	}
 	if c.Request.TimeoutSeconds < 1 || c.Request.TimeoutSeconds > 120 {
 		bad("request.timeout_seconds must be 1-120")
+	}
+	if len(c.Request.AllowedPorts) > 5 {
+		bad("request.allowed_ports may list at most 5 ports")
+	}
+	for _, p := range c.Request.AllowedPorts {
+		if p < 1 || p > 65535 {
+			bad("request.allowed_ports: %d is not a valid port", p)
+		}
 	}
 	// Secrets must never be typed into headers or params. "Host" is also
 	// blocked because overriding it could confuse routing / host binding.
@@ -220,7 +243,7 @@ func (c Connector) Validate() error {
 			bad("auth.username is required for basic")
 		}
 	case "oauth2_client_credentials":
-		if u, err := url.Parse(a.TokenURL); err != nil || u.Scheme != "https" || u.Host == "" {
+		if u, err := url.Parse(a.TokenURL); err != nil || !okScheme(u.Scheme) || u.Host == "" {
 			bad("auth.token_url must be an absolute https URL")
 		}
 		if a.ClientID == "" {

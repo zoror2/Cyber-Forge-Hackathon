@@ -35,6 +35,28 @@ services:
     cap_drop: [ALL]               # drop every Linux capability
     security_opt: ["no-new-privileges:true"] # can't gain privileges later
 
+  # Runs one connector config through the real engine (see cmd/fetch/main.go):
+  #   docker compose --profile tools run --rm fetch -config /examples/mock_users.json
+  # The dev flags let it reach the mock on Docker's private network over http.
+  fetch:
+    build:
+      context: .
+      args:
+        CMD: fetch
+    entrypoint: ["/app", "-dev-allow-http", "-dev-allow-private", "172.16.0.0/12,192.168.0.0/16"]
+    volumes:
+      - ./examples:/examples:ro   # example connector configs, read-only
+    environment:
+      # Fake token for the mock's /secure endpoint, bound to the mock host only.
+      # Real secrets never go in this file.
+      CB_SECRET_MOCK: mock-token
+      CB_SECRET_MOCK_HOSTS: mockvendor:8081
+    depends_on: [mockvendor]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    profiles: ["tools"]
+
 # Named volumes for the Go caches above.
 volumes:
   gomod:
