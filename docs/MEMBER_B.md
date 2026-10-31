@@ -1,6 +1,6 @@
 # Prajwal — Member B delivery and Member A handoff
 
-Branch: `prajwal/go-phase1`, based on main at
+Branch: `member-b` (previously `prajwal/go-phase1`), based on main at
 `eac038711220e683bb32d7865c0fd50e483292c4`.
 
 The user confirmed Prajwal is **Member B (data + API)**. The authoritative split
