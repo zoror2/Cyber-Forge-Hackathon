@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"configbridge/internal/onboarding"
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
@@ -19,10 +20,12 @@ import (
 )
 
 type API struct {
-	Store   *store.Store
-	Engine  *runner.Runner
-	Secrets *secrets.Service
-	AI      *Drafting
+	Store               *store.Store
+	Engine              *runner.Runner
+	Secrets             *secrets.Service
+	AI                  *Drafting
+	NotificationTenants map[string]bool
+	UI                  *onboarding.Console
 	// Test seam only; the binary always uses Store.Authenticate.
 	Authenticate func(context.Context, string) (string, error)
 }
@@ -40,6 +43,13 @@ func New(a *API) (http.Handler, error) {
 		}
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /onboarding", a.consoleForm)
+	mux.HandleFunc("GET /onboarding/{$}", a.consoleForm)
+	mux.HandleFunc("GET /onboarding/style.css", a.consoleCSS)
+	mux.HandleFunc("POST /onboarding/generate", a.consoleGenerate)
+	mux.HandleFunc("POST /onboarding/download", a.consoleDownload)
+	mux.HandleFunc("POST /onboarding/save", a.consoleSave)
+	mux.HandleFunc("POST /onboarding/test", a.consoleTest)
 	mux.HandleFunc("POST /configs", a.submit)
 	mux.HandleFunc("POST /configs/{id}/validate", a.validate)
 	mux.HandleFunc("POST /configs/{id}/activate", a.activate)
@@ -53,6 +63,7 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("GET /records/{entity}", a.records)
 	mux.HandleFunc("GET /quarantine", a.quarantine)
+	mux.HandleFunc("GET /alerts", a.alerts)
 	mux.HandleFunc("GET /exposure", a.exposure)
 	mux.HandleFunc("GET /ai/sources", a.aiSources)
 	mux.HandleFunc("POST /ai/config-draft", a.aiDraft)
@@ -63,9 +74,18 @@ func New(a *API) (http.Handler, error) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 		supplied := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(supplied, "Bearer ")
+		consoleRequest := isConsole(r.URL.Path)
+		bearer := strings.HasPrefix(supplied, "Bearer ")
+		if consoleRequest && !bearer {
+			user, password, ok := r.BasicAuth()
+			if ok && user == "apikey" {
+				token = password
+				bearer = true
+			}
+		}
 		var tenant string
 		var caller store.Caller
-		if strings.HasPrefix(supplied, "Bearer ") && len(token) >= 32 && len(token) <= 512 {
+		if bearer && len(token) >= 32 && len(token) <= 512 {
 			if a.Authenticate != nil {
 				tenant, _ = a.Authenticate(r.Context(), token)
 				caller = store.Caller{Tenant: tenant, Actor: "test:principal"}
@@ -76,10 +96,28 @@ func New(a *API) (http.Handler, error) {
 		}
 		if !config.ValidID(tenant) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
+			if consoleRequest {
+				w.Header().Set("WWW-Authenticate", `Basic realm="ConfigBridge local console", charset="UTF-8"`)
+			}
 			fail(w, 401, "unauthorized")
 			return
 		}
-		if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		if consoleRequest {
+			if a.UI == nil {
+				http.NotFound(w, r)
+				return
+			}
+			origin := r.Header.Get("Origin")
+			if !strings.EqualFold(r.Host, a.UI.Host) || r.Header.Get("Sec-Fetch-Site") == "cross-site" || (origin != "" && origin != a.UI.Origin) || (r.Method == "POST" && origin != a.UI.Origin) {
+				fail(w, 403, "console_origin_denied")
+				return
+			}
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+			w.Header().Set("X-Frame-Options", "DENY")
+			// Same-origin form navigations need their real Origin. Browsers can
+			// send Origin:null under no-referrer; cross-origin referrers stay off.
+			w.Header().Set("Referrer-Policy", "same-origin")
+		} else if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			fail(w, 403, "browser_cross_origin_requests_disabled")
 			return
 		}
@@ -162,6 +200,10 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) {
 	c, issues := config.Decode(b)
 	if len(issues) > 0 {
 		write(w, 422, map[string]any{"errors": issues})
+		return
+	}
+	if c.Notifications != nil && c.Notifications.Enabled && !a.NotificationTenants[a.scope(r).Tenant] {
+		fail(w, 422, "email_notifications_not_configured_for_tenant")
 		return
 	}
 	saved, e := a.scope(r).SaveConfig(r.Context(), c)

@@ -122,3 +122,15 @@ The first localhost pull gets three users; after changing one and adding one,
 the next gets two records; a further pull gets zero. Four unique users remain.
 The file-by-file explanation, supported API assumptions, demo command and
 failure tests are in [docs/BONUS_B1.md](docs/BONUS_B1.md).
+
+## Bonuses B-4 and B-5
+
+“If a connection keeps failing, we save an alert in the database and email the
+customer's configured address. Recovery stops pending alerts. For a new vendor,
+the customer fills a local web form, downloads the config, saves a draft and
+tests a sample before activating it.”
+
+The short file explanations and localhost demo are in
+[docs/BONUS_B4_B5.md](docs/BONUS_B4_B5.md). The web form runs in Go with HTML/CSS;
+it sends no form data to AI. The optional JavaScript file automates browser tests
+only and is never served to users.

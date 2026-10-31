@@ -96,8 +96,8 @@ $env:TEST_DATABASE_URL = $env:MIGRATION_DATABASE_URL
 .\scripts\check.ps1
 ```
 
-The gate checks formatting, `go vet`, every Go test with `-race`, and native builds
-for API/bootstrap/mock/certificate generation. It requires the database URL so
+The gate checks formatting, `go vet`, every Go test with `-race`, and all six native
+command builds, including the local test mailbox. It requires the database URL so
 integration tests cannot silently skip. A failed check prevents pushing. The
 same suite is available as `docker compose --profile tools run --rm test`;
 dependencies download separately, then the test network has no internet egress.
@@ -117,7 +117,8 @@ credentials out of synced/shared environments and exports. Vendor tokens belong
 in Postman Vault. The isolation folder requires a separately provisioned tenant B
 and its own local API-key value.
 
-Every endpoint requires `Authorization: Bearer <tenant API key>`. PostgreSQL stores
+REST endpoints require `Authorization: Bearer <tenant API key>`. The development
+browser console uses Basic authentication as described below. PostgreSQL stores
 only its SHA-256 hash. Tenant identity comes from authentication; no body, URL or
 caller-selected tenant header can choose it. Unknown/other-tenant connector IDs
 return 404. Collection routes return only the authenticated tenant's data.
@@ -137,6 +138,7 @@ return 404. Collection routes return only the authenticated tenant's data.
 | `GET /health` | JSON health, or escaped HTML with `Accept: text/html` |
 | `GET /records/{users\|devices\|events}?source=` | Paginated common records |
 | `GET /quarantine?connector=` | Paginated rejection metadata |
+| `GET /alerts?connector=` | Tenant-scoped email delivery status; no destination addresses |
 | `GET /exposure?connector=` | Reviewed KEV vendor matches and credential metadata; deployment review required |
 | `GET /ai/sources` | Reviewed public descriptions available for drafting |
 | `POST /ai/config-draft` | Explicit consent → Groq proposal; never saves or activates a connector |
@@ -150,6 +152,26 @@ advances its tenant-scoped bookmark only after every page succeeds with no
 quarantine; partial, failed and preview runs never advance it. Ordinary configs
 remain full syncs. See [docs/BONUS_B1.md](docs/BONUS_B1.md) for the supported
 filter contract and the localhost 3 → 2 → 0 download demonstration.
+
+## Email alerts and browser onboarding
+
+**B-4:** an opted-in connection queues an email after three consecutive failed or
+degraded collections by default. A PostgreSQL outbox retries failed delivery;
+recovery cancels pending alerts. One alert per outage and a cooldown limit spam.
+The operator configures tenant destinations privately; connector configs contain
+only the threshold and cooldown. Real SMTP requires verified TLS.
+
+**B-5:** open `http://127.0.0.1:8080/onboarding` while the development API is running.
+At the browser login prompt, use username `apikey` and your own tenant API key
+from the private `.env` as the password. Fill the form, generate/download JSON,
+save a draft, then test it. Activation stays a separate API action. The form uses
+stored credential names and makes no AI calls. It is disabled outside development;
+this local login is not production SSO.
+
+See [docs/BONUS_B4_B5.md](docs/BONUS_B4_B5.md) for the offline mailbox demo,
+browser walkthrough, tests, limitations and simple file explanations. B-1 through
+B-5 now have local implementations; Mohit's remaining real-source/free-tier
+integration and its auth/pagination evidence are still deferred.
 
 See [configs/mock_users.json](configs/mock_users.json) for the full config. The
 request half uses Member A's exact field names: `auth.secret`, `items_path`,

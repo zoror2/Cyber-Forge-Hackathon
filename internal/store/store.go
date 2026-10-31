@@ -31,6 +31,9 @@ var aiMigration string
 
 //go:embed migrations/004_incremental.sql
 var incrementalMigration string
+
+//go:embed migrations/005_notifications.sql
+var notificationsMigration string
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
 
@@ -156,9 +159,30 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 			return e
 		}
 	}
+	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)").Scan(&exists); e != nil {
+		return e
+	}
+	if !exists {
+		policies := ""
+		for _, table := range []string{"alert_state", "alert_outbox"} {
+			q := pgx.Identifier{schema, table}.Sanitize()
+			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", q, q, q, literal(owner), literal(owner))
+		}
+		sql := strings.ReplaceAll(notificationsMigration, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
+		sql = strings.Replace(sql, "__RLS_POLICIES__", policies, 1)
+		if _, e = tx.Exec(ctx, sql); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(5)"); e != nil {
+			return e
+		}
+	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
 	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage TO "+role); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE ON "+sch+".alert_state,"+sch+".alert_outbox TO "+role); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON SCHEMA "+sch+" TO "+role); e != nil {
@@ -178,7 +202,7 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON ALL SEQUENCES IN SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()"} {
+	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e
 		}
@@ -349,7 +373,13 @@ func (s Scope) Activate(ctx context.Context, id string, revision int) error {
 			return e
 		}
 		_, e := tx.Exec(ctx, "INSERT INTO sync_state(tenant_id,connector,next_due)VALUES($1,$2,now()) ON CONFLICT(tenant_id,connector) DO UPDATE SET next_due=now()", s.Tenant, id)
-		return e
+		if e != nil {
+			return e
+		}
+		if c.Notifications == nil || !c.Notifications.Enabled {
+			return s.resetAlerts(ctx, tx, id)
+		}
+		return nil
 	})
 }
 func (s Scope) ConfigRevision(ctx context.Context, id string, revision int) (out SavedConfig, err error) {
@@ -497,7 +527,10 @@ func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 			interval = 60
 		}
 		_, e = tx.Exec(ctx, `INSERT INTO sync_state(tenant_id,connector,last_success,next_due,watermark)VALUES($1,$2,CASE WHEN $3 THEN $4::timestamptz ELSE NULL END,now()+make_interval(secs=>$5),$6) ON CONFLICT(tenant_id,connector) DO UPDATE SET last_success=CASE WHEN $3 THEN $4::timestamptz ELSE sync_state.last_success END,next_due=now()+make_interval(secs=>$5),watermark=COALESCE($6,sync_state.watermark)`, s.Tenant, r.Connector, r.Outcome == "success", r.EndedAt, interval, checkpoint)
-		return e
+		if e != nil {
+			return e
+		}
+		return s.queueAlert(ctx, tx, r)
 	})
 }
 

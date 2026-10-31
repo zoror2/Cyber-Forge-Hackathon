@@ -23,19 +23,25 @@ var identifier = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 func ValidID(s string) bool { return identifier.MatchString(s) }
 
 type Config struct {
-	Version     int               `json:"version"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Vendor      string            `json:"vendor,omitempty"`
-	Request     engine.Request    `json:"request"`
-	Auth        engine.Auth       `json:"auth"`
-	ItemsPath   string            `json:"items_path"`
-	Pagination  engine.Pagination `json:"pagination"`
-	Limits      Limits            `json:"limits"`
-	Retry       engine.Retry      `json:"retry"`
-	Schedule    Schedule          `json:"schedule"`
-	Destination Destination       `json:"destination"`
-	Incremental *Incremental      `json:"incremental,omitempty"`
+	Version       int               `json:"version"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Vendor        string            `json:"vendor,omitempty"`
+	Request       engine.Request    `json:"request"`
+	Auth          engine.Auth       `json:"auth"`
+	ItemsPath     string            `json:"items_path"`
+	Pagination    engine.Pagination `json:"pagination"`
+	Limits        Limits            `json:"limits"`
+	Retry         engine.Retry      `json:"retry"`
+	Schedule      Schedule          `json:"schedule"`
+	Destination   Destination       `json:"destination"`
+	Incremental   *Incremental      `json:"incremental,omitempty"`
+	Notifications *Notifications    `json:"notifications,omitempty"`
+}
+type Notifications struct {
+	Enabled          bool `json:"enabled"`
+	FailureThreshold int  `json:"failure_threshold"`
+	CooldownSeconds  int  `json:"cooldown_seconds"`
 }
 
 // Time windows require a documented inclusive lower bound, exclusive upper
@@ -157,6 +163,14 @@ func (c Config) Connector(tenant string) engine.Connector {
 	return engine.Connector{TenantID: tenant, ID: c.ID, Request: c.Request, Auth: c.Auth, ItemsPath: c.ItemsPath, Pagination: c.Pagination, Limits: engine.Limits{MaxResponseBytes: c.Limits.MaxResponseBytes, MaxPages: c.Limits.MaxPages, MaxRunSeconds: c.Limits.MaxRunSeconds}, Retry: c.Retry}
 }
 func (c *Config) Defaults() {
+	if c.Notifications != nil && c.Notifications.Enabled {
+		if c.Notifications.FailureThreshold == 0 {
+			c.Notifications.FailureThreshold = 3
+		}
+		if c.Notifications.CooldownSeconds == 0 {
+			c.Notifications.CooldownSeconds = 3600
+		}
+	}
 	if c.Request.Method == "" {
 		c.Request.Method = "GET"
 	}
@@ -230,6 +244,14 @@ func (c Config) Validate() []Issue {
 		add("schedule.interval_seconds", "must be 1-31536000 when enabled")
 	}
 	out = append(out, c.validateIncremental()...)
+	if n := c.Notifications; n != nil && n.Enabled {
+		if n.FailureThreshold < 1 || n.FailureThreshold > 100 {
+			add("notifications.failure_threshold", "must be 1-100")
+		}
+		if n.CooldownSeconds < 60 || n.CooldownSeconds > 604800 {
+			add("notifications.cooldown_seconds", "must be 60-604800")
+		}
+	}
 	// URLs must carry noncredential query values through params, never inline.
 	for _, raw := range []string{c.Request.URL, c.Auth.TokenURL} {
 		if raw == "" {

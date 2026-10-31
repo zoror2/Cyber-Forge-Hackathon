@@ -169,5 +169,5 @@ smoke still produced 25 unique users and accepted two/quarantined two malformed
 fixture rows. These are controlled local results, not live-vendor or Docker
 startup verification.
 
-Only B-1 is being added in this step. B-2/B-3 already exist. B-4 notifications
-and B-5's web form wait until Prajwal understands this feature and asks to continue.
+B-2/B-3 already exist. B-4 email alerts and B-5 browser onboarding were added in
+the following step; see [BONUS_B4_B5.md](BONUS_B4_B5.md) for their demo and evidence.
