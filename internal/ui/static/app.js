@@ -615,7 +615,7 @@ const kv = (o) => Object.entries(o || {}).map(([k, x]) => [k, String(x)]);
 const obj = (rows) => Object.fromEntries(rows.filter(([k]) => k.trim()).map(([k, x]) => [k.trim(), x]));
 const num = (x) => (x === '' || x === undefined || x === null || isNaN(+x) ? undefined : +x);
 function blank() {
-  return { id: '', name: '', url: '', timeout: '20', ports: '', params: [], headers: [['Accept', 'application/json']],
+  return { id: '', name: '', vendor: '', keep: {}, url: '', timeout: '20', ports: '', params: [], headers: [['Accept', 'application/json']],
     auth: { type: 'none', secret: '', header: '', username: '', token_url: '', client_id: '', scopes: '', extra: [], tpl: [] },
     items_path: '', pag: { type: 'none', page_param: 'page', start_page: '1', offset_param: 'offset', size_param: 'limit', page_size: '100', cursor_param: '', cursor_path: '' },
     filter: [], cls: 'user_inventory', activity: '', rows: [{ o: 'user.uid', src: 'path', val: 'id', tf: 'string', req: true, lookup: '', def: '', fmt: '', tz: '' }],
@@ -624,23 +624,28 @@ function blank() {
 }
 function parse(c) {
   const f = blank(), a = c.auth || {}, p = c.pagination || {}, r = c.request || {};
-  Object.assign(f, { id: c.id || '', name: c.name || '', url: r.url || '', timeout: String(r.timeout_seconds || ''), ports: (r.allowed_ports || []).join(', '),
+  // keep: config sections the form doesn't edit, carried through unchanged
+  Object.assign(f, { id: c.id || '', name: c.name || '', vendor: c.vendor || '', keep: { incremental: c.incremental, notifications: c.notifications }, url: r.url || '', timeout: String(r.timeout_seconds || ''), ports: (r.allowed_ports || []).join(', '),
     params: kv(r.params), headers: kv(r.headers), items_path: c.items_path || '', cls: (c.destination || {}).class || 'user_inventory',
     activity: (c.destination || {}).activity_id ? String(c.destination.activity_id) : '' });
   f.auth = { type: a.type || 'none', secret: a.secret || '', header: a.header || '', username: a.username || '', token_url: a.token_url || '', client_id: a.client_id || '',
     scopes: (a.scopes || []).join(', '), extra: kv(a.extra_params), tpl: (a.headers || []).map((x) => [x.name, x.value]) };
   for (const k of Object.keys(f.pag)) if (k !== 'type') f.pag[k] = p[k] !== undefined && p[k] !== null && p[k] !== '' && (p[k] !== 0 || k === 'start_page') ? String(p[k]) : '';
   f.pag.type = p.type || 'none';
-  f.filter = (c.filter || []).map((x) => ({ path: x.path, op: x.op, value: Array.isArray(x.value) ? x.value.join(', ') : String(x.value ?? '') }));
+  // raw*: the original typed value (number/bool/list), reused while its text is unedited
+  f.filter = (c.filter || []).map((x) => ({ path: x.path, op: x.op, value: asText(x.value), raw: x.value }));
   f.rows = Object.entries((c.destination || {}).mapping || {}).map(([o, m]) => ({ o, src: m.path !== undefined ? 'path' : 'constant',
-    val: m.path !== undefined ? m.path : String(m.constant ?? ''), tf: m.transform || '', req: !!m.required,
-    lookup: Object.entries(m.lookup || {}).map(([k, x]) => `${k}=${x}`).join('\n'), def: m.default !== undefined ? String(m.default) : '', fmt: m.format || '', tz: m.timezone || '' }));
+    val: m.path !== undefined ? m.path : asText(m.constant), raw: m.constant, tf: m.transform || '', req: !!m.required,
+    lookup: Object.entries(m.lookup || {}).map(([k, x]) => `${k}=${x}`).join('\n'), def: m.default !== undefined ? asText(m.default) : '', rawDef: m.default, fmt: m.format || '', tz: m.timezone || '' }));
   const s = c.schedule || {}, l = c.limits || {}, t = c.retry || {};
   f.sched = { enabled: !!s.enabled, interval: String(s.interval_seconds || '') };
   for (const k of Object.keys(f.limits)) f.limits[k] = l[k] ? String(l[k]) : '';
   for (const k of Object.keys(f.retry)) f.retry[k] = t[k] ? String(t[k]) : '';
   return f;
 }
+const asText = (v) => (Array.isArray(v) ? v.join(', ') : String(v ?? ''));
+// typed: the original value if its text was not edited, else the edited text
+const typed = (raw, text) => (raw !== undefined && asText(raw) === text ? raw : text);
 function serialize(f) {
   const a = f.auth, t = a.type, auth = { type: t };
   if (t !== 'none') auth.secret = a.secret.trim();
@@ -668,28 +673,30 @@ function serialize(f) {
   for (const r of f.rows) {
     if (!r.o.trim()) continue;
     const m = {};
-    if (r.src === 'path') m.path = r.val.trim(); else m.constant = r.val;
+    if (r.src === 'path') m.path = r.val.trim(); else m.constant = typed(r.raw, r.val);
     if (r.req) m.required = true;
     if (r.tf) m.transform = r.tf;
-    if (r.def !== '') m.default = r.def;
+    if (r.def !== '') m.default = typed(r.rawDef, r.def);
     if (r.tf === 'datetime' && r.fmt) m.format = r.fmt;
     if (r.tf === 'datetime' && r.tz) m.timezone = r.tz;
     if (r.tf === 'lookup') m.lookup = Object.fromEntries(r.lookup.split(/\n|,/).map((x) => x.split('=').map((y) => y.trim())).filter((x) => x.length === 2 && x[0]));
     mapping[r.o.trim()] = m;
   }
   const filter = f.filter.filter((x) => x.path.trim()).map((x) => ({ path: x.path.trim(), op: x.op,
-    value: x.op === 'in' ? x.value.split(',').map((y) => y.trim()).filter(Boolean) : x.op === 'exists' ? x.value !== 'false' : x.op === 'within_days' ? num(x.value) : x.value }));
+    value: x.raw !== undefined && asText(x.raw) === x.value ? x.raw : x.op === 'in' ? x.value.split(',').map((y) => y.trim()).filter(Boolean) : x.op === 'exists' ? x.value !== 'false' : x.op === 'within_days' ? num(x.value) : x.value }));
   const limits = {}, retry = {};
   for (const [k, x] of Object.entries(f.limits)) if (num(x)) limits[k] = num(x);
   for (const [k, x] of Object.entries(f.retry)) if (num(x)) retry[k] = num(x);
   const dest = { class: f.cls, mapping };
   if (num(f.activity)) dest.activity_id = num(f.activity);
-  const c = { version: 1, id: f.id.trim(), name: f.name.trim(), request, auth, items_path: f.items_path.trim(), pagination: pag,
+  const c = { version: 1, id: f.id.trim(), name: f.name.trim(), ...(f.vendor.trim() ? { vendor: f.vendor.trim() } : {}), request, auth, items_path: f.items_path.trim(), pagination: pag,
     schedule: { enabled: f.sched.enabled, interval_seconds: num(f.sched.interval) || 3600 } };
   if (filter.length) c.filter = filter;
   c.destination = dest;
   if (Object.keys(limits).length) c.limits = limits;
   if (Object.keys(retry).length) c.retry = retry;
+  if (f.keep.incremental) c.incremental = f.keep.incremental;
+  if (f.keep.notifications) c.notifications = f.keep.notifications;
   return c;
 }
 
@@ -797,7 +804,8 @@ function renderBuilder(v) {
   };
 
   const steps = [['save', 'Save draft', 'POST /configs: full validation, new revision + hash'], ['validate', 'Validate', 're-check the stored revision'],
-    ['activate', 'Activate', 'make this revision live'], ['test', 'Test connection', 'one bounded page, nothing written'], ['run', 'Run', 'collect, map to OCSF, store']];
+    ['preview', 'Preview draft', 'one bounded page from the vendor before going live, nothing written'],
+    ['activate', 'Activate', 'make this revision live'], ['test', 'Test live', 'one bounded page with the live revision'], ['run', 'Run', 'collect, map to OCSF, store']];
   const stepNode = ([k, t, s], i) => {
     const st = B.steps[k];
     return h('div', { class: 'step' + (st ? (st.ok ? ' done' : ' fail') : '') }, h('div', { class: 'n' }, st ? (st.ok ? '✓' : '!') : i + 1),
@@ -805,16 +813,17 @@ function renderBuilder(v) {
       h('button', { class: 'sm', type: 'button', onclick: (e) => doStep(k, e.currentTarget).then(rerender) }, t.split(' ')[0]));
   };
   const all = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
-    for (const k of ['save', 'validate', 'activate', 'test']) { if (!(await doStep(k))) break; }
+    for (const k of ['save', 'validate', 'preview', 'activate']) { if (!(await doStep(k))) break; }
     rerender();
-  }) }, 'Save → validate → activate → test');
+  }) }, 'Save → validate → preview → activate');
 
   v.replaceChildren(
     header(B.existing ? 'Edit ' + f.id : 'New connector', B.existing ? `Editing creates a new draft revision (newest is rev ${B.existing.revision}, ${B.existing.status}).` : 'Fill the form or paste JSON. The API runs the same validator either way.',
       h('a', { class: 'btn', href: '#/connectors' }, 'Back')),
     h('div', { class: 'builder' },
       h('div', { class: 'stack' },
-        section('Source', null, h('div', { class: 'grid2' }, field('ID', inp(f, 'id', { placeholder: 'okta_users', class: 'mono' }), 'a-z 0-9 _ -'), field('Name', inp(f, 'name', { placeholder: 'Okta users' }))),
+        section('Source', null, h('div', { class: 'grid3' }, field('ID', inp(f, 'id', { placeholder: 'okta_users', class: 'mono' }), 'a-z 0-9 _ -'), field('Name', inp(f, 'name', { placeholder: 'Okta users' })),
+          field('Vendor', inp(f, 'vendor', { placeholder: 'Okta' }), 'links to vulnerability feeds')),
           field('URL', inp(f, 'url', { placeholder: 'https://api.vendor.com/v1/users', class: 'mono' }), 'https only, no query string, no credentials'),
           h('div', { class: 'grid2' }, field('Query params', kvRows(f.params, ['limit', '100']), 'non-secret; also server-side filters'), field('Headers', kvRows(f.headers, ['Accept', 'application/json']), 'non-secret')),
           h('div', { class: 'grid2' }, field('Timeout (s)', inp(f, 'timeout')), field('Extra allowed ports', inp(f, 'ports', { placeholder: '443 is default' })))),
@@ -862,9 +871,20 @@ const W = { product: '', data: 'auto', details: '', draft: null, msg: '', bad: f
 const optTag = () => h('span', { class: 'tag', style: 'margin-left:6px' }, 'optional');
 async function wizard(v) {
   const [sec, cfgs] = await Promise.all([must('GET', '/secrets?limit=500'), must('GET', '/configs?limit=500')]);
-  W.taken = new Set(cfgs.map((x) => x.id));
+  // only LIVE sources are protected; a never-activated draft may be redrafted in place
+  W.taken = new Set(cfgs.filter((x) => x.live_revision).map((x) => x.id));
   B.secretNames = sec.map((x) => [x.name, x.allowed_host]);
   renderWizard(v);
+}
+// loadDraft puts an AI draft or a checked pasted config into the Connect card.
+function loadDraft(d, pasted) {
+  Object.assign(W, { draft: d, pasted, progress: [], creds: {}, address: '', addressRaw: '', pasteIssues: [] });
+  B.f = parse(d.config); B.existing = null; B.saved = null; B.steps = {};
+  // the template the address is filled into; kept so the address can be changed
+  W.base = { url: B.f.url, token_url: B.f.auth.token_url, ports: B.f.ports };
+  // an AI draft never overwrites a live source: a taken id gets a numeric suffix.
+  // A pasted config keeps its id on purpose (that is how a source is updated).
+  if (!pasted) { const base = B.f.id; let n = 2; while (W.taken && W.taken.has(B.f.id)) B.f.id = base.slice(0, 60) + '_' + n++; }
 }
 function renderWizard(v) {
   const re = () => renderWizard(v);
@@ -874,15 +894,10 @@ function renderWizard(v) {
   const details = h('textarea', { rows: 2, value: W.details, placeholder: 'Anything special, or paste part of the vendor API docs', oninput: (e) => { W.details = e.target.value; } });
   const draftBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     if (W.product.trim().length < 2) { say('Enter the product name.', true); re(); return; }
-    W.draft = null; W.progress = []; W.address = ''; W.addressRaw = ''; W.creds = {}; say('Drafting…'); re();
+    W.draft = null; W.progress = []; say('Drafting…'); re();
     const r = await api('POST', '/ai/draft', { product: W.product.trim(), data: W.data, details: W.details });
     say('');
-    if (r.ok) {
-      W.draft = r.data; B.f = parse(r.data.config); B.existing = null; B.saved = null; B.steps = {};
-      // never overwrite an existing source: a taken id gets a numeric suffix
-      const base = B.f.id; let n = 2;
-      while (W.taken && W.taken.has(B.f.id)) B.f.id = base.slice(0, 60) + '_' + n++;
-    }
+    if (r.ok) loadDraft(r.data, false);
     else if (r.status === 503 && r.data && r.data.error === 'ai_not_configured') say('AI is not set up on this server. Use "Fill in manually".', true);
     else if (r.status === 422) { say('The AI could not produce a valid setup. Use "Fill in manually" to finish it.', true); if (r.data.config) B.f = parse(r.data.config); }
     else if (r.status === 429) say('Too many drafts in a row. Wait a few seconds.', true);
@@ -890,8 +905,27 @@ function renderWizard(v) {
     re();
   }) }, W.draft ? 'Draft again' : 'Set it up');
 
+  // Paste mode: a ready config JSON -> server check (same validator, nothing saved) -> same Connect card
+  const paste = h('textarea', { class: 'json', rows: 12, spellcheck: 'false', 'aria-label': 'Config JSON', value: W.pasteText || '',
+    placeholder: '{ "version": 1, "id": "okta_users", ... }', oninput: (e) => { W.pasteText = e.target.value; } });
+  const checkBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+    W.draft = null; W.pasteIssues = []; say('');
+    try { JSON.parse(W.pasteText || ''); } catch (err) { say('Not valid JSON: ' + err.message, true); re(); return; }
+    const r = await api('POST', '/configs/check', W.pasteText);
+    if (r.ok) loadDraft({ config: r.data.config, credential: r.data.credential }, true);
+    else if (r.status === 422) W.pasteIssues = (r.data && r.data.errors) || [{ field: 'config', message: ((r.data && r.data.error) || 'rejected').replace(/_/g, ' ') }];
+    else say((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status, true);
+    re();
+  }) }, 'Check config');
+  const modeBtn = (m, t) => h('button', { type: 'button', class: 'sm' + ((W.mode || 'ai') === m ? ' primary' : ''), onclick: () => { W.mode = m; W.draft = null; say(''); re(); } }, t);
   const parts = [
-    header('Add source', null, h('button', { class: 'ghost', type: 'button', onclick: () => { B.advanced = true; if (!W.draft) B.f = null; route(); } }, 'Fill in manually')),
+    header('Add source', null, modeBtn('ai', 'Set up with AI'), modeBtn('paste', 'Paste a config'),
+      h('button', { class: 'ghost', type: 'button', onclick: () => { B.advanced = true; if (!W.draft) B.f = null; route(); } }, 'Fill in manually')),
+    W.mode === 'paste' ? h('div', { class: 'card' }, h('div', { class: 'bd stack' },
+      h('label', { class: 'f' }, h('span', {}, 'Config JSON'), paste),
+      h('div', { class: 'small faint' }, 'Secret names only, never key values. Checked with the same validator as saving; nothing is stored until Connect. A config with the id of an existing source updates it as a new revision.'),
+      (W.pasteIssues || []).length ? h('ul', { class: 'issues' }, W.pasteIssues.map((x) => h('li', {}, h('code', {}, x.field), ': ', x.message))) : null,
+      h('div', { class: 'row' }, checkBtn, W.msg ? h('span', { class: 'small', style: W.bad ? 'color:var(--bad)' : 'color:var(--muted)' }, W.msg) : null))) :
     h('div', { class: 'card' }, h('div', { class: 'bd stack' },
       h('label', { class: 'f' }, h('span', {}, 'Product'), product),
       h('div', { class: 'f' }, h('span', {}, 'What data', optTag()), h('div', { class: 'row' },
@@ -912,18 +946,20 @@ function draftCard(v) {
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
   const apiHost = hostOf(c.request.url), keyHost = isOAuth ? hostOf(a.token_url) : apiHost;
   // the customer part may be in a host or a path (e.g. login.microsoftonline.com/your-tenant/...)
-  const placeholder = /your-tenant/.test(c.request.url + ' ' + (a.token_url || ''));
+  const tmpl = W.base.url + ' ' + (W.base.token_url || '');
+  const hasBlank = /your-tenant/.test(tmpl); // the address step stays visible so it can be corrected
+  const placeholder = /your-tenant/.test(c.request.url + ' ' + (a.token_url || '')); // still unfilled
   // needed 1: the customer's own part of the address (Okta domain, enterprise slug, tenant id, device IP)
   const what = W.draft.tenant_hint || 'your ' + (W.product || 'vendor') + ' address';
   const addr = h('input', { value: W.addressRaw || '', placeholder: what, autocomplete: 'off', spellcheck: 'false', class: 'mono', oninput: (e) => { W.addressRaw = e.target.value.trim(); } });
   // the blank sits in a host (acme.okta.com, a firewall IP) or in a path (/enterprises/acme, /tenant-id/)
-  const inHost = /\/\/[^/]*your-tenant/.test(c.request.url + ' ' + (a.token_url || ''));
+  const inHost = /\/\/[^/]*your-tenant/.test(tmpl);
   const applyAddr = h('button', { type: 'button', onclick: () => {
     const raw = (W.addressRaw || '').toLowerCase().replace(/^https?:\/\//, '');
     const [host, ...rest] = raw.split('/'); const segs = rest.filter(Boolean);
     // a pasted link: in a path blank take its last part (github.com/enterprises/acme -> acme)
     W.address = inHost ? host : (segs.length ? segs[segs.length - 1] : host);
-    const vendorHosts = [apiHost, keyHost].filter((x) => x && !/your-tenant/.test(x));
+    const vendorHosts = [hostOf(W.base.url), hostOf(W.base.token_url)].filter((x) => x && !/your-tenant/.test(x));
     if (!inHost && !segs.length && vendorHosts.some((v) => v === host || v.endsWith('.' + host))) {
       toast(host + ' is ' + (W.product || 'the vendor') + '’s own address. Enter ' + what + ' instead.', true); return;
     }
@@ -935,12 +971,16 @@ function draftCard(v) {
       const v = m && W.address.endsWith(m[1]) ? W.address.slice(0, -m[1].length) : W.address;
       return u.replace(/your-tenant/g, v);
     };
-    B.f.url = swap(B.f.url); if (B.f.auth.token_url) B.f.auth.token_url = swap(B.f.auth.token_url);
+    // always fill from the template, so a corrected address replaces the old one
+    B.f.url = swap(W.base.url); if (W.base.token_url) B.f.auth.token_url = swap(W.base.token_url);
     // an appliance on a non-443 port: that port must be allowed explicitly
     const port = (/:(\d{1,5})$/.exec(W.address) || [])[1];
+    B.f.ports = W.base.ports;
     if (port && port !== '443') B.f.ports = [...new Set(B.f.ports.split(',').map((x) => x.trim()).filter(Boolean).concat(['443', port]))].join(', ');
+    // the address changed, so anything saved/tested for the old one is void
+    B.saved = null; B.steps = {}; W.progress = [];
     re();
-  } }, 'Use this');
+  } }, placeholder ? 'Use this' : 'Change');
   // needed 2: every credential value the config uses (fields come from the server, derived
   // from the config itself), unless a secret is already stored for this exact host
   const spec = W.draft.credential || { secret: a.secret, fields: ['value'] };
@@ -954,23 +994,34 @@ function draftCard(v) {
   const vals = W.creds || (W.creds = {});
   const credInputs = (spec.fields || ['value']).map((f) => field(label(f), h('input', { type: /(^|_)id$/.test(f) ? 'text' : 'password', autocomplete: 'new-password', spellcheck: 'false', value: vals[f] || '', placeholder: label(f), oninput: (e) => { vals[f] = e.target.value; } })));
   const userInput = needsUser ? field('Username', h('input', { value: /your-|example\./.test(a.username || '') ? '' : (a.username || ''), autocomplete: 'off', spellcheck: 'false', placeholder: 'the account you sign in with', oninput: (e) => { B.f.auth.username = e.target.value.trim(); } })) : null;
-  const saveKey = h('button', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+  // a key can only be bound once the real address is known (the binding is permanent)
+  const saveKey = h('button', { type: 'button', disabled: placeholder, onclick: (e) => busy(e.currentTarget, async () => {
     const fields = spec.fields || ['value'];
     if (fields.some((f) => !vals[f])) { toast('Fill in ' + fields.map(label).join(' and '), true); return; }
     if (needsUser && (!B.f.auth.username || /your-|example\./.test(B.f.auth.username))) { toast('Enter the username', true); return; }
+    // the name already belongs to a key bound to another host (another tenant/region):
+    // host bindings are immutable, so store this key under a free name instead of failing 409
+    if (stored && stored[1] !== hosts[0]) {
+      const base = a.secret.slice(0, 60); let n = 2;
+      while (B.secretNames.some(([x]) => x === base + '_' + n)) n++;
+      B.f.auth.secret = base + '_' + n;
+    }
+    const name = B.f.auth.secret;
     const body = fields.length === 1 && fields[0] === 'value' ? { value: vals.value } : { fields: Object.fromEntries(fields.map((f) => [f, vals[f]])) };
     if (hosts.length > 1) body.allowed_hosts = hosts; else body.allowed_host = hosts[0];
-    const r = await api('PUT', '/secrets/' + encodeURIComponent(a.secret), body);
+    const r = await api('PUT', '/secrets/' + encodeURIComponent(name), body);
     W.creds = {};
-    if (r.status === 204) { B.secretNames = B.secretNames.filter(([n]) => n !== a.secret).concat([[a.secret, hosts[0]]]); toast('Stored. Only ever sent to ' + hosts.join(' and ')); re(); }
+    if (r.status === 204) { B.secretNames = B.secretNames.filter(([n]) => n !== name).concat([[name, hosts[0]]]); toast('Stored as ' + name + '. Only ever sent to ' + hosts.join(' and ')); re(); }
     else toast((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status, true);
   }) }, 'Store');
   const ready = !placeholder && !needsKey;
   const connect = h('button', { class: 'primary', type: 'button', disabled: !ready, onclick: (e) => busy(e.currentTarget, async () => {
     W.progress = [];
-    const label = { save: 'Saved', validate: 'Checked', activate: 'Switched on', test: 'Test call', run: 'First fetch' };
-    for (const k of ['save', 'validate', 'activate', 'test', 'run']) {
+    // test the saved draft BEFORE switching it on: a broken config never goes live
+    const label = { save: 'Saved', validate: 'Checked', preview: 'Test call', activate: 'Switched on', run: 'First fetch' };
+    for (const k of ['save', 'validate', 'preview', 'activate', 'run']) {
       const ok = await doStep(k);
+      if (ok && k === 'activate' && W.taken) W.taken.add(B.f.id.trim());
       const st = B.steps[k] || {};
       W.progress.push([ok, label[k] + (k === 'run' && ok ? ': ' + st.msg : '') + (ok ? '' : ': ' + plainError(st.msg) + (B.issues.length ? ' (' + B.issues.map((x) => x.field).join(', ') + ')' : ''))]);
       re();
@@ -990,9 +1041,12 @@ function draftCard(v) {
         onclick: () => { W.queue = W.draft.also_available.slice(); re(); } }, 'Add all') : null, optTag()) : null,
     (W.queue || []).length ? h('div', { class: 'small muted' }, 'After this: ' + W.queue.map(kind).join(', ') + '. ',
       h('a', { href: '#', onclick: (e) => { e.preventDefault(); W.queue = []; re(); } }, 'cancel')) : null,
-    placeholder ? step(++n, 'Your ' + (W.draft.tenant_hint || (W.product || 'vendor') + ' address'), h('div', { class: 'row' }, addr, applyAddr)) : null,
+    W.pasted && W.taken && W.taken.has(c.id) ? h('div', { class: 'small', style: 'color:var(--warn)' }, 'A live source "' + c.id + '" already exists: Connect saves this as its next revision.') : null,
+    hasBlank ? step(++n, 'Your ' + (W.draft.tenant_hint || (W.product || 'vendor') + ' address'), h('div', { class: 'row' }, addr, applyAddr),
+      placeholder ? null : h('div', { class: 'small muted' }, 'Using ', h('code', {}, apiHost))) : null,
     needsKey ? step(++n, (spec.fields || []).length > 1 ? 'Credentials' : 'API key', neededHints.length ? h('ul', { class: 'small muted', style: 'margin:0;padding-left:18px' }, neededHints.map((x) => h('li', {}, x))) : null,
-      h('div', { class: 'grid2' }, userInput, ...credInputs), h('div', { class: 'row' }, saveKey), h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + hosts.join(' and ') + '.')) : null,
+      h('div', { class: 'grid2' }, userInput, ...credInputs), h('div', { class: 'row' }, saveKey, placeholder ? h('span', { class: 'small muted' }, 'Enter the address first: the key is locked to it.') : null),
+      h('div', { class: 'small faint' }, 'Stored encrypted. Only ever sent to ' + hosts.join(' and ') + '.')) : null,
     !placeholder && !needsKey && a.type !== 'none' ? h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ "' + a.secret + '" is stored for ' + hosts.join(' and ')) : null,
     h('div', { class: 'row' }, connect, ready ? null : h('span', { class: 'small muted' }, 'Finish the step' + (placeholder && needsKey ? 's' : '') + ' above first.')),
     W.progress.length ? h('ul', { class: 'small', style: 'margin:0;padding-left:18px' }, W.progress.map(([ok, t]) => h('li', { style: ok ? '' : 'color:var(--bad)' }, (ok ? '✓ ' : '✗ ') + t))) : null,
@@ -1015,7 +1069,11 @@ async function doStep(k, btn) {
     }
     if (k === 'save') {
       const r = await api('POST', '/configs', serialize(f));
-      if (r.status === 201) { B.saved = r.data; return set(true, `rev ${r.data.revision} saved as ${r.data.status}`, []); }
+      // 200 = identical to the newest revision (e.g. Connect pressed again after a failed test)
+      if (r.status === 201 || r.status === 200) {
+        B.saved = r.data;
+        return set(true, r.data.unchanged ? `unchanged, rev ${r.data.revision} (${r.data.status})` : `rev ${r.data.revision} saved as ${r.data.status}`, []);
+      }
       if (r.status === 422) return set(false, r.data.errors.length + ' problem(s)', r.data.errors);
       return set(false, (r.data && r.data.error) || 'HTTP ' + r.status, []);
     }
@@ -1031,7 +1089,9 @@ async function doStep(k, btn) {
       const r = await api('POST', `/configs/${id}/activate`, { revision: rev });
       return set(r.ok, r.ok ? `rev ${rev} is live` : (r.data && r.data.error) || 'HTTP ' + r.status);
     }
-    const r = await api('POST', `/connectors/${id}/${k === 'test' ? 'test' : 'run'}`);
+    // preview: the exact saved revision, before it goes live; test/run: the live revision
+    const r = k === 'preview' ? await api('POST', `/configs/${id}/test`, { revision: (B.saved || B.existing).revision })
+      : await api('POST', `/connectors/${id}/${k === 'test' ? 'test' : 'run'}`);
     const d = r.data || {};
     if (!d.id) return set(false, (d.error || 'HTTP ' + r.status).replace(/_/g, ' '));
     const msg = `${d.outcome} · ${d.received} received, ${d.accepted} accepted, ${d.quarantined} quarantined` + (d.skipped ? `, ${d.skipped} skipped` : '') + (d.error ? ' · ' + d.error : '');

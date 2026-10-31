@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"configbridge/internal/ai"
+	"configbridge/internal/engine"
 	"configbridge/internal/runner"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
@@ -66,6 +67,7 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /configs", a.listConfigs)
 	mux.HandleFunc("GET /configs/{id}", a.getConfig)
 	mux.HandleFunc("POST /configs", a.submit)
+	mux.HandleFunc("POST /configs/check", a.checkConfig)
 	mux.HandleFunc("POST /configs/{id}/validate", a.validate)
 	mux.HandleFunc("POST /configs/{id}/activate", a.activate)
 	mux.HandleFunc("POST /configs/{id}/test", a.preview)
@@ -210,7 +212,8 @@ func New(a *API) (http.Handler, error) {
 			return
 		}
 		// runs/tests call the vendor and AI drafts call the model: both are costly
-		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || strings.HasPrefix(r.URL.Path, "/connectors/") &&
+		// (POST /configs/{id}/test previews a draft against the real vendor too)
+		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
 			(strings.HasSuffix(r.URL.Path, "/run") || strings.HasSuffix(r.URL.Path, "/test"))) {
 			if ok, retry := lim.take("run:"+key, rl.RunPerKey); !ok {
 				limited(w, retry)
@@ -303,20 +306,47 @@ func paging(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 	}
 	return limit, offset, true
 }
-func (a *API) submit(w http.ResponseWriter, r *http.Request) {
+
+// decodeConfig reads and fully validates a config body; on failure it has
+// already answered.
+func (a *API) decodeConfig(w http.ResponseWriter, r *http.Request) (config.Config, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, config.MaxBytes)
 	b, e := io.ReadAll(r.Body)
 	if e != nil {
 		fail(w, 413, "config_too_large")
-		return
+		return config.Config{}, false
 	}
 	c, issues := config.Decode(b)
 	if len(issues) > 0 {
 		write(w, 422, map[string]any{"errors": issues})
-		return
+		return c, false
 	}
 	if c.Notifications != nil && c.Notifications.Enabled && !a.NotificationTenants[a.scope(r).Tenant] {
 		fail(w, 422, "email_notifications_not_configured_for_tenant")
+		return c, false
+	}
+	return c, true
+}
+
+// checkConfig validates a pasted config WITHOUT saving it and returns the
+// credential it needs (fields + hosts), so the console can collect the key
+// before Connect. Same validator as POST /configs.
+func (a *API) checkConfig(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.decodeConfig(w, r)
+	if !ok {
+		return
+	}
+	norm, e := json.Marshal(c)
+	if e != nil {
+		fail(w, 500, "internal_error")
+		return
+	}
+	write(w, 200, map[string]any{"config": json.RawMessage(norm), "credential": engine.Credential(c.Auth, c.Request.URL)})
+}
+
+func (a *API) submit(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.decodeConfig(w, r)
+	if !ok {
 		return
 	}
 	saved, e := a.scope(r).SaveConfig(r.Context(), c)
