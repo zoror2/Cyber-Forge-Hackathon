@@ -10,10 +10,12 @@ import (
 	"io"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"configbridge/internal/engine"
+	"configbridge/pkg/ocsf"
 )
 
 const MaxBytes = 256 << 10
@@ -34,6 +36,7 @@ type Config struct {
 	Limits        Limits            `json:"limits"`
 	Retry         engine.Retry      `json:"retry"`
 	Schedule      Schedule          `json:"schedule"`
+	Filter        []Condition       `json:"filter"`
 	Destination   Destination       `json:"destination"`
 	Incremental   *Incremental      `json:"incremental,omitempty"`
 	Notifications *Notifications    `json:"notifications,omitempty"`
@@ -55,6 +58,14 @@ type Incremental struct {
 	OverlapSeconds   int    `json:"overlap_seconds"`
 	SafetyLagSeconds int    `json:"safety_lag_seconds"`
 }
+
+// Condition keeps a vendor record only when it matches. All conditions must
+// match (AND). Dropped records are counted as "skipped", never silently lost.
+type Condition struct {
+	Path  string `json:"path"`  // where to look in the vendor record, e.g. "knownRansomwareCampaignUse"
+	Op    string `json:"op"`    // equals | not_equals | in | exists | within_days
+	Value any    `json:"value"` // scalar; list for "in"; days for "within_days"; true/false for "exists"
+}
 type Limits struct {
 	MaxResponseBytes int64 `json:"max_response_bytes"`
 	MaxPages         int   `json:"max_pages"`
@@ -65,9 +76,13 @@ type Schedule struct {
 	Enabled         bool `json:"enabled"`
 	IntervalSeconds int  `json:"interval_seconds"`
 }
+
+// Destination is the OCSF class every record becomes, and how vendor fields
+// map onto OCSF attribute paths (e.g. "vulnerabilities.0.cve.uid").
 type Destination struct {
-	Entity  string           `json:"entity"`
-	Mapping map[string]Field `json:"mapping"`
+	Class      string           `json:"class"`       // OCSF class name, e.g. "vulnerability_finding"
+	ActivityID int              `json:"activity_id"` // optional; default per class (Create / Collect)
+	Mapping    map[string]Field `json:"mapping"`     // OCSF path -> where the value comes from
 }
 type Field struct {
 	Path      *string           `json:"path,omitempty"`
@@ -77,7 +92,6 @@ type Field struct {
 	Transform string            `json:"transform,omitempty"`
 	Format    string            `json:"format,omitempty"`
 	Timezone  string            `json:"timezone,omitempty"`
-	Precision string            `json:"precision,omitempty"`
 	Lookup    map[string]string `json:"lookup,omitempty"`
 }
 type Issue struct {
@@ -183,8 +197,9 @@ func (c *Config) Defaults() {
 	if c.Pagination.Type == "" {
 		c.Pagination.Type = "none"
 	}
-	if c.Pagination.Type == "page" && c.Pagination.StartPage == 0 {
-		c.Pagination.StartPage = 1
+	if c.Pagination.Type == "page" && c.Pagination.StartPage == nil {
+		one := 1
+		c.Pagination.StartPage = &one // explicit 0 stays 0 (zero-based APIs)
 	}
 	if c.Limits.MaxPages == 0 {
 		c.Limits.MaxPages = 100
@@ -209,7 +224,10 @@ func (c *Config) Defaults() {
 	}
 }
 
-var Fields = map[string][]string{"user": {"id", "name", "email", "status", "last_login"}, "device": {"id", "hostname", "ip", "os", "owner", "last_seen"}, "event": {"id", "type", "severity", "timestamp", "description", "vendor", "product"}}
+var filterPath = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}(\.[A-Za-z0-9_]{1,64}){0,7}$`)
+
+// platformFilled are OCSF fields the platform sets when a config doesn't map them.
+var platformFilled = map[string]bool{"time": true, "severity_id": true, "metadata": true, "metadata.product": true}
 
 func (c Config) Validate() []Issue {
 	out := []Issue{}
@@ -262,20 +280,85 @@ func (c Config) Validate() []Issue {
 			add("request.url", "use a credential-free URL; put query values in params")
 		}
 	}
-	allowed := map[string]bool{}
-	names, ok := Fields[c.Destination.Entity]
+	out = append(out, c.validateFilter()...)
+	out = append(out, c.validateDestination()...)
+	return out
+}
+func (c Config) validateFilter() []Issue {
+	out := []Issue{}
+	if len(c.Filter) > 10 {
+		out = append(out, Issue{"filter", "at most 10 conditions"})
+	}
+	for i, f := range c.Filter {
+		key := fmt.Sprintf("filter.%d", i)
+		if !filterPath.MatchString(f.Path) {
+			out = append(out, Issue{key + ".path", "dotted field path required"})
+		}
+		switch f.Op {
+		case "equals", "not_equals":
+			if !scalar(f.Value) {
+				out = append(out, Issue{key + ".value", "scalar value required"})
+			}
+		case "in":
+			list, ok := f.Value.([]any)
+			if !ok || len(list) == 0 || len(list) > 100 {
+				out = append(out, Issue{key + ".value", "list of 1-100 scalars required"})
+				continue
+			}
+			for _, v := range list {
+				if !scalar(v) {
+					out = append(out, Issue{key + ".value", "list of 1-100 scalars required"})
+					break
+				}
+			}
+		case "exists":
+			if _, ok := f.Value.(bool); !ok && f.Value != nil {
+				out = append(out, Issue{key + ".value", "true, false or omitted"})
+			}
+		case "within_days":
+			n, e := json.Number(fmt.Sprint(f.Value)).Int64()
+			if e != nil || n < 1 || n > 3650 {
+				out = append(out, Issue{key + ".value", "whole number of days 1-3650"})
+			}
+		default:
+			out = append(out, Issue{key + ".op", "must be equals, not_equals, in, exists or within_days"})
+		}
+	}
+	return out
+}
+
+func scalar(v any) bool {
+	switch v.(type) {
+	case string, bool, json.Number, float64:
+		return true
+	}
+	return false
+}
+
+func (c Config) validateDestination() []Issue {
+	out := []Issue{}
+	add := func(k, m string) { out = append(out, Issue{k, m}) }
+	class, ok := ocsf.Lookup(c.Destination.Class)
 	if !ok {
-		add("destination.entity", "must be user, device or event")
+		add("destination.class", "must be one of "+strings.Join(ocsf.Classes(), ", "))
+		return out
 	}
-	for _, f := range names {
-		allowed[f] = true
+	if c.Destination.ActivityID != 0 {
+		if _, ok := class.Attributes["activity_id"].Enum[fmt.Sprint(c.Destination.ActivityID)]; !ok {
+			add("destination.activity_id", "not an activity of this OCSF class")
+		}
 	}
-	for name, spec := range c.Destination.Mapping {
-		key := "destination.mapping." + name
-		if !allowed[name] {
-			add("destination.mapping", "unknown field or engine-owned provenance")
+	if len(c.Destination.Mapping) == 0 || len(c.Destination.Mapping) > 200 {
+		add("destination.mapping", "1-200 mapped OCSF fields required")
+	}
+	normalized := map[string]bool{}
+	for path, spec := range c.Destination.Mapping {
+		key := "destination.mapping." + path
+		if _, e := ocsf.Resolve(class, path); e != nil {
+			add(key, "not a mappable OCSF "+class.Name+" field: "+e.Error())
 			continue
 		}
+		normalized[normalize(path)] = true
 		if (spec.Path != nil) == (spec.Constant != nil) {
 			add(key, "provide exactly one path or non-null constant")
 		}
@@ -295,21 +378,61 @@ func (c Config) Validate() []Issue {
 		if strings.Contains(spec.Format, "%") {
 			add(key+".format", "use Go layouts such as 2006-01-02")
 		}
-		if spec.Precision != "" && (spec.Precision != "date" || name != "timestamp" || spec.Transform != "datetime") {
-			add(key+".precision", "date precision is only valid for transformed event timestamps")
+	}
+	id := ocsf.Identity[class.Name]
+	if spec, ok := c.Destination.Mapping[id]; !ok || !spec.Required {
+		add("destination.mapping."+id, "the record identity must be mapped with required: true")
+	}
+	out = append(out, requiredCovered(class.Attributes, normalized, "")...)
+	return out
+}
+
+// normalize turns array indexes into "#": "vulnerabilities.0.cve.uid" -> "vulnerabilities.#.cve.uid".
+func normalize(path string) string {
+	segs := strings.Split(path, ".")
+	for i, s := range segs {
+		if s != "" && strings.Trim(s, "0123456789") == "" {
+			segs[i] = "#"
 		}
 	}
-	required := []string{"id"}
-	if c.Destination.Entity == "event" {
-		required = append(required, "type", "timestamp", "description")
+	return strings.Join(segs, ".")
+}
+
+// requiredCovered reports OCSF-required attributes the mapping never sets: on the
+// class itself, and inside every object the mapping writes into.
+func requiredCovered(attrs map[string]ocsf.Attr, mapped map[string]bool, prefix string) []Issue {
+	out := []Issue{}
+	names := make([]string, 0, len(attrs))
+	for n := range attrs {
+		names = append(names, n)
 	}
-	for _, f := range required {
-		if _, ok := c.Destination.Mapping[f]; !ok {
-			add("destination.mapping."+f, "required mapping is missing")
+	sort.Strings(names)
+	for _, name := range names {
+		a := attrs[name]
+		p := prefix + name
+		if a.IsArray {
+			p += ".#"
+		}
+		present := false
+		for m := range mapped {
+			if m == p || strings.HasPrefix(m, p+".") {
+				present = true
+				break
+			}
+		}
+		bare := strings.TrimSuffix(p, ".#")
+		if a.Requirement == "required" && !present && !ocsf.PlatformOwned[bare] && !platformFilled[bare] {
+			out = append(out, Issue{"destination.mapping." + p, "required by OCSF; map it"})
+		}
+		if present && a.Type == "object_t" {
+			if sub := ocsf.ObjectAttributes(a.ObjectType); len(sub) > 0 {
+				out = append(out, requiredCovered(sub, mapped, p+".")...)
+			}
 		}
 	}
 	return out
 }
+
 func ValidHost(host string) bool {
 	if host == "" || len(host) > 253 || host != strings.ToLower(host) || strings.ContainsAny(host, "*,/@?# \\\t\r\n") {
 		return false

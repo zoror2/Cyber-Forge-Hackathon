@@ -23,6 +23,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY pkg ./pkg
+COPY configs ./configs
 # CGO_ENABLED=0  -> fully static binary (needed for the distroless/static image)
 # -trimpath      -> no local file paths embedded in the binary
 # -ldflags=-s -w -> strip debug symbols (smaller binary)
@@ -32,7 +33,6 @@ RUN test -n "$CMD" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/
 # ---- Stage 2: run ----
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/app /app
-COPY public_sources /public_sources
 # UID 65532, never root
 USER nonroot:nonroot
 ENTRYPOINT ["/app"]

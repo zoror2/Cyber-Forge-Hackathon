@@ -31,7 +31,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_users\",\n  \"name\": \"Synthetic paginated users\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/users\",\n    \"timeout_seconds\": 5,\n    \"allowed_ports\": [8081]\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"page\",\n    \"page_param\": \"page\",\n    \"size_param\": \"per_page\",\n    \"page_size\": 10\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 30\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 1000,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_users\",\n  \"name\": \"Synthetic paginated users\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/users\",\n    \"timeout_seconds\": 5,\n    \"allowed_ports\": [\n      8081\n    ]\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"page\",\n    \"page_param\": \"page\",\n    \"size_param\": \"per_page\",\n    \"page_size\": 10\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 30\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 1000,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -152,11 +152,11 @@
           ]
         },
         {
-          "name": "Users",
+          "name": "Users (OCSF User Inventory Info)",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/records/users?source={{connector}}"
+            "url": "{{base_url}}/records/user_inventory?source={{connector}}"
           },
           "event": [
             {
@@ -171,11 +171,11 @@
           ]
         },
         {
-          "name": "Devices",
+          "name": "Devices (OCSF Device Inventory Info)",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/records/devices"
+            "url": "{{base_url}}/records/inventory_info"
           },
           "event": [
             {
@@ -190,11 +190,11 @@
           ]
         },
         {
-          "name": "Events",
+          "name": "Findings (OCSF Vulnerability Finding)",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/records/events"
+            "url": "{{base_url}}/records/vulnerability_finding"
           },
           "event": [
             {
@@ -292,6 +292,213 @@
       ]
     },
     {
+      "name": "Live sources (OCSF)",
+      "description": "Real free-tier sources stored as OCSF 1.9.0. Each Submit sets {{connector}}; then run Validate / Activate / Test / Run from 'Core API flow', then the records request here. GitHub needs the github_token secret stored first (see configs/README.md).",
+      "item": [
+        {
+          "name": "Submit CISA KEV (live)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"cisa_kev\",\n  \"name\": \"CISA Known Exploited Vulnerabilities (live)\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json\",\n    \"timeout_seconds\": 20\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"vulnerabilities\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 86400\n  },\n  \"destination\": {\n    \"class\": \"vulnerability_finding\",\n    \"mapping\": {\n      \"finding_info.uid\": {\n        \"path\": \"cveID\",\n        \"required\": true,\n        \"transform\": \"trim\"\n      },\n      \"finding_info.title\": {\n        \"path\": \"vulnerabilityName\",\n        \"required\": true,\n        \"transform\": \"trim\"\n      },\n      \"finding_info.desc\": {\n        \"path\": \"shortDescription\",\n        \"transform\": \"string\"\n      },\n      \"time\": {\n        \"path\": \"dateAdded\",\n        \"required\": true,\n        \"transform\": \"datetime\",\n        \"format\": \"2006-01-02\",\n        \"timezone\": \"UTC\"\n      },\n      \"vulnerabilities.0.cve.uid\": {\n        \"path\": \"cveID\",\n        \"required\": true,\n        \"transform\": \"trim\"\n      },\n      \"vulnerabilities.0.title\": {\n        \"path\": \"vulnerabilityName\",\n        \"transform\": \"trim\"\n      },\n      \"vulnerabilities.0.desc\": {\n        \"path\": \"shortDescription\",\n        \"transform\": \"string\"\n      },\n      \"vulnerabilities.0.vendor_name\": {\n        \"path\": \"vendorProject\",\n        \"transform\": \"trim\"\n      },\n      \"vulnerabilities.0.is_exploit_available\": {\n        \"constant\": true\n      },\n      \"vulnerabilities.0.remediation.desc\": {\n        \"path\": \"requiredAction\",\n        \"transform\": \"string\"\n      },\n      \"vulnerabilities.0.cwe.uid\": {\n        \"path\": \"cwes.0\",\n        \"transform\": \"trim\"\n      },\n      \"metadata.product.name\": {\n        \"constant\": \"Known Exploited Vulnerabilities Catalog\"\n      },\n      \"metadata.product.vendor_name\": {\n        \"constant\": \"CISA\"\n      },\n      \"unmapped.product\": {\n        \"path\": \"product\",\n        \"transform\": \"trim\"\n      },\n      \"unmapped.ransomware_use\": {\n        \"path\": \"knownRansomwareCampaignUse\",\n        \"transform\": \"string\"\n      },\n      \"unmapped.due_date\": {\n        \"path\": \"dueDate\",\n        \"transform\": \"string\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 1,\n    \"max_records\": 5000,\n    \"max_response_bytes\": 8388608,\n    \"max_run_seconds\": 60\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 1000,\n    \"max_retry_after_seconds\": 60\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CISA KEV findings (OCSF Vulnerability Finding)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/vulnerability_finding?source={{connector}}&limit=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "records",
+                "vulnerability_finding"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "{{connector}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Submit GitHub members (live, bearer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"github_members\",\n  \"name\": \"GitHub OWASP org public members (live)\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"https://api.github.com/orgs/owasp/members\",\n    \"timeout_seconds\": 20,\n    \"params\": {\n      \"per_page\": \"10\"\n    },\n    \"headers\": {\n      \"Accept\": \"application/vnd.github+json\",\n      \"X-GitHub-Api-Version\": \"2022-11-28\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"bearer\",\n    \"secret\": \"github_token\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"link\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 3600\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"login\",\n        \"transform\": \"string\"\n      },\n      \"user.type_id\": {\n        \"path\": \"site_admin\",\n        \"transform\": \"lookup\",\n        \"lookup\": {\n          \"true\": \"2\",\n          \"false\": \"1\"\n        }\n      },\n      \"metadata.product.name\": {\n        \"constant\": \"GitHub\"\n      },\n      \"metadata.product.vendor_name\": {\n        \"constant\": \"GitHub\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 500,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 60\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 1000,\n    \"max_retry_after_seconds\": 60\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GitHub members (OCSF User Inventory Info)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/user_inventory?source={{connector}}&limit=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "records",
+                "user_inventory"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "{{connector}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Submit KEV ransomware-only (filter demo)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/configs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"cisa_kev_ransomware\",\n  \"name\": \"CISA KEV - ransomware-linked only (filter demo)\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json\",\n    \"timeout_seconds\": 20\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"vulnerabilities\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 86400\n  },\n  \"destination\": {\n    \"class\": \"vulnerability_finding\",\n    \"mapping\": {\n      \"finding_info.uid\": {\n        \"path\": \"cveID\",\n        \"required\": true,\n        \"transform\": \"trim\"\n      },\n      \"finding_info.title\": {\n        \"path\": \"vulnerabilityName\",\n        \"required\": true,\n        \"transform\": \"trim\"\n      },\n      \"finding_info.desc\": {\n        \"path\": \"shortDescription\",\n        \"transform\": \"string\"\n      },\n      \"time\": {\n        \"path\": \"dateAdded\",\n        \"required\": true,\n        \"transform\": \"datetime\",\n        \"format\": \"2006-01-02\",\n        \"timezone\": \"UTC\"\n      },\n      \"vulnerabilities.0.cve.uid\": {\n        \"path\": \"cveID\",\n        \"required\": true,\n        \"transform\": \"trim\"\n      },\n      \"vulnerabilities.0.title\": {\n        \"path\": \"vulnerabilityName\",\n        \"transform\": \"trim\"\n      },\n      \"vulnerabilities.0.desc\": {\n        \"path\": \"shortDescription\",\n        \"transform\": \"string\"\n      },\n      \"vulnerabilities.0.vendor_name\": {\n        \"path\": \"vendorProject\",\n        \"transform\": \"trim\"\n      },\n      \"vulnerabilities.0.is_exploit_available\": {\n        \"constant\": true\n      },\n      \"vulnerabilities.0.remediation.desc\": {\n        \"path\": \"requiredAction\",\n        \"transform\": \"string\"\n      },\n      \"vulnerabilities.0.cwe.uid\": {\n        \"path\": \"cwes.0\",\n        \"transform\": \"trim\"\n      },\n      \"metadata.product.name\": {\n        \"constant\": \"Known Exploited Vulnerabilities Catalog\"\n      },\n      \"metadata.product.vendor_name\": {\n        \"constant\": \"CISA\"\n      },\n      \"unmapped.product\": {\n        \"path\": \"product\",\n        \"transform\": \"trim\"\n      },\n      \"unmapped.ransomware_use\": {\n        \"path\": \"knownRansomwareCampaignUse\",\n        \"transform\": \"string\"\n      },\n      \"unmapped.due_date\": {\n        \"path\": \"dueDate\",\n        \"transform\": \"string\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 1,\n    \"max_records\": 5000,\n    \"max_response_bytes\": 8388608,\n    \"max_run_seconds\": 60\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 1000,\n    \"max_retry_after_seconds\": 60\n  },\n  \"filter\": [\n    {\n      \"path\": \"knownRansomwareCampaignUse\",\n      \"op\": \"equals\",\n      \"value\": \"Known\"\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 201',()=>pm.response.to.have.status(201));",
+                  "if(pm.response.code===201){const s=pm.response.json();pm.environment.set('connector',s.id);pm.environment.set('revision',s.revision);}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ransomware-linked findings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/vulnerability_finding?source={{connector}}&limit=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "records",
+                "vulnerability_finding"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "{{connector}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Expected HTTP 200',()=>pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Failure scenarios (synthetic)",
       "item": [
         {
@@ -307,7 +514,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_malformed\",\n  \"name\": \"Synthetic malformed\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/malformed\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_malformed\",\n  \"name\": \"Synthetic malformed\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/malformed\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -383,7 +590,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_retry\",\n  \"name\": \"Synthetic retry\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/flaky\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {\n      \"scenario_id\": \"postman-retry\",\n      \"fail\": \"2\",\n      \"code\": \"500\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_retry\",\n  \"name\": \"Synthetic retry\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/flaky\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {\n      \"scenario_id\": \"postman-retry\",\n      \"fail\": \"2\",\n      \"code\": \"500\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -459,7 +666,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_rate\",\n  \"name\": \"Synthetic rate\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/ratelimit\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {\n      \"scenario_id\": \"postman-rate\",\n      \"retry_after\": \"1\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_rate\",\n  \"name\": \"Synthetic rate\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/ratelimit\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {\n      \"scenario_id\": \"postman-rate\",\n      \"retry_after\": \"1\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -535,7 +742,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_timeout\",\n  \"name\": \"Synthetic timeout\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/hang\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {\n      \"seconds\": \"60\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_timeout\",\n  \"name\": \"Synthetic timeout\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/hang\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {\n      \"seconds\": \"60\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -611,7 +818,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_redirect\",\n  \"name\": \"Synthetic redirect\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/redirect\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_redirect\",\n  \"name\": \"Synthetic redirect\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/redirect\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -687,7 +894,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_huge\",\n  \"name\": \"Synthetic huge\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/huge\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {\n      \"mb\": \"50\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_huge\",\n  \"name\": \"Synthetic huge\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/huge\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {\n      \"mb\": \"50\"\n    }\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"none\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -763,7 +970,7 @@
             "url": "{{base_url}}/configs",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_offhost\",\n  \"name\": \"Synthetic offhost\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/offhost\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [8081],\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"link\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"entity\": \"user\",\n    \"mapping\": {\n      \"id\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"name\": {\n        \"path\": \"profile.name\"\n      },\n      \"email\": {\n        \"path\": \"email\"\n      },\n      \"last_login\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
+              "raw": "{\n  \"version\": 1,\n  \"id\": \"mock_offhost\",\n  \"name\": \"Synthetic offhost\",\n  \"request\": {\n    \"method\": \"GET\",\n    \"url\": \"{{vendor_url}}/offhost\",\n    \"timeout_seconds\": 1,\n    \"allowed_ports\": [\n      8081\n    ],\n    \"params\": {}\n  },\n  \"auth\": {\n    \"type\": \"none\"\n  },\n  \"items_path\": \"\",\n  \"pagination\": {\n    \"type\": \"link\"\n  },\n  \"schedule\": {\n    \"enabled\": false,\n    \"interval_seconds\": 60\n  },\n  \"destination\": {\n    \"class\": \"user_inventory\",\n    \"mapping\": {\n      \"user.uid\": {\n        \"path\": \"id\",\n        \"required\": true,\n        \"transform\": \"string\"\n      },\n      \"user.name\": {\n        \"path\": \"profile.name\"\n      },\n      \"user.email_addr\": {\n        \"path\": \"email\"\n      },\n      \"user.ldap_person.last_login_time\": {\n        \"path\": \"last_login\",\n        \"transform\": \"datetime\"\n      }\n    }\n  },\n  \"limits\": {\n    \"max_pages\": 10,\n    \"max_records\": 100,\n    \"max_response_bytes\": 1048576,\n    \"max_run_seconds\": 10\n  },\n  \"retry\": {\n    \"max_attempts\": 4,\n    \"base_delay_ms\": 10,\n    \"max_retry_after_seconds\": 5\n  }\n}"
             }
           },
           "event": [
@@ -1015,11 +1222,11 @@
           ]
         },
         {
-          "name": "Tenant B refuses /records/users?source={{a_only_connector}}",
+          "name": "Tenant B refuses /records/user_inventory?source={{a_only_connector}}",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/records/users?source={{a_only_connector}}",
+            "url": "{{base_url}}/records/user_inventory?source={{a_only_connector}}",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1044,11 +1251,11 @@
           ]
         },
         {
-          "name": "Tenant B refuses /records/devices?source={{a_only_connector}}",
+          "name": "Tenant B refuses /records/inventory_info?source={{a_only_connector}}",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/records/devices?source={{a_only_connector}}",
+            "url": "{{base_url}}/records/inventory_info?source={{a_only_connector}}",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1073,11 +1280,11 @@
           ]
         },
         {
-          "name": "Tenant B refuses /records/events?source={{a_only_connector}}",
+          "name": "Tenant B refuses /records/vulnerability_finding?source={{a_only_connector}}",
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/records/events?source={{a_only_connector}}",
+            "url": "{{base_url}}/records/vulnerability_finding?source={{a_only_connector}}",
             "auth": {
               "type": "bearer",
               "bearer": [

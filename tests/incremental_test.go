@@ -121,7 +121,7 @@ func incrementalEnv(t *testing.T) (*environment, *changeFixture) {
 	policy := egress.Policy{RootCAs: e.vendor.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs, AllowPrivate: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}
 	e.requests = engine.New(e.svc, policy, slog.New(slog.NewTextHandler(e.logs, nil)))
 	e.runs = runner.NewWithClock(e.db.Store, e.requests, f.clock)
-	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc})
+	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc, Limits: &api.Limits{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +132,8 @@ func incrementalEnv(t *testing.T) (*environment, *changeFixture) {
 }
 func incrementalConfig(e *environment) config.Config {
 	c := userConfig("incremental_users", e.vendor.URL+"/changes")
-	c.Destination.Mapping["name"] = config.Field{Path: c.Destination.Mapping["name"].Path, Required: true}
-	c.Pagination = engine.Pagination{Type: "page", PageParam: "page", SizeParam: "per_page", PageSize: 2, StartPage: 1}
+	c.Destination.Mapping["user.name"] = config.Field{Path: c.Destination.Mapping["user.name"].Path, Required: true}
+	c.Pagination = engine.Pagination{Type: "page", PageParam: "page", SizeParam: "per_page", PageSize: 2, StartPage: func() *int { v := 1; return &v }()}
 	c.Retry.MaxAttempts = 1
 	c.Incremental = &config.Incremental{Type: "time_window", StartTime: "2026-01-01T00:00:00Z", SinceParam: "updated_since", UntilParam: "updated_before", UpdatedAtPath: "updated_at"}
 	return c
@@ -173,7 +173,7 @@ func TestIncrementalOnlyChangesRestartAndIsolation(t *testing.T) {
 		t.Fatal("did not fetch only changed users", second)
 	}
 	var records []model.User
-	if err := json.Unmarshal(e.request(t, "tenant-a", "GET", "/records/users?source="+c.ID, nil, 200), &records); err != nil || len(records) != 4 {
+	if err := json.Unmarshal(e.request(t, "tenant-a", "GET", "/schema/users?source="+c.ID, nil, 200), &records); err != nil || len(records) != 4 {
 		t.Fatal("upsert failed", err, len(records))
 	}
 	found := false
@@ -364,7 +364,7 @@ func TestIncrementalFailuresAndQuarantineNeverAdvance(t *testing.T) {
 			}
 			requireThrough(t, e, c.ID, f.clock())
 			var records []model.User
-			if err := json.Unmarshal(e.request(t, "tenant-a", "GET", "/records/users?source="+c.ID, nil, 200), &records); err != nil {
+			if err := json.Unmarshal(e.request(t, "tenant-a", "GET", "/schema/users?source="+c.ID, nil, 200), &records); err != nil {
 				t.Fatal(err)
 			}
 			f.mu.Lock()

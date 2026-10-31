@@ -26,28 +26,3 @@ func TestNotificationEnvironmentIsExplicitAndTenantBound(t *testing.T) {
 		env[k] = old
 	}
 }
-func TestOnboardingEnvironmentIsLocalAndDevelopmentOnly(t *testing.T) {
-	env := map[string]string{}
-	get := func(k string) string { return env[k] }
-	if c, e := Onboarding(get); c != nil || e != nil {
-		t.Fatal("prod default enabled UI")
-	}
-	env["CB_ENV"] = "dev"
-	if c, e := Onboarding(get); e != nil || c.Origin != "http://127.0.0.1:8080" {
-		t.Fatal(c, e)
-	}
-	env["CB_UI_ENABLED"] = "0"
-	if c, e := Onboarding(get); e != nil || c != nil {
-		t.Fatal("UI kill switch failed")
-	}
-	env["CB_UI_ENABLED"] = "1"
-	env["CB_ENV"] = "prod"
-	if _, e := Onboarding(get); e == nil {
-		t.Fatal("public production console enabled")
-	}
-	env["CB_ENV"] = "dev"
-	env["CB_UI_ORIGIN"] = "http://public.example.com"
-	if _, e := Onboarding(get); e == nil {
-		t.Fatal("public HTTP origin accepted")
-	}
-}

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// BuildSIEMSnapshot reads ONLY fixed run metadata and aggregate event fields.
-// It never selects credentials, descriptions, user records or config bodies.
+// BuildSIEMSnapshot reads ONLY fixed run metadata and aggregate OCSF fields
+// (counts). It never selects credentials, descriptions, user records or config bodies.
 // Caller holds the connector lock until indexing and retrieval finish.
 func (s Scope) BuildSIEMSnapshot(ctx context.Context, connector string) (out insights.Snapshot, err error) {
 	out.Connector = connector
@@ -77,12 +77,16 @@ func (s Scope) BuildSIEMSnapshot(ctx context.Context, connector string) (out ins
 		}
 		add("mapping_rejections", "mapping_rejections", rejected)
 		var high, auth, kev int64
-		// These are event-time windows, not ingestion-time windows. Re-fetching
-		// historical events must not turn them into fresh detections.
-		e = tx.QueryRow(ctx, `SELECT count(*) FILTER(WHERE payload->>'severity' IN('high','critical')),
- count(*) FILTER(WHERE payload->>'type' IN('login_failed','authentication_failure','failed_login')),
- count(*) FILTER(WHERE payload->>'type'='known_exploited_vulnerability')
- FROM events WHERE tenant_id=$1 AND source=$2 AND (payload->>'timestamp')::timestamptz >=$3 AND (payload->>'timestamp')::timestamptz <=$4`, s.Tenant, connector, out.WindowStart, out.WindowEnd).Scan(&high, &auth, &kev)
+		// OCSF event time (epoch ms), not ingestion time: re-fetching historical
+		// events must not turn them into fresh detections. Severity is OCSF
+		// severity_id (4 High, 5 Critical, 6 Fatal); a failed login is
+		// Authentication (3002) with status_id 2 (Failure); a KEV entry is a
+		// Vulnerability Finding (2002) flagged as exploited.
+		e = tx.QueryRow(ctx, `SELECT count(*) FILTER(WHERE payload->>'severity_id' IN('4','5','6')),
+ count(*) FILTER(WHERE class_uid=3002 AND payload->>'status_id'='2'),
+ count(*) FILTER(WHERE class_uid=2002 AND payload#>>'{vulnerabilities,0,is_exploit_available}'='true')
+ FROM ocsf_records WHERE tenant_id=$1 AND source=$2 AND jsonb_typeof(payload->'time')='number'
+ AND (payload->>'time')::numeric>=extract(epoch FROM $3::timestamptz)*1000 AND (payload->>'time')::numeric<=extract(epoch FROM $4::timestamptz)*1000`, s.Tenant, connector, out.WindowStart, out.WindowEnd).Scan(&high, &auth, &kev)
 		if e != nil {
 			return e
 		}

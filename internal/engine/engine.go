@@ -108,13 +108,24 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 	start.RawQuery = q.Encode()
 
 	var res Result
-	page, offset, cursor := c.Pagination.StartPage, 0, "" // position for page / offset / cursor styles
-	var next *url.URL                                     // link style: next URL taken from the Link header
-	seen := map[string]bool{}                             // URLs already fetched (loop detection)
+	page, offset, cursor := 0, 0, "" // position for page / offset / cursor styles
+	if c.Pagination.StartPage != nil {
+		page = *c.Pagination.StartPage
+	}
+	// effective page size: vendors often cap the size (ask 1000, get 100). The
+	// first non-empty page teaches us the real size, so a capped page is not
+	// mistaken for the last one (that silently dropped data).
+	effective := c.Pagination.PageSize
+	probing := false          // only fetching again to confirm a short first page was the last
+	var next *url.URL         // link style: next URL taken from the Link header
+	seen := map[string]bool{} // URLs already fetched (loop detection)
 
 	// 5. Page loop.
 	for {
 		if res.Pages >= c.Limits.MaxPages {
+			if probing {
+				return res, nil // the short first page was most likely the only one
+			}
 			return res, ErrPageLimit // runaway pagination protection
 		}
 
@@ -154,8 +165,15 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 			return res, nil // single request, done
 
 		case "page", "offset":
-			// A short page means it was the last one.
-			if len(items) < c.Pagination.PageSize {
+			// An empty page, or one shorter than the vendor's real page size, is the last.
+			if len(items) == 0 {
+				return res, nil
+			}
+			probing = false
+			if res.Pages == 1 && len(items) < effective {
+				effective = len(items) // vendor capped the size; one extra request confirms the end
+				probing = true
+			} else if len(items) < effective {
 				return res, nil
 			}
 			page++               // page style: ask for the next page number
@@ -164,7 +182,19 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 		case "cursor":
 			// Read the next cursor from the response body.
 			v, _ := getPath(payload, c.Pagination.CursorPath)
-			s, _ := v.(string)
+			var s string
+			switch x := v.(type) {
+			case nil:
+			case string:
+				s = x
+			case json.Number:
+				s = x.String()
+			case float64:
+				s = strconv.FormatFloat(x, 'f', -1, 64)
+			default:
+				// a cursor we can't send would silently end the run with partial data
+				return res, fmt.Errorf("page %d: cursor_path %q is not a string or number", res.Pages, c.Pagination.CursorPath)
+			}
 			if s == "" || len(items) == 0 {
 				return res, nil // no cursor (or empty page) = last page
 			}
@@ -182,7 +212,7 @@ func (e *Engine) Fetch(ctx context.Context, c Connector, emit func(Page) error) 
 			}
 			// SECURITY: a vendor (or an attacker who controls a response) must
 			// not be able to steer us, with our credentials, to another host.
-			if !strings.EqualFold(nu.Host, start.Host) {
+			if !strings.EqualFold(nu.Host, start.Host) || !strings.EqualFold(nu.Scheme, start.Scheme) {
 				err := fmt.Errorf("%w: next link points to a different host (%s)", egress.ErrBlocked, nu.Host)
 				e.logFailure(c, nu, err)
 				return res, err

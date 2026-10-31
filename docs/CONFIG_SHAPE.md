@@ -7,9 +7,9 @@ UI form, mapping, scheduler).
 
 **Status:** design agreed by Member A. Member B to review before either side builds on it.
 
-> **Scope (2026-10-31): PRD first.** The PRD requires FR-1..FR-11, its own common schema
-> (User / Device / Event, see §4.6) and **3 real free-tier sources**. Everything here that
-> goes beyond that (the 35 enterprise vendors, OCSF, collector, multi-tenant extras) is
+> **Scope (2026-10-31): PRD first.** The PRD requires FR-1..FR-11 and **3 real free-tier sources**.
+> The common schema is **OCSF 1.9.0** (changed 2026-10-31, see D6). Everything here that
+> goes beyond that (the 35 enterprise vendors, collector, multi-tenant extras) is
 > **roadmap**, built after the PRD is met.
 
 
@@ -24,7 +24,7 @@ UI form, mapping, scheduler).
 | D3 | Tenant connectors are JSON rows in Postgres (JSONB), entered via the UI form, two-person approved | No restart needed; tiny surface to review. |
 | D4 | Request templating = **fixed placeholders only** (`{{secret.x}}`, `{{token}}`, `{{discover.x}}`, `{{window.start}}`...), no logic | No template engine (Jinja-style sandboxes have a history of escapes; Go's `text/template` has no sandbox). Logic that's really needed becomes a named Go **signer**. |
 | D5 | Field mapping uses **CEL** (`github.com/google/cel-go`) | Non-Turing-complete, cost-limited, no I/O, used by Kubernetes for the same reason. JMESPath only extracts; inventing our own DSL is a trap. |
-| D6 | Target schema = **the PRD's common schema** (User / Device / Event, §4.6). OCSF = roadmap export | The PRD defines the required schema and FR-11 checks it. OCSF (the AWS Security Lake standard) is a later add-on, not a replacement. |
+| D6 | Target schema = **OCSF 1.9.0** (changed 2026-10-31; was User / Device / Event) | One standard schema instead of a home-grown one: SIEMs / Security Lake ingest it unchanged, the pinned schema validates every mapping key at `/validate`, and PRD user/device/event shapes map to User Inventory / Device Inventory / Findings. Config key is `destination.class` (not `ocsf_class` as sketched below). |
 | D7 | Cloud signing via official libraries: `aws-sdk-go-v2` (SigV4 + STS assume-role), `golang.org/x/oauth2/google` | Never hand-roll SigV4. This ends "stdlib only": dependencies are allowed when they are official vendor/Go-team libraries, pinned, and reviewed. |
 | D8 | On-prem tools: **collector only**. The platform never calls private IPs, no per-tenant exception | A private IP on our side is *our* VPC. "Allow this tenant's CIDR" would let a tenant scan our network. |
 | D9 | Self-signed TLS (on-prem firewalls, etc.): **pinned CA or SHA-256 fingerprint**, collector connections only. `insecure_skip_verify` does not exist | Cloud vendors use public CAs; turning verification off is never an option. |

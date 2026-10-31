@@ -13,8 +13,8 @@ on its own.
 **Status:** design, roadmap. Nothing here is built yet, and none of it is a PRD
 requirement (the PRD lists threat detection/alerting as *not required*). It comes
 after the three live sources. Decided 2026-10-31: AI works on **both** integrations
-and security data, **integrations first**. Data features run on the stored **PRD
-common schema** (User / Device / Event); OCSF is only a later export format.
+and security data, **integrations first**. Data features run on the stored **common
+schema, OCSF 1.9.0** (`ocsf_records`; decided 2026-10-31, replacing User / Device / Event).
 
 ---
 

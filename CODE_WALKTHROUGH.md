@@ -16,7 +16,9 @@ a broken request gets a failed run.”
 4. Member A's `engine.Fetch` makes guarded HTTPS requests, applies auth,
    retries temporary failures and follows the configured pagination style.
 5. Each page goes to `mapping.Map`. It finds nested fields, renames/converts
-   values, checks the typed User/Device/Event, and adds tenant/source/fetch time.
+   values, places them at OCSF paths, checks types/enums/required fields against the
+   pinned OCSF 1.9.0 schema (`pkg/ocsf`), and adds class, tenant, source and fetch time.
+   Records failing the config `filter` are counted as skipped before mapping.
 6. `Scope.SavePage` upserts valid records and stores minimal quarantine reasons
    in a short transaction. Network waits never hold these transactions open.
 7. `Scope.FinishRun` records counts/outcome. Health shows failed/partial/bad-row

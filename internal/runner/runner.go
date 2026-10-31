@@ -24,12 +24,20 @@ type Fetcher interface {
 var ErrLimit = errors.New("collection_limit")
 var ErrNotDue = errors.New("not_due")
 
+// Concurrency: runs are I/O-bound (~50 ms each against a fast vendor), so a
+// handful in parallel is cheap. The same connector never runs twice at once
+// (advisory lock); PerTenantRuns stops one tenant from taking every slot.
+const (
+	GlobalRuns    = 8
+	PerTenantRuns = 4
+)
+
 type Runner struct {
 	Store   *store.Store
 	Fetcher Fetcher
 	slots   chan struct{}
 	mu      sync.Mutex
-	tenants map[string]bool
+	tenants map[string]int
 	clock   func() time.Time
 }
 
@@ -43,12 +51,12 @@ func NewWithClock(s *store.Store, f Fetcher, clock func() time.Time) *Runner {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Runner{Store: s, Fetcher: f, slots: make(chan struct{}, 2), tenants: map[string]bool{}, clock: clock}
+	return &Runner{Store: s, Fetcher: f, slots: make(chan struct{}, GlobalRuns), tenants: map[string]int{}, clock: clock}
 }
 func (r *Runner) capacity(tenant string) (func(), bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.tenants[tenant] {
+	if r.tenants[tenant] >= PerTenantRuns { // fairness: one tenant can't take every slot
 		return nil, false
 	}
 	select {
@@ -56,8 +64,15 @@ func (r *Runner) capacity(tenant string) (func(), bool) {
 	default:
 		return nil, false
 	}
-	r.tenants[tenant] = true
-	return func() { r.mu.Lock(); delete(r.tenants, tenant); <-r.slots; r.mu.Unlock() }, true
+	r.tenants[tenant]++
+	return func() {
+		r.mu.Lock()
+		if r.tenants[tenant]--; r.tenants[tenant] <= 0 {
+			delete(r.tenants, tenant)
+		}
+		<-r.slots
+		r.mu.Unlock()
+	}, true
 }
 func (r *Runner) Run(ctx context.Context, tenant, id string, test, scheduled bool) (model.Run, error) {
 	return r.run(ctx, tenant, id, test, scheduled, 0)
@@ -73,6 +88,12 @@ func (r *Runner) Preview(ctx context.Context, tenant, id string, revision int) (
 }
 func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled bool, revision int) (model.Run, error) {
 	release, ok := r.capacity(tenant)
+	// A manual run waits briefly for the tenant's slot (another source may be
+	// running on schedule) instead of failing; scheduled runs just retry next tick.
+	for wait := time.Now().Add(30 * time.Second); !ok && !scheduled && time.Now().Before(wait) && ctx.Err() == nil; {
+		time.Sleep(200 * time.Millisecond)
+		release, ok = r.capacity(tenant)
+	}
 	if !ok {
 		return model.Run{}, store.ErrBusy
 	}
@@ -161,6 +182,10 @@ func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled boo
 				if q != nil {
 					q.Page = page.Number
 					bad = append(bad, *q)
+					continue
+				}
+				if !mapping.Keep(row, c.Filter, now) {
+					run.Skipped++
 					continue
 				}
 				rec, q := mapping.Map(row, c, tenant, now, run.Received+i)
@@ -270,9 +295,9 @@ func Category(e error) string {
 	return "collection_failed"
 }
 func (r *Runner) Schedule(ctx context.Context, tick time.Duration) {
-	jobs := make(chan store.Job, 10)
+	jobs := make(chan store.Job, 4*GlobalRuns)
 	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
+	for i := 0; i < GlobalRuns; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

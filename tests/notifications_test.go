@@ -18,7 +18,7 @@ import (
 
 func notificationEnv(t *testing.T) *environment {
 	e := setup(t)
-	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc, NotificationTenants: map[string]bool{"tenant-a": true, "tenant-b": true}})
+	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc, Limits: &api.Limits{}, NotificationTenants: map[string]bool{"tenant-a": true, "tenant-b": true}})
 	if err != nil {
 		t.Fatal(err)
 	}

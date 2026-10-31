@@ -24,19 +24,60 @@ import (
 var migration string
 
 //go:embed migrations/002_exposure.sql
-var exposureMigration string
+var migrationExposure string
 
 //go:embed migrations/003_ai_drafts.sql
-var aiMigration string
+var migrationAI string
 
 //go:embed migrations/004_incremental.sql
-var incrementalMigration string
+var migrationIncremental string
 
 //go:embed migrations/005_notifications.sql
-var notificationsMigration string
+var migrationNotifications string
 
-//go:embed migrations/006_siem.sql
-var siemMigration string
+//go:embed migrations/006_ocsf.sql
+var migrationOCSF string
+
+//go:embed migrations/007_prd_views.sql
+var migrationPRDViews string
+
+//go:embed migrations/008_scale.sql
+var migrationScale string
+
+//go:embed migrations/009_exposure_ocsf.sql
+var migrationExposureOCSF string
+
+//go:embed migrations/010_iam.sql
+var migrationIAM string
+
+//go:embed migrations/011_sessions.sql
+var migrationSessions string
+
+//go:embed migrations/012_siem.sql
+var migrationSIEM string
+
+// migrations run in order, once each, inside the migration transaction. Each
+// lists the tables it creates so they get forced row-level security.
+// 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
+var migrations = []struct {
+	version int
+	sql     string
+	tables  []string
+}{
+	{1, migration, []string{"tenants", "api_keys", "configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"}},
+	{2, migrationExposure, nil},
+	{3, migrationAI, []string{"ai_usage", "ai_audit"}},
+	{4, migrationIncremental, nil},
+	{5, migrationNotifications, []string{"alert_state", "alert_outbox"}},
+	{6, migrationOCSF, []string{"ocsf_records"}},
+	{7, migrationPRDViews, nil},
+	{8, migrationScale, nil},
+	{9, migrationExposureOCSF, nil},
+	{10, migrationIAM, []string{"iam_users"}},
+	{11, migrationSessions, []string{"iam_sessions"}},
+	// 12 was 006_siem on main (member-b); renumbered after this branch's 6-11.
+	{12, migrationSIEM, []string{"siem_snapshots", "siem_findings", "ai_requests"}},
+}
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
 
@@ -103,105 +144,34 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version integer PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())`); e != nil {
 		return e
 	}
-	var exists bool
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=1)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
+	for _, m := range migrations {
+		var exists bool
+		if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", m.version).Scan(&exists); e != nil {
+			return e
+		}
+		if exists {
+			continue
+		}
 		policies := ""
-		for _, table := range []string{"tenants", "api_keys", "configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"} {
+		for _, table := range m.tables {
 			quoted := pgx.Identifier{schema, table}.Sanitize()
 			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", quoted, quoted, quoted, literal(owner), literal(owner))
 		}
-		sql := strings.ReplaceAll(migration, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
+		sql := strings.ReplaceAll(m.sql, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
 		sql = strings.Replace(sql, "__RLS_POLICIES__", policies, 1)
 		if _, e = tx.Exec(ctx, sql); e != nil {
 			return e
 		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(1)"); e != nil {
-			return e
-		}
-	}
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
-		sql := strings.ReplaceAll(exposureMigration, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
-		if _, e = tx.Exec(ctx, sql); e != nil {
-			return e
-		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(2)"); e != nil {
-			return e
-		}
-	}
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
-		policies := ""
-		for _, table := range []string{"ai_usage", "ai_audit"} {
-			q := pgx.Identifier{schema, table}.Sanitize()
-			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK (tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", q, q, q, literal(owner), literal(owner))
-		}
-		sql := strings.Replace(aiMigration, "__RLS_POLICIES__", policies, 1)
-		if _, e = tx.Exec(ctx, sql); e != nil {
-			return e
-		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(3)"); e != nil {
-			return e
-		}
-	}
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
-		if _, e = tx.Exec(ctx, incrementalMigration); e != nil {
-			return e
-		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(4)"); e != nil {
-			return e
-		}
-	}
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
-		policies := ""
-		for _, table := range []string{"alert_state", "alert_outbox"} {
-			q := pgx.Identifier{schema, table}.Sanitize()
-			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", q, q, q, literal(owner), literal(owner))
-		}
-		sql := strings.ReplaceAll(notificationsMigration, "__SCHEMA__", pgx.Identifier{schema}.Sanitize())
-		sql = strings.Replace(sql, "__RLS_POLICIES__", policies, 1)
-		if _, e = tx.Exec(ctx, sql); e != nil {
-			return e
-		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(5)"); e != nil {
-			return e
-		}
-	}
-	if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)").Scan(&exists); e != nil {
-		return e
-	}
-	if !exists {
-		policies := ""
-		for _, table := range []string{"siem_snapshots", "siem_findings", "ai_requests"} {
-			q := pgx.Identifier{schema, table}.Sanitize()
-			policies += fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY; ALTER TABLE %s FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON %s USING(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s) WITH CHECK(tenant_id=current_setting('app.tenant_id',true) OR current_user=%s);", q, q, q, literal(owner), literal(owner))
-		}
-		if _, e = tx.Exec(ctx, strings.Replace(siemMigration, "__RLS_POLICIES__", policies, 1)); e != nil {
-			return e
-		}
-		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES(6)"); e != nil {
+		if _, e = tx.Exec(ctx, "INSERT INTO schema_migrations(version)VALUES($1)", m.version); e != nil {
 			return e
 		}
 	}
 	role := pgx.Identifier{appRole}.Sanitize()
 	sch := pgx.Identifier{schema}.Sanitize()
-	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+sch+".siem_snapshots,"+sch+".siem_findings TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_requests TO "+role); e != nil {
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage,"+sch+".ai_requests TO "+role); e != nil {
 		return e
 	}
-	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT ON "+sch+".ai_audit TO "+role+"; GRANT SELECT,INSERT,UPDATE ON "+sch+".ai_usage TO "+role); e != nil {
+	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+sch+".siem_snapshots,"+sch+".siem_findings TO "+role); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE ON "+sch+".alert_state,"+sch+".alert_outbox TO "+role); e != nil {
@@ -210,13 +180,15 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, table := range []string{"configs", "credentials_meta", "credentials_values", "runs", "users", "devices", "events", "quarantine", "sync_state"} {
+	for _, table := range []string{"configs", "credentials_meta", "credentials_values", "runs", "ocsf_records", "quarantine", "sync_state", "iam_users", "api_keys", "iam_sessions"} {
 		if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+pgx.Identifier{schema, table}.Sanitize()+" TO "+role); e != nil {
 			return e
 		}
 	}
-	if _, e = tx.Exec(ctx, "GRANT SELECT ON "+sch+".tenants TO "+role); e != nil {
-		return e
+	for _, table := range append([]string{"tenants"}, PRDViews...) {
+		if _, e = tx.Exec(ctx, "GRANT SELECT ON "+pgx.Identifier{schema, table}.Sanitize()+" TO "+role); e != nil {
+			return e
+		}
 	}
 	if _, e = tx.Exec(ctx, "GRANT SELECT ON "+sch+".vendor_aliases TO "+role); e != nil {
 		return e
@@ -224,7 +196,8 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON ALL SEQUENCES IN SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()"} {
+	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()",
+		"authenticate_api_key_user(bytea)", "iam_login_lookup(text,text)", "iam_create_account(text,text,text,text,text)"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e
 		}
@@ -280,22 +253,32 @@ func (s *Store) Authenticate(ctx context.Context, key string) (string, error) {
 
 type Caller struct {
 	Tenant string
-	Actor  string
+	Actor  string // audit identity: api_key:<id> or user:<id>
+	Role   string // admin | editor | operator | viewer
+	UserID string // empty for the account root key
+	KeyID  string // set when authenticated by an access key
+	// SessionID is the console session (cookie sign-in), empty for keys.
+	SessionID string
 }
 
 func (s *Store) AuthenticateCaller(ctx context.Context, key string) (Caller, error) {
 	hash := sha256.Sum256([]byte(key))
-	var tenant, principal string
+	var tenant, principal, role string
+	var user *string
 	var stored []byte
-	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash,principal_id FROM authenticate_api_key_identity($1)", hash[:]).Scan(&tenant, &stored, &principal)
+	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash,principal_id,user_id,role FROM authenticate_api_key_user($1)", hash[:]).Scan(&tenant, &stored, &principal, &user, &role)
 	if e != nil || !config.ValidID(tenant) {
 		return Caller{}, ErrNotFound
 	}
 	// The narrow security-definer lookup returns no unhashed key or customer data.
-	if e != nil || subtle.ConstantTimeCompare(stored, hash[:]) != 1 {
+	if subtle.ConstantTimeCompare(stored, hash[:]) != 1 {
 		return Caller{}, ErrNotFound
 	}
-	return Caller{Tenant: tenant, Actor: "api_key:" + principal}, nil
+	c := Caller{Tenant: tenant, Actor: "api_key:" + principal, Role: role, KeyID: principal}
+	if user != nil {
+		c.UserID = *user
+	}
+	return c, nil
 }
 func (s Scope) WithTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if !config.ValidID(s.Tenant) {
@@ -324,6 +307,8 @@ type SavedConfig struct {
 	Revision int           `json:"revision"`
 	Status   string        `json:"status"`
 	Hash     string        `json:"hash"`
+	// Unchanged: the body equals the newest revision, so no new revision was made.
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 func (s Scope) SaveConfig(ctx context.Context, c config.Config) (out SavedConfig, err error) {
@@ -339,13 +324,22 @@ func (s Scope) SaveConfig(ctx context.Context, c config.Config) (out SavedConfig
 		if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", s.LockKey("version", c.ID)); e != nil {
 			return e
 		}
-		var revision int
-		if e = tx.QueryRow(ctx, "SELECT COALESCE(MAX(version),0)+1 FROM configs WHERE tenant_id=$1 AND id=$2", s.Tenant, c.ID).Scan(&revision); e != nil {
+		hash := hex.EncodeToString(sum[:])
+		// Saving an identical config again returns the newest revision instead of
+		// piling up duplicate drafts that look like pending changes.
+		var newest int
+		var newestHash, newestStatus string
+		e = tx.QueryRow(ctx, "SELECT version,config_hash,status FROM configs WHERE tenant_id=$1 AND id=$2 ORDER BY version DESC LIMIT 1", s.Tenant, c.ID).Scan(&newest, &newestHash, &newestStatus)
+		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 			return e
 		}
-		hash := hex.EncodeToString(sum[:])
+		if newestHash == hash {
+			out = SavedConfig{Config: c, Revision: newest, Status: newestStatus, Hash: hash, Unchanged: true}
+			return nil
+		}
+		revision := newest + 1
 		_, e = tx.Exec(ctx, "INSERT INTO configs(tenant_id,id,version,status,body,config_hash)VALUES($1,$2,$3,'draft',$4,$5)", s.Tenant, c.ID, revision, body, hash)
-		out = SavedConfig{c, revision, "draft", hash}
+		out = SavedConfig{Config: c, Revision: revision, Status: "draft", Hash: hash}
 		return e
 	})
 	return
@@ -366,6 +360,40 @@ func (s Scope) Config(ctx context.Context, id string, live bool) (out SavedConfi
 			return e
 		}
 		return json.Unmarshal(body, &out.Config)
+	})
+	return
+}
+
+// ConfigSummary is one connector's newest revision plus its live revision (0 = none).
+type ConfigSummary struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Class    string    `json:"class"`
+	Revision int       `json:"revision"`
+	Status   string    `json:"status"`
+	Hash     string    `json:"hash"`
+	Live     int       `json:"live_revision"`
+	Created  time.Time `json:"created_at"`
+}
+
+func (s Scope) Configs(ctx context.Context, limit, offset int) (out []ConfigSummary, err error) {
+	out = []ConfigSummary{}
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		rows, e := tx.Query(ctx, `SELECT DISTINCT ON (c.id) c.id,COALESCE(c.body->>'name',''),COALESCE(c.body->'destination'->>'class',''),c.version,c.status,c.config_hash,c.created_at,
+			COALESCE((SELECT MAX(l.version) FROM configs l WHERE l.tenant_id=c.tenant_id AND l.id=c.id AND l.status='live'),0)
+			FROM configs c WHERE c.tenant_id=$1 ORDER BY c.id,c.version DESC LIMIT $2 OFFSET $3`, s.Tenant, limit, offset)
+		if e != nil {
+			return e
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var c ConfigSummary
+			if e = rows.Scan(&c.ID, &c.Name, &c.Class, &c.Revision, &c.Status, &c.Hash, &c.Created, &c.Live); e != nil {
+				return e
+			}
+			out = append(out, c)
+		}
+		return rows.Err()
 	})
 	return
 }
@@ -501,18 +529,10 @@ func (s Scope) SavePage(ctx context.Context, runID, source string, records []mod
 			if r.TenantID != s.Tenant || r.Source != source {
 				return errors.New("record_scope_mismatch")
 			}
-			var query string
-			switch r.Entity {
-			case "user":
-				query = `INSERT INTO users(tenant_id,source,external_id,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`
-			case "device":
-				query = `INSERT INTO devices(tenant_id,source,external_id,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`
-			case "event":
-				query = `INSERT INTO events(tenant_id,source,external_id,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`
-			default:
-				return errors.New("invalid_entity")
+			if r.ClassUID < 1 {
+				return errors.New("invalid_class")
 			}
-			if _, e := tx.Exec(ctx, query, s.Tenant, source, r.ID, []byte(r.Payload), r.FetchedAt, runID); e != nil {
+			if _, e := tx.Exec(ctx, `INSERT INTO ocsf_records(tenant_id,source,external_id,class_uid,payload,fetched_at,run_id)VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(tenant_id,source,external_id) DO UPDATE SET class_uid=excluded.class_uid,payload=excluded.payload,fetched_at=excluded.fetched_at,run_id=excluded.run_id`, s.Tenant, source, r.ID, r.ClassUID, []byte(r.Payload), r.FetchedAt, runID); e != nil {
 				return e
 			}
 		}
@@ -538,7 +558,7 @@ func (s Scope) FinishRun(ctx context.Context, r model.Run, interval int) error {
 				checkpoint, _ = json.Marshal(incremental.Checkpoint{Version: 1, ConfigHash: r.ConfigHash, Through: copy.Until})
 			}
 		}
-		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10,incremental=$11 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error, window)
+		tag, e := tx.Exec(ctx, "UPDATE runs SET ended_at=$3,outcome=$4,pages=$5,attempts=$6,received=$7,accepted=$8,quarantined=$9,error=$10,incremental=$11,skipped=$12 WHERE tenant_id=$1 AND id=$2 AND outcome='running'", s.Tenant, r.ID, r.EndedAt, r.Outcome, r.Pages, r.Attempts, r.Received, r.Accepted, r.Quarantined, r.Error, window, r.Skipped)
 		if e != nil {
 			return e
 		}
@@ -612,7 +632,7 @@ func (s Scope) IsDue(ctx context.Context, id string) (due bool, err error) {
 func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []model.Run, err error) {
 	out = []model.Run{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
-		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error,incremental FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
+		rows, e := tx.Query(ctx, `SELECT tenant_id,id,connector,config_version,config_hash,mode,started_at,ended_at,outcome,pages,attempts,received,accepted,quarantined,error,incremental,skipped FROM runs WHERE tenant_id=$1 AND ($2='' OR connector=$2) ORDER BY started_at DESC,id LIMIT $3 OFFSET $4`, s.Tenant, id, limit, offset)
 		if e != nil {
 			return e
 		}
@@ -620,7 +640,7 @@ func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []mo
 		for rows.Next() {
 			var r model.Run
 			var window []byte
-			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error, &window); e != nil {
+			if e = rows.Scan(&r.TenantID, &r.ID, &r.Connector, &r.ConfigVersion, &r.ConfigHash, &r.Mode, &r.StartedAt, &r.EndedAt, &r.Outcome, &r.Pages, &r.Attempts, &r.Received, &r.Accepted, &r.Quarantined, &r.Error, &window, &r.Skipped); e != nil {
 				return e
 			}
 			if len(window) > 0 && json.Unmarshal(window, &r.Incremental) != nil {
@@ -632,18 +652,43 @@ func (s Scope) Runs(ctx context.Context, id string, limit, offset int) (out []mo
 	})
 	return
 }
-func (s Scope) Records(ctx context.Context, entity, source string, limit, offset int) (out []json.RawMessage, err error) {
-	var q string
-	switch entity {
-	case "user":
-		q = "SELECT payload FROM users WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
-	case "device":
-		q = "SELECT payload FROM devices WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
-	case "event":
-		q = "SELECT payload FROM events WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
-	default:
+
+// Records returns stored OCSF events of one class (by class_uid), optionally for one source.
+func (s Scope) Records(ctx context.Context, classUID int, source string, limit, offset int) (out []json.RawMessage, err error) {
+	q := "SELECT payload FROM ocsf_records WHERE tenant_id=$1 AND class_uid=$5 AND ($2='' OR source=$2) ORDER BY source,external_id LIMIT $3 OFFSET $4"
+	out = []json.RawMessage{}
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		rows, e := tx.Query(ctx, q, s.Tenant, source, limit, offset, classUID)
+		if e != nil {
+			return e
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var raw []byte
+			if e = rows.Scan(&raw); e != nil {
+				return e
+			}
+			out = append(out, json.RawMessage(raw))
+		}
+		return rows.Err()
+	})
+	return
+}
+
+// PRDViews are the PRD "common schema (minimum)" views (migration 003).
+var PRDViews = []string{"users", "devices", "events"}
+
+// View reads one PRD view as JSON rows. name must be one of PRDViews; the view
+// is security_invoker, so RLS on ocsf_records still scopes it to the tenant.
+func (s Scope) View(ctx context.Context, name, source string, limit, offset int) (out []json.RawMessage, err error) {
+	ok := false
+	for _, v := range PRDViews {
+		ok = ok || v == name
+	}
+	if !ok {
 		return nil, ErrNotFound
 	}
+	q := "SELECT row_to_json(v) FROM " + pgx.Identifier{s.Store.namespace, name}.Sanitize() + " v WHERE tenant_id=$1 AND ($2='' OR source=$2) ORDER BY source,id LIMIT $3 OFFSET $4"
 	out = []json.RawMessage{}
 	err = s.WithTx(ctx, func(tx pgx.Tx) error {
 		rows, e := tx.Query(ctx, q, s.Tenant, source, limit, offset)

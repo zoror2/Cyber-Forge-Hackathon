@@ -1,6 +1,7 @@
 package api
 
 import (
+	"configbridge/internal/ai"
 	"configbridge/internal/insights"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
@@ -10,15 +11,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sync"
 	"time"
 )
 
-// Explainer is Mohit's adapter boundary for the later Bedrock implementation.
-// It receives validated aggregate facts, never SQL, raw questions or raw data.
+// Explainer is the model boundary (internal/ai.Client: Gemini, Groq or
+// Bedrock). It receives validated aggregate facts, never SQL, raw questions or raw data.
 type Explainer interface {
 	Explain(context.Context, insights.Evidence) (insights.Answer, insights.Usage, error)
-	Name() string
-	Model() string
+	Provider() string
+	ModelID() string
 }
 type SIEM struct {
 	Search         insights.Search
@@ -26,8 +29,30 @@ type SIEM struct {
 	EnabledTenants map[string]bool
 	DailyTokens    int64
 	DailyCalls     int
-	gate           Drafting
+	mu             sync.Mutex
+	active         map[string]bool // one explanation per tenant at a time
 }
+
+func (s *SIEM) acquire(tenant string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active[tenant] {
+		return false
+	}
+	if s.active == nil {
+		s.active = map[string]bool{}
+	}
+	s.active[tenant] = true
+	return true
+}
+func (s *SIEM) release(tenant string) {
+	s.mu.Lock()
+	delete(s.active, tenant)
+	s.mu.Unlock()
+}
+
+// References stay within the authenticated API; no provider-supplied URLs.
+func runReference(connector string) string { return "/runs?connector=" + url.QueryEscape(connector) }
 
 func (a *API) siemEnabled(tenant string) bool {
 	return a.SIEM != nil && a.SIEM.Search != nil && a.SIEM.EnabledTenants[tenant]
@@ -126,10 +151,10 @@ func (a *API) answerSIEM(ctx context.Context, scope store.Scope, actor string, i
 	if !config.ValidID(in.Connector) || !insights.Topic(in.Topic) || !in.Consent {
 		return out, insights.ErrEvidence
 	}
-	if !a.SIEM.gate.acquire(scope.Tenant) {
+	if !a.SIEM.acquire(scope.Tenant) {
 		return out, store.ErrBusy
 	}
-	defer a.SIEM.gate.release(scope.Tenant)
+	defer a.SIEM.release(scope.Tenant)
 	// Keep the connector lease through index retrieval and DB revalidation only;
 	// a slow LLM must never block scheduled collection.
 	snap, err := a.refreshSIEM(ctx, scope, in.Connector)
@@ -162,17 +187,10 @@ func (a *API) answerSIEM(ctx context.Context, scope store.Scope, actor string, i
 		return out, err
 	}
 	out.RequestID = hex.EncodeToString(id)
-	out.Provider = a.SIEM.Provider.Name()
-	out.Model = a.SIEM.Provider.Model()
-	limit := a.SIEM.DailyTokens
-	if limit == 0 {
-		limit = 400000
-	}
-	calls := a.SIEM.DailyCalls
-	if calls == 0 {
-		calls = 20
-	}
-	if err = scope.ReserveMeteredAI(ctx, calls, limit, store.AIAudit{RequestID: out.RequestID, Actor: actor, SourceID: "aggregate_siem", Provider: out.Provider, Model: out.Model, PromptVersion: "siem-summary-v1"}, "siem_explanation"); err != nil {
+	out.Provider = a.SIEM.Provider.Provider()
+	out.Model = a.SIEM.Provider.ModelID()
+	// limits come from .env (internal/app.SIEM); nothing is defaulted here
+	if err = scope.ReserveMeteredAI(ctx, a.SIEM.DailyCalls, a.SIEM.DailyTokens, store.AIAudit{RequestID: out.RequestID, Actor: actor, SourceID: "aggregate_siem", Provider: out.Provider, Model: out.Model, PromptVersion: ai.ExplainPromptVersion}, "siem_explanation"); err != nil {
 		return out, err
 	}
 	out.Answer, out.Usage, err = a.SIEM.Provider.Explain(ctx, out.Evidence)
@@ -190,7 +208,7 @@ func (a *API) answerSIEM(ctx context.Context, scope store.Scope, actor string, i
 	if e := scope.FinishTokens(finish, out.RequestID, outcome, out.Usage); e != nil {
 		return out, e
 	}
-	if e := scope.RecordAI(finish, store.AIAudit{RequestID: out.RequestID, Actor: actor, SourceID: "aggregate_siem", Provider: out.Provider, Model: out.Model, PromptVersion: "siem-summary-v1", Outcome: outcome}); e != nil {
+	if e := scope.RecordAI(finish, store.AIAudit{RequestID: out.RequestID, Actor: actor, SourceID: "aggregate_siem", Provider: out.Provider, Model: out.Model, PromptVersion: ai.ExplainPromptVersion, Outcome: outcome}); e != nil {
 		return out, e
 	}
 	out.Status = "explanation_requires_review"

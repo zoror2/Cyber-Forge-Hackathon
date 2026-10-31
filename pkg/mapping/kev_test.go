@@ -2,7 +2,6 @@ package mapping
 
 import (
 	"configbridge/pkg/config"
-	"configbridge/pkg/model"
 	"encoding/json"
 	"os"
 	"strings"
@@ -24,12 +23,19 @@ func TestKEVVendorProductMapping(t *testing.T) {
 	if bad != nil {
 		t.Fatal(bad)
 	}
-	var event model.Event
-	if err = json.Unmarshal(rec.Payload, &event); err != nil {
+	var f struct {
+		Vulns []struct {
+			Vendor string `json:"vendor_name"`
+		} `json:"vulnerabilities"`
+		Unmapped struct {
+			Product string `json:"product"`
+		} `json:"unmapped"`
+	}
+	if err = json.Unmarshal(rec.Payload, &f); err != nil {
 		t.Fatal(err)
 	}
-	if event.Vendor == nil || *event.Vendor != "Ivanti" || event.Product == nil || *event.Product != "Endpoint Manager (EPM)" || event.TimestampPrecision != "date" {
-		t.Fatalf("incorrect KEV mapping: %+v", event)
+	if len(f.Vulns) != 1 || f.Vulns[0].Vendor != "Ivanti" || f.Unmapped.Product != "Endpoint Manager (EPM)" {
+		t.Fatalf("incorrect KEV mapping: %s", rec.Payload)
 	}
 	delete(row, "vendorProject")
 	delete(row, "product")

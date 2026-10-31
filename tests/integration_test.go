@@ -13,6 +13,7 @@ import (
 	"configbridge/internal/testutil"
 	"configbridge/pkg/config"
 	"configbridge/pkg/model"
+	"configbridge/pkg/ocsf"
 	"configbridge/pkg/secrets"
 	"context"
 	"encoding/base64"
@@ -124,7 +125,7 @@ func setup(t *testing.T) *environment {
 	e.svc = &secrets.Service{Store: db.Store, Backend: local, BackendName: "local"}
 	e.requests = engine.New(e.svc, egress.Policy{RootCAs: root, AllowPrivate: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}, slog.New(slog.NewTextHandler(e.logs, nil)))
 	e.runs = runner.New(db.Store, e.requests)
-	h, err := api.New(&api.API{Store: db.Store, Engine: e.runs, Secrets: e.svc})
+	h, err := api.New(&api.API{Store: db.Store, Engine: e.runs, Secrets: e.svc, Limits: &api.Limits{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func portOf(raw string) int {
 }
 func userConfig(id, url string) config.Config {
 	path := func(s string) *string { return &s }
-	c := config.Config{Version: 1, ID: id, Name: id, Request: engine.Request{URL: url, Method: "GET", TimeoutSeconds: 1, AllowedPorts: []int{portOf(url)}}, Auth: engine.Auth{Type: "none"}, Pagination: engine.Pagination{Type: "none"}, Destination: config.Destination{Entity: "user", Mapping: map[string]config.Field{"id": {Path: path("id"), Required: true, Transform: "string"}, "name": {Path: path("profile.name")}, "email": {Path: path("email")}, "last_login": {Path: path("last_login"), Transform: "datetime"}}}, Retry: engine.Retry{MaxAttempts: 2, BaseDelayMillis: 1, MaxRetryAfterSeconds: 5}}
+	c := config.Config{Version: 1, ID: id, Name: id, Request: engine.Request{URL: url, Method: "GET", TimeoutSeconds: 1, AllowedPorts: []int{portOf(url)}}, Auth: engine.Auth{Type: "none"}, Pagination: engine.Pagination{Type: "none"}, Destination: config.Destination{Class: "user_inventory", Mapping: map[string]config.Field{"user.uid": {Path: path("id"), Required: true, Transform: "string"}, "user.name": {Path: path("profile.name")}, "user.email_addr": {Path: path("email")}, "user.ldap_person.last_login_time": {Path: path("last_login"), Transform: "datetime"}}}, Retry: engine.Retry{MaxAttempts: 2, BaseDelayMillis: 1, MaxRetryAfterSeconds: 5}}
 	c.Defaults()
 	c.Limits.MaxRunSeconds = 10
 	c.Limits.MaxPages = 10
@@ -211,7 +212,7 @@ func TestCombinedAPIPageMappingAndIsolation(t *testing.T) {
 	e.request(t, "tenant-a", "POST", "/connectors/users/run", []byte(`{}`), 400)
 	e.request(t, "tenant-a", "POST", "/connectors/users/test", nil, 200)
 	runs, _ := a.Runs(ctx, "", 100, 0)
-	rows, _ := a.Records(ctx, "user", "", 100, 0)
+	rows, _ := a.Records(ctx, 5003, "", 100, 0)
 	if len(runs) != 0 || len(rows) != 0 {
 		t.Fatal("test connection wrote data")
 	}
@@ -221,13 +222,13 @@ func TestCombinedAPIPageMappingAndIsolation(t *testing.T) {
 			t.Fatal(r)
 		}
 	}
-	rows, err := a.Records(ctx, "user", "users", 100, 0)
+	rows, err := a.Records(ctx, 5003, "users", 100, 0)
 	if err != nil || len(rows) != 25 {
 		t.Fatal("duplicates or missing rows", len(rows), err)
 	}
 	var first map[string]any
 	json.Unmarshal(rows[0], &first)
-	if first["source"] != "users" || first["tenant_id"] != "tenant-a" || first["fetched_at"] == nil {
+	if ocsf.Get(first, "metadata.source") != "users" || ocsf.Get(first, "metadata.tenant_uid") != "tenant-a" || ocsf.Get(first, "metadata.processed_time") == nil || first["class_uid"] != float64(5003) {
 		t.Fatal("missing provenance")
 	}
 	for _, path := range []string{"/configs/users/validate", "/configs/users/activate", "/connectors/users/test", "/connectors/users/run"} {
@@ -237,10 +238,10 @@ func TestCombinedAPIPageMappingAndIsolation(t *testing.T) {
 		}
 		e.request(t, "tenant-b", "POST", path, body, 404)
 	}
-	for _, path := range []string{"/runs?connector=users", "/records/users?source=users", "/records/devices?source=users", "/records/events?source=users", "/quarantine?connector=users"} {
+	for _, path := range []string{"/runs?connector=users", "/records/user_inventory?source=users", "/records/inventory_info?source=users", "/records/vulnerability_finding?source=users", "/quarantine?connector=users"} {
 		e.request(t, "tenant-b", "GET", path, nil, 404)
 	}
-	for _, path := range []string{"/health", "/runs", "/records/users", "/records/devices", "/records/events", "/quarantine", "/secrets"} {
+	for _, path := range []string{"/health", "/runs", "/records/user_inventory", "/records/inventory_info", "/records/vulnerability_finding", "/quarantine", "/secrets"} {
 		raw := e.request(t, "tenant-b", "GET", path, nil, 200)
 		if strings.TrimSpace(string(raw)) != "[]" {
 			t.Fatalf("tenant B saw data through %s", path)
@@ -248,12 +249,14 @@ func TestCombinedAPIPageMappingAndIsolation(t *testing.T) {
 	}
 	e.save(t, "tenant-b", c, true)
 	e.run(t, "tenant-b", "users", 200)
-	other, _ := b.Records(ctx, "user", "", 100, 0)
+	other, _ := b.Records(ctx, 5003, "", 100, 0)
 	if len(other) != 25 {
 		t.Fatal("tenant B couldn't use same IDs")
 	}
 	for _, raw := range other {
-		if !bytes.Contains(raw, []byte(`"tenant_id": "tenant-b"`)) && !bytes.Contains(raw, []byte(`"tenant_id":"tenant-b"`)) {
+		var rec map[string]any
+		json.Unmarshal(raw, &rec)
+		if ocsf.Get(rec, "metadata.tenant_uid") != "tenant-b" {
 			t.Fatal("tenant crossed storage")
 		}
 	}
@@ -309,13 +312,15 @@ func TestCombinedQuarantineDatesAndUpsert(t *testing.T) {
 		}
 	}
 	scope := e.db.Store.ForTenant("tenant-a")
-	rows, _ := scope.Records(ctx, "event", c.ID, 100, 0)
+	rows, _ := scope.Records(ctx, 2002, c.ID, 100, 0)
 	q, _ := scope.Quarantine(ctx, c.ID, 100, 0)
-	if len(rows) != 3 || len(q) != 2 || q[0]["field"] != "id" || q[0]["page"] != 1 {
-		t.Fatal("quarantine or upsert mismatch")
+	if len(rows) != 3 || len(q) != 2 || q[0]["field"] != "finding_info.uid" || q[0]["page"] != 1 {
+		t.Fatal("quarantine or upsert mismatch", len(rows), q)
 	}
-	if !bytes.Contains(rows[0], []byte("timestamp_precision")) {
-		t.Fatal("date precision lost")
+	var finding map[string]any
+	json.Unmarshal(rows[0], &finding)
+	if finding["time"] != float64(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC).UnixMilli()) || finding["class_uid"] != float64(2002) {
+		t.Fatal("OCSF finding time/class wrong", finding)
 	}
 	c2 := userConfig("bad-users", e.vendor.URL+"/malformed")
 	e.save(t, "tenant-a", c2, true)
@@ -345,10 +350,10 @@ func TestCombinedOffsetEventsAndDevices(t *testing.T) {
 	c := userConfig("issues", e.vendor.URL+"/issues")
 	c.ItemsPath = "issues"
 	c.Pagination = engine.Pagination{Type: "offset", OffsetParam: "startAt", SizeParam: "maxResults", PageSize: 10}
-	c.Destination = config.Destination{Entity: "event", Mapping: map[string]config.Field{
-		"id": {Path: path("key"), Required: true, Transform: "string"}, "type": {Constant: "repository_issue"}, "description": {Path: path("fields.summary"), Required: true},
-		"severity":  {Path: path("fields.priority.name"), Transform: "lookup", Lookup: map[string]string{"High": "high"}},
-		"timestamp": {Path: path("fields.created"), Required: true, Transform: "datetime", Format: "2006-01-02T15:04:05.000-0700"},
+	c.Destination = config.Destination{Class: "detection_finding", Mapping: map[string]config.Field{
+		"finding_info.uid": {Path: path("key"), Required: true, Transform: "string"}, "finding_info.title": {Path: path("fields.summary"), Required: true},
+		"severity_id": {Path: path("fields.priority.name"), Transform: "lookup", Lookup: map[string]string{"High": "4"}},
+		"time":        {Path: path("fields.created"), Required: true, Transform: "datetime", Format: "2006-01-02T15:04:05.000-0700"},
 	}}
 	e.save(t, "tenant-a", c, true)
 	for i := 0; i < 2; i++ {
@@ -358,17 +363,17 @@ func TestCombinedOffsetEventsAndDevices(t *testing.T) {
 		}
 	}
 	scope := e.db.Store.ForTenant("tenant-a")
-	events, err := scope.Records(ctx, "event", c.ID, 100, 0)
+	events, err := scope.Records(ctx, 2004, c.ID, 100, 0)
 	if err != nil || len(events) != 25 {
 		t.Fatal("offset upsert failed", err)
 	}
 	var event map[string]any
 	json.Unmarshal(events[0], &event)
-	if event["timestamp"] != "2026-10-20T10:00:00Z" || event["severity"] != "high" {
+	if event["time"] != float64(time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC).UnixMilli()) || event["severity_id"] != float64(4) || event["severity"] != "High" {
 		t.Fatal("non-ISO date/lookup mapping failed", event)
 	}
 	d := userConfig("devices", e.vendor.URL+"/devices")
-	d.Destination = config.Destination{Entity: "device", Mapping: map[string]config.Field{"id": {Path: path("id"), Required: true}, "hostname": {Path: path("hostname")}, "last_seen": {Path: path("last_seen"), Transform: "datetime"}}}
+	d.Destination = config.Destination{Class: "inventory_info", Mapping: map[string]config.Field{"device.uid": {Path: path("id"), Required: true}, "device.hostname": {Path: path("hostname")}, "device.type_id": {Constant: "0"}, "device.last_seen_time": {Path: path("last_seen"), Transform: "datetime"}}}
 	e.save(t, "tenant-a", d, true)
 	for i := 0; i < 2; i++ {
 		r := e.run(t, "tenant-a", d.ID, 200)
@@ -376,13 +381,13 @@ func TestCombinedOffsetEventsAndDevices(t *testing.T) {
 			t.Fatal(r)
 		}
 	}
-	devices, err := scope.Records(ctx, "device", d.ID, 100, 0)
+	devices, err := scope.Records(ctx, 5001, d.ID, 100, 0)
 	if err != nil || len(devices) != 1 {
 		t.Fatal("device persistence failed", err)
 	}
 	var device map[string]any
 	json.Unmarshal(devices[0], &device)
-	if device["hostname"] != "synthetic-host" || device["owner"] != nil || device["last_seen"] != "2026-10-31T10:00:00Z" {
+	if ocsf.Get(device, "device.hostname") != "synthetic-host" || ocsf.Get(device, "device.owner") != nil || ocsf.Get(device, "device.last_seen_time") != float64(time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC).UnixMilli()) {
 		t.Fatal("device schema mismatch")
 	}
 }
@@ -450,6 +455,26 @@ func TestCombinedSecretsAndAuthentication(t *testing.T) {
 	}
 	if e.callsCount("/secure") != before {
 		t.Fatal("bound secret sent to wrong host")
+	}
+	// /validate warns about both mismatches before anything runs
+	warn := func(id string) string {
+		var v struct {
+			Warnings []config.Issue `json:"warnings"`
+		}
+		json.Unmarshal(e.request(t, "tenant-a", "POST", "/configs/"+id+"/validate", nil, 200), &v)
+		if len(v.Warnings) != 1 || v.Warnings[0].Field != "auth.secret" {
+			t.Fatal("expected one auth.secret warning", id, v.Warnings)
+		}
+		return v.Warnings[0].Message
+	}
+	if m := warn(blocked.ID); !strings.Contains(m, "bound to other.example.com") || !strings.Contains(m, "credential_binding_mismatch") {
+		t.Fatal(m)
+	}
+	typo := userConfig("typo", e.vendor.URL+"/secure")
+	typo.Auth = engine.Auth{Type: "bearer", Secret: "shared_key"}
+	e.save(t, "tenant-a", typo, false)
+	if m := warn(typo.ID); !strings.Contains(m, `"shared_key" is not stored`) || !strings.Contains(m, `"shared"`) {
+		t.Fatal(m)
 	}
 	for _, tenant := range []string{"tenant-a", "tenant-b"} {
 		for _, path := range []string{"/secrets", "/runs", "/quarantine"} {
@@ -558,7 +583,7 @@ func TestCombinedFailureRecovery(t *testing.T) {
 		})
 	}
 	for _, id := range []string{"offhost", "cut"} {
-		rows, _ := e.db.Store.ForTenant("tenant-a").Records(ctx, "user", id, 100, 0)
+		rows, _ := e.db.Store.ForTenant("tenant-a").Records(ctx, 5003, id, 100, 0)
 		if len(rows) == 0 {
 			t.Fatal("earlier committed page lost")
 		}

@@ -1,18 +1,19 @@
 package app
 
 import (
-	"configbridge/internal/aidraft"
+	"configbridge/internal/ai"
 	"configbridge/internal/api"
 	"configbridge/internal/insights"
 	"configbridge/pkg/config"
 	"crypto/x509"
 	"errors"
 	"os"
-	"strconv"
 	"strings"
 )
 
-func SIEM(getenv func(string) string) (*api.SIEM, error) {
+// SIEM is opt-in per tenant (CB_SIEM_ENABLED_TENANTS). Explanations use the
+// same AI provider and the same daily call + token budget as the drafter.
+func SIEM(getenv func(string) string, model *ai.Client) (*api.SIEM, error) {
 	enabled := strings.TrimSpace(getenv("CB_SIEM_ENABLED_TENANTS"))
 	if enabled == "" {
 		return nil, nil
@@ -40,21 +41,10 @@ func SIEM(getenv func(string) string) (*api.SIEM, error) {
 	if e != nil {
 		return nil, errors.New("invalid OpenSearch configuration")
 	}
-	provider, e := aidraft.NewGroq(getenv("GROQ_API_KEY"), getenv("CB_AI_MODEL"))
-	if e != nil {
-		return nil, errors.New("SIEM Groq configuration unavailable")
+	s := &api.SIEM{Search: search, EnabledTenants: tenants}
+	// no AI provider: findings still work, "explain" answers siem_disabled
+	if model != nil && model.ModelID() != "" {
+		s.Provider, s.DailyCalls, s.DailyTokens = model, model.DailyLimit, model.TokenLimit
 	}
-	tokens, e := AITokenLimit(getenv)
-	if e != nil {
-		return nil, e
-	}
-	calls := 20
-	if raw := getenv("CB_AI_DAILY_LIMIT"); raw != "" {
-		var err error
-		calls, err = strconv.Atoi(raw)
-		if err != nil || calls < 1 || calls > 100 {
-			return nil, errors.New("AI daily limit must be 1-100")
-		}
-	}
-	return &api.SIEM{Search: search, Provider: provider, EnabledTenants: tenants, DailyTokens: tokens, DailyCalls: calls}, nil
+	return s, nil
 }

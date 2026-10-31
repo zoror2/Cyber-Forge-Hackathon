@@ -1,5 +1,19 @@
 # SIEM findings, selected-evidence AI and token usage
 
+> **Ported to the OCSF branch (feat/ocsf).** Same rules, privacy boundary and
+> budgets as written below, with these changes:
+> - Rules read `ocsf_records` by OCSF event time (`time`, epoch ms): high =
+>   `severity_id` 4-6; failed login = Authentication (3002) with `status_id` 2;
+>   KEV = Vulnerability Finding (2002) with `vulnerabilities.0.is_exploit_available`.
+> - Explanations use the shared AI client (`internal/ai`: Gemini, Groq or
+>   Bedrock, `CB_AI_PROVIDER`), not a separate Groq adapter. Drafts and
+>   explanations share one daily call + token budget (`CB_AI_DAILY_LIMIT`,
+>   `CB_AI_DAILY_TOKEN_LIMIT`, both required when AI is on; no code defaults).
+> - The dashboard is the console's **Insights** page (JWT session, IAM roles):
+>   refresh needs `connectors:run`, explain needs `ai:draft`. The old
+>   server-rendered `/insights` page and `smoke-insights.cjs` are gone.
+> - The migration is `012_siem.sql` (6-11 are taken on this branch).
+
 ## Simple jury explanation
 
 “We collect security data through the same Go engine. Fixed rules identify
@@ -206,19 +220,18 @@ benchmark. Mohit retains application containerization and Bedrock work.
 |---|---|
 | `internal/insights/types.go` | Defines the tiny set of facts AI is allowed to receive and validates answers. |
 | `internal/insights/search.go` | Writes fixed metadata to OpenSearch and retrieves scoped candidate IDs. |
-| `internal/store/siem.go` | Computes rules from PostgreSQL and rechecks retrieved IDs. |
-| `006_siem.sql` | Adds tenant-protected snapshots, findings and AI token records. |
+| `internal/store/siem.go` | Computes rules from `ocsf_records` + run history and rechecks retrieved IDs. |
+| `internal/store/migrations/012_siem.sql` | Adds tenant-protected snapshots, findings and AI token records. |
 | `internal/store/ai_tokens.go` | Atomically reserves budgets and records actual or unknown usage. |
-| `internal/aidraft/groq.go` | Calls Groq, captures usage and validates cited SIEM explanations. |
+| `internal/ai/explain.go` | Strict-schema explanation on any provider; validates citations. |
+| `internal/ai/ai.go`, `gemini.go`, `bedrock.go` | Report provider token usage for drafts and explanations. |
 | `internal/api/siem.go` | Authenticated refresh/findings/ask/usage handlers and provider interface. |
-| `internal/api/insights_page.go`, `insights.html`, `insights.css` | Local findings and token dashboard. |
-| `internal/app/siem.go` | Reads operator opt-in, search settings and provider configuration. |
-| `internal/api/draft.go`, `internal/app/ai.go` | Add token accounting to existing public-source drafting. |
-| `cmd/api/main.go`, `internal/api/api.go`, `onboarding.go` | Wire startup, routes and protected local console access. |
-| `internal/mockvendor/mockvendor.go`, `configs/mock_security_events.json` | Synthetic security data and its declarative config. |
-| `scripts/smoke-siem.ps1`, `smoke-insights.cjs` | Test the compiled flow and actual browser. |
-| `tests/siem_test.go`, `ai_metering_test.go` | Combined database/search/API/privacy and draft-usage tests. |
-| `internal/insights/*_test.go`, `internal/aidraft/siem_test.go` | Evidence, transport and provider failure tests. |
+| `internal/app/siem.go` | Reads operator opt-in and search settings; reuses the AI client and its budget. |
+| `internal/ui/static/app.js` (`insights`) | Console Insights page: findings, explanation, today's usage. |
+| `internal/mockvendor/mockvendor.go`, `configs/mock_security_events.json` | Synthetic security data and its OCSF config. |
+| `scripts/smoke-siem.ps1` | Tests the compiled flow. |
+| `tests/siem_test.go`, `ai_metering_test.go` | Database/search/API/privacy and draft-usage tests. |
+| `internal/insights/*_test.go`, `internal/ai/explain_test.go` | Evidence, transport and provider failure tests. |
 | `internal/store/ai_tokens_test.go`, `internal/app/siem_test.go`, `internal/api/siem_access_test.go` | Quotas, persistence, configuration and authorization tests. |
 | `.env.example`, `scripts/load-env.ps1` | Document and load settings; private values stay uncommitted. |
 

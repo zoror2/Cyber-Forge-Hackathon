@@ -1,14 +1,14 @@
 # ConfigBridge
 
 ConfigBridge is a Go platform that collects JSON APIs using declarative configs,
-converts records into common User/Device/Event models, and stores them in
-PostgreSQL. The current implementation combines Mohith's request engine with
+converts every record into an **OCSF 1.9.0** event (the open security schema used by
+AWS Security Lake, Splunk and others), and stores them in PostgreSQL. The current implementation combines Mohith's request engine with
 Prajwal's data layer and API. The team now uses **multi-tenancy**, as documented
 in [WORK_SPLIT.md](docs/WORK_SPLIT.md) and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 
 ```text
 tenant API key → live DB config → guarded HTTP/auth/retry/paging engine
-              → mapper → PostgreSQL records + quarantine → runs/health API
+              → filter → OCSF mapper (pinned schema) → PostgreSQL ocsf_records + quarantine → runs/health API
 ```
 
 The working local sources are synthetic TLS fixtures. Live vendor credentials,
@@ -136,7 +136,7 @@ return 404. Collection routes return only the authenticated tenant's data.
 | `GET /connectors/{id}/sync-state` | Inspect the tenant's durable incremental bookmark and next due time |
 | `GET /runs?connector=` | Paginated history |
 | `GET /health` | JSON health, or escaped HTML with `Accept: text/html` |
-| `GET /records/{users\|devices\|events}?source=` | Paginated common records |
+| `GET /records/{ocsf_class}?source=` | Paginated OCSF records: `vulnerability_finding`, `detection_finding`, `user_inventory`, `inventory_info`, `authentication` |
 | `GET /quarantine?connector=` | Paginated rejection metadata |
 | `GET /alerts?connector=` | Tenant-scoped email delivery status; no destination addresses |
 | `GET /exposure?connector=` | Reviewed KEV vendor matches and credential metadata; deployment review required |
@@ -261,13 +261,21 @@ Member A reviews our secrets/API auth before merge. Request-engine details and
 the broader target-integration analysis remain in [REQUEST_SIDE.md](docs/REQUEST_SIDE.md)
 and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
 
+## Web console
+
+`http://127.0.0.1:8080/ui/` (served by the same binary, `internal/ui`). Sign in with the tenant API key; it stays in
+the tab's memory only (no localStorage/cookies, gone on reload). Views: overview/health, connectors, **form config
+builder (B-5)** with OCSF path suggestions and the save → validate → activate → test → run pipeline, OCSF records with a
+JSON viewer, quarantine grouped by cause, runs, secrets (write-only). Strict CSP (`'self'` only, no inline script, no
+CDNs); every vendor value is rendered as text. Same-origin browser calls are allowed; cross-site requests get 403.
+
 ## Live sources (PRD: three real free-tier sources)
 
 | # | Source | Config | Auth | Paging | Status |
 |---|---|---|---|---|---|
-| 1 | CISA KEV | [configs/cisa_kev.json](configs/cisa_kev.json) | none | none | ✅ live: 1766 received / 1766 accepted / 0 quarantined; re-run upserts (no duplicates) |
-| 2 | GitHub REST (OWASP public members) | [configs/github_members.json](configs/github_members.json) | bearer | Link header | ✅ live: 4 pages, 36 / 36 / 0; re-run upserts; token never in logs or DB |
-| 3 | NVD CVE or Jira | not yet | api_key / basic | offset | ⏳ not started |
+| 1 | CISA KEV → OCSF Vulnerability Finding (2002) | [configs/cisa_kev.json](configs/cisa_kev.json) | none | none | ✅ live: 1766 received / 1766 accepted / 0 quarantined; re-run upserts (no duplicates); filter demo: ransomware-linked only = 361 accepted / 1405 skipped |
+| 2 | GitHub REST (OWASP public members) → OCSF User Inventory Info (5003) | [configs/github_members.json](configs/github_members.json) | bearer | Link header | ✅ live: 4 pages, 36 / 36 / 0; re-run upserts; token never in logs or DB |
+| 3 | NVD CVE API (KEV subset, with CVSS) → OCSF Vulnerability Finding (2002) | [configs/nvd_kev_cves.json](configs/nvd_kev_cves.json) | api_key | offset | ✅ live: 9 pages, 1765 / 1765 / 0; re-run upserts; key never in logs or DB |
 
 Evidence (config hash, UTC time, counts, outcome) is in [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md).
 How to write a config, with every field explained: [configs/README.md](configs/README.md).
@@ -276,17 +284,17 @@ How to write a config, with every field explained: [configs/README.md](configs/R
 
 | FR | Implementation and evidence | Remaining |
 |---|---|---|
-| 1 Auth | A's `internal/engine/auth.go`, tenant-scoped secrets, unit + integrated auth tests; credential failures classified, never retried | Live bearer (GitHub) + api_key/basic (NVD or Jira) evidence |
+| 1 Auth | A's `internal/engine/auth.go`, tenant-scoped secrets, unit + integrated auth tests; credential failures classified, never retried; `/validate` warns on a missing or wrongly bound secret | ✅ live: bearer (GitHub), api_key (NVD); basic/oauth2 tested against the mock |
 | 2 URL/method/params | Shared A contract + strict `pkg/config`; invalid-config tests | Additional protocols deferred |
-| 3 Paging | A engine; page/offset/link/cursor tests and real local page-to-DB runs | Live Link (GitHub, 4 pages) + offset evidence |
+| 3 Paging | A engine; page/offset/link/cursor tests and real local page-to-DB runs | ✅ live: Link (GitHub, 4 pages), offset (NVD, 9 pages) |
 | 4 Schedule | `internal/runner`, PG locks and two-tenant scheduling tests | 60-second live-provider demo |
-| 5 Mapping | `pkg/mapping` nested/index/default/date/enum/exact-number tests | None for tested capabilities |
+| 5 Mapping | `pkg/mapping` → `pkg/ocsf`: every mapping key checked against the pinned OCSF 1.9.0 schema at validate time; nested/index/default/date/enum/trim/exact-number tests; client-side `filter` block | None for tested capabilities |
 | 6 Secrets | RLS + per-tenant encrypted/AWS backends, binding/redaction/isolation tests | Live KMS/IAM review |
 | 7 Retries | A retry engine + integrated failure/exhaustion/timeout tests | Live provider behavior |
 | 8 429 | Seconds/date/delay-cap unit tests and actual 1-second local wait | Persistent next-retry eligibility extension |
-| 9 Bad rows | Typed validation + page/index quarantine; integrated malformed fixture | Raw payload intentionally omitted |
-| 10 Health | Protected JSON/escaped HTML, history and failure tests | Phase 2 UI/SSO |
-| 11 Common storage | Tenant/source/ID upserts and actual PG RLS tests; **live CISA KEV: 1766 events, re-run still 1766** | Sources 2 and 3 live |
+| 9 Bad rows | OCSF type/enum/required validation + page/index quarantine with the OCSF field path; integrated malformed fixture | Raw payload intentionally omitted |
+| 10 Health | Protected JSON/escaped HTML, history and failure tests; web console overview (`internal/ui`) | SSO |
+| 11 Common storage | Common schema = **OCSF 1.9.0**, one `ocsf_records` table (class_uid + jsonb), tenant/source/ID upserts, actual PG RLS tests; **live: 1766 KEV findings + 36 GitHub users, re-runs unchanged** | Sources 2 and 3 live |
 
 The Python files are removed from this branch. GitHub's PR diff still lists their
 **deletions** because the base branch previously contained them. For a short file
@@ -307,11 +315,11 @@ Added on top of the merged engine (all covered by tests in `internal/egress` and
 
 | Doc | Content |
 |---|---|
-| [configs/README.md](configs/README.md) | **Config template**: every field, auth examples, common schema, storing a secret, what is refused |
+| [configs/README.md](configs/README.md) | **Config template**: every field, filter, OCSF classes and mapping paths, auth examples, storing a secret, what is refused |
 | [docs/CONFIG_SHAPE.md](docs/CONFIG_SHAPE.md) | (roadmap) Two-layer config (reviewed vendor templates + tenant connectors), credential records, research on the 35 roadmap vendors |
 | [docs/AI.md](docs/AI.md) | (roadmap) AI gateway, AI for configs, prompt-injection and poisoning defences, evals |
 | [docs/AUTOMATION.md](docs/AUTOMATION.md) | (roadmap) What gets automated for users, and what never is |
 | [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md) | Redacted live-run evidence for the three real sources (PRD §15) |
 | [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | Built architecture, run lifecycle, ranked optimization points (O1–O8) with code references |
 
-**Scope:** PRD first. The PRD's must-haves (FR-1..FR-11, its User/Device/Event schema, three live free-tier sources) come before the roadmap (35 enterprise vendors, OCSF export, SIEM destinations, AI config drafter, KEV-to-connected-vendor/credential exposure matching). Current storage is the PRD schema; OCSF is a later export format, not the stored format.
+**Scope:** PRD first (FR-1..FR-11, three live free-tier sources). Decided 2026-10-31: the common schema is **OCSF 1.9.0** instead of a home-grown User/Device/Event model. The PRD lets us define the common schema; OCSF covers its user/device/event shapes (User Inventory, Device Inventory, Findings) and is what SIEMs and Security Lake ingest without conversion. Roadmap after the PRD: 35 enterprise vendors, SIEM destinations, AI config drafter, KEV-to-connected-vendor/credential exposure matching.

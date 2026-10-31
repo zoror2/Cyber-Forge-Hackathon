@@ -26,4 +26,4 @@ if($WithAI){
 [IO.File]::WriteAllText((Join-Path (Get-Location) 'data/siem-demo-result.json'),($result|ConvertTo-Json),(New-Object Text.UTF8Encoding($false)))
 Write-Host 'PASS: 9 synthetic events collected; current-window findings are 6 authentication failures and 1 high-severity event.'
 if($WithAI){Write-Host ('PASS: '+$result.provider+' explanation, citations and '+$result.total_tokens+' reported tokens recorded.')}else{Write-Host 'No AI call made. Use -WithAI explicitly to verify the hosted provider.'}
-Write-Host ('View the local dashboard at '+$base+'/insights?connector='+$cfg.id)
+Write-Host ('View it in the console: '+$base+'/ui/#/insights?connector='+$cfg.id)

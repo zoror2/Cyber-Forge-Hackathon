@@ -77,14 +77,14 @@ type HeaderTemplate struct {
 
 // Pagination says how to walk through all pages of results (FR-3).
 type Pagination struct {
-	Type        string `json:"type"`         // none | page | offset | link | cursor
-	PageParam   string `json:"page_param"`   // page:   name of the page-number param, e.g. "page"
-	StartPage   int    `json:"start_page"`   // page:   first page number (default 1)
-	OffsetParam string `json:"offset_param"` // offset: name of the offset param, e.g. "startAt"
-	SizeParam   string `json:"size_param"`   // page/offset/cursor: name of the page-size param, e.g. "limit"
-	PageSize    int    `json:"page_size"`    // records per page we ask for
-	CursorParam string `json:"cursor_param"` // cursor: param to send the cursor in, e.g. "after"
-	CursorPath  string `json:"cursor_path"`  // cursor: where the next cursor is in the JSON, e.g. "meta.next"
+	Type        string `json:"type"`                 // none | page | offset | link | cursor
+	PageParam   string `json:"page_param"`           // page:   name of the page-number param, e.g. "page"
+	StartPage   *int   `json:"start_page,omitempty"` // page: first page number (default 1; 0 for zero-based APIs)
+	OffsetParam string `json:"offset_param"`         // offset: name of the offset param, e.g. "startAt"
+	SizeParam   string `json:"size_param"`           // page/offset/cursor: name of the page-size param, e.g. "limit"
+	PageSize    int    `json:"page_size"`            // records per page we ask for
+	CursorParam string `json:"cursor_param"`         // cursor: param to send the cursor in, e.g. "after"
+	CursorPath  string `json:"cursor_path"`          // cursor: where the next cursor is in the JSON, e.g. "meta.next"
 	// link: no fields needed; the next URL comes from the HTTP "Link" header.
 }
 
@@ -112,8 +112,9 @@ func (c Connector) withDefaults() Connector {
 	}
 	setDefault(&c.Auth.Type, "none")
 	setDefault(&c.Pagination.Type, "none")
-	if c.Pagination.Type == "page" {
-		setDefault(&c.Pagination.StartPage, 1)
+	if c.Pagination.Type == "page" && c.Pagination.StartPage == nil {
+		one := 1
+		c.Pagination.StartPage = &one
 	}
 	setDefault(&c.Limits.MaxResponseBytes, 10<<20) // 10 MB
 	setDefault(&c.Limits.MaxPages, 1000)
@@ -302,8 +303,9 @@ func (c Connector) validate(allowHTTP bool) error {
 	}
 
 	// --- limits and retry: keep values inside sane ranges ---
-	if c.Limits.MaxResponseBytes < 1 || c.Limits.MaxResponseBytes > 100<<20 {
-		bad("limits.max_response_bytes must be 1 byte to 100 MB")
+	// decoding JSON costs ~15x the body in memory (load test: 60 MB -> 926 MiB)
+	if c.Limits.MaxResponseBytes < 1 || c.Limits.MaxResponseBytes > 25<<20 {
+		bad("limits.max_response_bytes must be 1 byte to 25 MB")
 	}
 	if c.Limits.MaxPages < 1 || c.Limits.MaxPages > 100000 {
 		bad("limits.max_pages must be 1-100000")

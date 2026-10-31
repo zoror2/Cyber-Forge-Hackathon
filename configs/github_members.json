@@ -6,9 +6,12 @@
  "auth":{"type":"bearer","secret":"github_token"},
  "items_path":"","pagination":{"type":"link"},
  "schedule":{"enabled":false,"interval_seconds":3600},
- "destination":{"entity":"user","mapping":{
-  "id":{"path":"id","required":true,"transform":"string"},
-  "name":{"path":"login","transform":"string"}
+ "destination":{"class":"user_inventory","mapping":{
+  "user.uid":{"path":"id","required":true,"transform":"string"},
+  "user.name":{"path":"login","transform":"string"},
+  "user.type_id":{"path":"site_admin","transform":"lookup","lookup":{"true":"2","false":"1"}},
+  "metadata.product.name":{"constant":"GitHub"},
+  "metadata.product.vendor_name":{"constant":"GitHub"}
  }},
  "limits":{"max_pages":10,"max_records":500,"max_response_bytes":1048576,"max_run_seconds":60},
  "retry":{"max_attempts":4,"base_delay_ms":1000,"max_retry_after_seconds":60}

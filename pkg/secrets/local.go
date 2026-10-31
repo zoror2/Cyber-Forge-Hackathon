@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,6 +20,9 @@ import (
 type Local struct {
 	Store *store.Store
 	keys  map[string]cipher.AEAD
+	// master derives a distinct data key per account created after start-up
+	// (HKDF-SHA256, info = tenant id). Dev only; production uses KMS per tenant.
+	master []byte
 }
 type envelope struct {
 	Value  string `json:"value"`
@@ -50,7 +55,7 @@ func NewLocal(s *store.Store, keys map[string]string) (*Local, error) {
 	return out, nil
 }
 func (l *Local) seal(tenant, name, value, host string) ([]byte, error) {
-	aead := l.keys[tenant]
+	aead := l.aead(tenant)
 	if aead == nil {
 		return nil, ErrUnavailable
 	}
@@ -65,7 +70,7 @@ func (l *Local) seal(tenant, name, value, host string) ([]byte, error) {
 	return aead.Seal(nonce, nonce, raw, []byte(tenant+"/"+name)), nil
 }
 func (l *Local) open(tenant, name, raw string) (string, string, error) {
-	aead := l.keys[tenant]
+	aead := l.aead(tenant)
 	data := []byte(raw)
 	if aead == nil || len(data) < aead.NonceSize() {
 		return "", "", ErrUnavailable
@@ -104,4 +109,33 @@ func (l *Local) Read(ctx context.Context, tenant, name string) (string, string, 
 		return "", "", ErrUnavailable
 	}
 	return l.open(tenant, name, string(raw))
+}
+
+// WithMaster enables per-account keys derived from a 32-byte dev master key,
+// so accounts created at runtime can store secrets without a restart.
+func (l *Local) WithMaster(b64 string) error {
+	raw, e := base64.StdEncoding.DecodeString(b64)
+	if e != nil || len(raw) != 32 {
+		return errors.New("development master key must be base64 32 bytes")
+	}
+	l.master = raw
+	return nil
+}
+func (l *Local) aead(tenant string) cipher.AEAD {
+	if a := l.keys[tenant]; a != nil || l.master == nil || !config.ValidID(tenant) {
+		return a
+	}
+	k, e := hkdf.Key(sha256.New, l.master, nil, "configbridge-tenant:"+tenant, 32)
+	if e != nil {
+		return nil
+	}
+	block, e := aes.NewCipher(k)
+	if e != nil {
+		return nil
+	}
+	a, e := cipher.NewGCM(block)
+	if e != nil {
+		return nil
+	}
+	return a
 }

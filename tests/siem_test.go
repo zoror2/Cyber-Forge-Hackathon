@@ -3,7 +3,6 @@ package tests
 import (
 	"configbridge/internal/api"
 	"configbridge/internal/insights"
-	"configbridge/internal/onboarding"
 	"configbridge/internal/store"
 	"configbridge/pkg/config"
 	"context"
@@ -11,7 +10,6 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -62,8 +60,8 @@ type explanationProvider struct {
 	err      error
 }
 
-func (p *explanationProvider) Name() string  { return "fixture" }
-func (p *explanationProvider) Model() string { return "fixture" }
+func (p *explanationProvider) Provider() string { return "fixture" }
+func (p *explanationProvider) ModelID() string  { return "fixture" }
 func (p *explanationProvider) Explain(_ context.Context, e insights.Evidence) (insights.Answer, insights.Usage, error) {
 	p.calls++
 	p.evidence = e
@@ -74,23 +72,15 @@ func (p *explanationProvider) Explain(_ context.Context, e insights.Evidence) (i
 	}
 	return a, u, p.err
 }
-func siemAPI(t *testing.T, e *environment, s insights.Search, p *explanationProvider) *onboarding.Console {
+func siemAPI(t *testing.T, e *environment, s insights.Search, p *explanationProvider) {
 	t.Helper()
-	server := httptest.NewUnstartedServer(nil)
-	console, err := onboarding.New("http://" + server.Listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc, UI: console, SIEM: &api.SIEM{Search: s, Provider: p, EnabledTenants: map[string]bool{"tenant-a": true, "tenant-b": true}, DailyTokens: 400000}})
+	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc, Limits: &api.Limits{}, SIEM: &api.SIEM{Search: s, Provider: p, EnabledTenants: map[string]bool{"tenant-a": true, "tenant-b": true}, DailyCalls: 20, DailyTokens: 400000}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	e.api.Close()
-	server.Config.Handler = h
-	server.Start()
-	e.api = server
-	t.Cleanup(server.Close)
-	return console
+	e.api = httptest.NewServer(h)
+	t.Cleanup(e.api.Close)
 }
 func securityConfig(t *testing.T, e *environment, id string) config.Config {
 	t.Helper()
@@ -163,17 +153,10 @@ func TestSIEMRulesPrivacyUsageAndConsole(t *testing.T) {
 	}
 	e.request(t, "tenant-a", "POST", "/siem/ask", []byte(`{"connector":"private_source","topic":"security_findings"}`), 422)
 	e.request(t, "tenant-a", "GET", "/siem/findings?connector=bad!", nil, 422)
-	body, headers := consoleRequest(t, e, "tenant-a", "GET", "/insights?connector="+c.ID, nil, "", 200)
-	if !strings.Contains(body, "AI consumption") || strings.Contains(body, key("tenant-a")) || headers.Get("Referrer-Policy") != "same-origin" {
-		t.Fatal("console boundary")
-	}
-	form := url.Values{"csrf_token": {csrf(t, body)}, "connector": {c.ID}, "topic": {"security_findings"}, "action": {"ask"}}
-	consoleRequest(t, e, "tenant-a", "POST", "/insights/action", form, e.api.URL, 422)
-	form.Set("consent", "on")
-	consoleRequest(t, e, "tenant-a", "POST", "/insights/action", form, "https://evil.invalid", 403)
-	body, _ = consoleRequest(t, e, "tenant-a", "POST", "/insights/action", form, e.api.URL, 200)
-	if !strings.Contains(body, "Supporting evidence") {
-		t.Fatal("console answer missing")
+	// the latest snapshot is readable without another AI call
+	var stored insights.Snapshot
+	if err := json.Unmarshal(e.request(t, "tenant-a", "GET", "/siem/findings?connector="+c.ID, nil, 200), &stored); err != nil || len(stored.Findings) == 0 {
+		t.Fatal("findings", err)
 	}
 	// Healthy collection yields no operational findings and costs no AI call.
 	before := p.calls
@@ -278,8 +261,7 @@ func TestSIEMRealOpenSearch(t *testing.T) {
 	e.request(t, "tenant-a", "POST", "/siem/ask", question(c.ID, "security_findings"), 200)
 	// The same connector ID in another tenant has different records and index.
 	c.Request.URL = e.vendor.URL + "/users"
-	c.Destination.Entity = "user"
-	c.Destination.Mapping = userConfig("events", c.Request.URL).Destination.Mapping
+	c.Destination = userConfig("events", c.Request.URL).Destination
 	e.save(t, "tenant-b", c, true)
 	e.run(t, "tenant-b", c.ID, 200)
 	e.request(t, "tenant-b", "POST", "/siem/ask", question(c.ID, "security_findings"), 200)
