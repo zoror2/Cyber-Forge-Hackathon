@@ -42,6 +42,10 @@ services:
       CB_DEV_CA_FILE: /certs/cert.pem
       CB_LISTEN: 0.0.0.0:8080
       GOMEMLIMIT: 768MiB
+      CB_JWT_SECRET: ${CB_JWT_SECRET:-}
+      CB_DEV_MASTER_KEY: ${CB_DEV_MASTER_KEY:-}
+      CB_SIGNUP: ${CB_SIGNUP:-open}
+      CB_OPERATOR_TOKEN: ${CB_OPERATOR_TOKEN:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       CB_AI_MODEL: ${CB_AI_MODEL:-openai/gpt-oss-120b}
       CB_AI_ENABLED_TENANTS: ${CB_AI_ENABLED_TENANTS:-}

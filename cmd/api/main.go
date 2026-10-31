@@ -10,6 +10,7 @@ import (
 	"configbridge/internal/ui"
 	"configbridge/pkg/secrets"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -64,7 +65,12 @@ func run() error {
 		if json.Unmarshal([]byte(os.Getenv("CB_DEV_TENANT_KEYS")), &keys) != nil {
 			return errors.New("invalid development tenant keyring")
 		}
-		backend, e = secrets.NewLocal(db, keys)
+		var local *secrets.Local
+		local, e = secrets.NewLocal(db, keys)
+		if e == nil && os.Getenv("CB_DEV_MASTER_KEY") != "" {
+			e = local.WithMaster(os.Getenv("CB_DEV_MASTER_KEY"))
+		}
+		backend = local
 	case "aws":
 		cfg, err := awsconfig.LoadDefaultConfig(setup)
 		if err != nil {
@@ -113,7 +119,28 @@ func run() error {
 		}
 		drafter.DailyLimit = n
 	}
-	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, NotificationTenants: notificationTenants})
+	// Console sessions (JWT in an HttpOnly cookie). Dev without a secret gets a
+	// random one: sessions then end when the API restarts.
+	dev := os.Getenv("CB_ENV") == "dev"
+	sessionKey := []byte(os.Getenv("CB_JWT_SECRET"))
+	if len(sessionKey) == 0 && dev {
+		sessionKey = make([]byte, 32)
+		rand.Read(sessionKey)
+		slog.Warn("CB_JWT_SECRET unset: random session key, sign-ins end on restart", "tenant_id", "system")
+	}
+	if len(sessionKey) < 32 {
+		return errors.New("CB_JWT_SECRET must be at least 32 bytes")
+	}
+	signup := os.Getenv("CB_SIGNUP") == "open"
+	if signup && !dev {
+		return errors.New("CB_SIGNUP=open is development-only; use CB_OPERATOR_TOKEN")
+	}
+	operator := os.Getenv("CB_OPERATOR_TOKEN")
+	if operator != "" && len(operator) < 32 {
+		return errors.New("CB_OPERATOR_TOKEN must be at least 32 characters")
+	}
+	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, NotificationTenants: notificationTenants,
+		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, OperatorToken: operator})
 	if e != nil {
 		return e
 	}

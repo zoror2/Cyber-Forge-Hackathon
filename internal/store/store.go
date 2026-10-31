@@ -47,6 +47,12 @@ var migrationScale string
 //go:embed migrations/009_exposure_ocsf.sql
 var migrationExposureOCSF string
 
+//go:embed migrations/010_iam.sql
+var migrationIAM string
+
+//go:embed migrations/011_sessions.sql
+var migrationSessions string
+
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
 // 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
@@ -64,6 +70,8 @@ var migrations = []struct {
 	{7, migrationPRDViews, nil},
 	{8, migrationScale, nil},
 	{9, migrationExposureOCSF, nil},
+	{10, migrationIAM, []string{"iam_users"}},
+	{11, migrationSessions, []string{"iam_sessions"}},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -164,7 +172,7 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, table := range []string{"configs", "credentials_meta", "credentials_values", "runs", "ocsf_records", "quarantine", "sync_state"} {
+	for _, table := range []string{"configs", "credentials_meta", "credentials_values", "runs", "ocsf_records", "quarantine", "sync_state", "iam_users", "api_keys", "iam_sessions"} {
 		if _, e = tx.Exec(ctx, "GRANT SELECT,INSERT,UPDATE,DELETE ON "+pgx.Identifier{schema, table}.Sanitize()+" TO "+role); e != nil {
 			return e
 		}
@@ -180,7 +188,8 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 	if _, e = tx.Exec(ctx, "GRANT USAGE ON ALL SEQUENCES IN SCHEMA "+sch+" TO "+role); e != nil {
 		return e
 	}
-	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()"} {
+	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()",
+		"authenticate_api_key_user(bytea)", "iam_login_lookup(text,text)", "iam_create_account(text,text,text,text,text)"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e
 		}
@@ -236,22 +245,32 @@ func (s *Store) Authenticate(ctx context.Context, key string) (string, error) {
 
 type Caller struct {
 	Tenant string
-	Actor  string
+	Actor  string // audit identity: api_key:<id> or user:<id>
+	Role   string // admin | editor | operator | viewer
+	UserID string // empty for the account root key
+	KeyID  string // set when authenticated by an access key
+	// SessionID is the console session (cookie sign-in), empty for keys.
+	SessionID string
 }
 
 func (s *Store) AuthenticateCaller(ctx context.Context, key string) (Caller, error) {
 	hash := sha256.Sum256([]byte(key))
-	var tenant, principal string
+	var tenant, principal, role string
+	var user *string
 	var stored []byte
-	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash,principal_id FROM authenticate_api_key_identity($1)", hash[:]).Scan(&tenant, &stored, &principal)
+	e := s.Pool.QueryRow(ctx, "SELECT tenant_id,key_hash,principal_id,user_id,role FROM authenticate_api_key_user($1)", hash[:]).Scan(&tenant, &stored, &principal, &user, &role)
 	if e != nil || !config.ValidID(tenant) {
 		return Caller{}, ErrNotFound
 	}
 	// The narrow security-definer lookup returns no unhashed key or customer data.
-	if e != nil || subtle.ConstantTimeCompare(stored, hash[:]) != 1 {
+	if subtle.ConstantTimeCompare(stored, hash[:]) != 1 {
 		return Caller{}, ErrNotFound
 	}
-	return Caller{Tenant: tenant, Actor: "api_key:" + principal}, nil
+	c := Caller{Tenant: tenant, Actor: "api_key:" + principal, Role: role, KeyID: principal}
+	if user != nil {
+		c.UserID = *user
+	}
+	return c, nil
 }
 func (s Scope) WithTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if !config.ValidID(s.Tenant) {

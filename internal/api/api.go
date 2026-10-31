@@ -36,6 +36,14 @@ type API struct {
 	Limits *Limits
 	// AI drafts configs; nil or no key = POST /ai/draft answers 503.
 	AI *ai.Client
+	// SessionKey signs console session JWTs (CB_JWT_SECRET, >= 32 bytes).
+	SessionKey []byte
+	// InsecureCookies drops the Secure flag: dev over plain http only.
+	InsecureCookies bool
+	// OpenSignup lets anyone create an account (dev demo: CB_SIGNUP=open).
+	OpenSignup bool
+	// OperatorToken lets the platform operator create accounts (CB_OPERATOR_TOKEN).
+	OperatorToken string
 }
 
 type tenantKey struct{}
@@ -75,26 +83,83 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /ai/audit", a.aiAudit)
 	mux.HandleFunc("GET /alerts", a.alerts)
 	mux.HandleFunc("GET /exposure", a.exposure)
+	mux.HandleFunc("GET /auth/me", a.me)
+	mux.HandleFunc("POST /auth/password", a.changePassword)
+	mux.HandleFunc("GET /iam/users", a.listUsers)
+	mux.HandleFunc("POST /iam/users", a.createUser)
+	mux.HandleFunc("PATCH /iam/users/{id}", a.updateUser)
+	mux.HandleFunc("DELETE /iam/users/{id}", a.deleteUser)
+	mux.HandleFunc("POST /iam/users/{id}/password", a.resetPassword)
+	mux.HandleFunc("GET /iam/users/{id}/keys", a.listKeys)
+	mux.HandleFunc("POST /iam/users/{id}/keys", a.createKey)
+	mux.HandleFunc("PATCH /iam/keys/{key}", func(w http.ResponseWriter, r *http.Request) { a.changeKey(w, r, false) })
+	mux.HandleFunc("DELETE /iam/keys/{key}", func(w http.ResponseWriter, r *http.Request) { a.changeKey(w, r, true) })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
 		ip := clientIP(r)
+		if !sameOrigin(r) {
+			fail(w, 403, "browser_cross_origin_requests_disabled")
+			return
+		}
+		// Public: sign-up and sign-in. Per-IP limits; failures lock the IP out
+		// like failed keys, plus a per-(account,email) bucket against spraying.
+		if r.Method == http.MethodPost && (r.URL.Path == "/accounts" || r.URL.Path == "/auth/login" || r.URL.Path == refreshPath || r.URL.Path == "/auth/logout") {
+			if ok, retry := lim.peek("fail:"+ip, rl.FailedPerIP); !ok {
+				limited(w, retry)
+				return
+			}
+			if ok, retry := lim.take("ip:"+ip, rl.PerIP); !ok {
+				limited(w, retry)
+				return
+			}
+			switch r.URL.Path {
+			case "/auth/logout":
+				a.logout(w, r)
+				return
+			case refreshPath:
+				a.refresh(w, r, func() { lim.take("fail:"+ip, rl.FailedPerIP) })
+				return
+			}
+			if r.URL.Path == "/accounts" {
+				if ok, retry := lim.take("signup:"+ip, rl.RunPerKey); !ok {
+					limited(w, retry)
+					return
+				}
+				a.signup(w, r)
+				return
+			}
+			a.login(w, r, func(who string) bool {
+				ok, _ := lim.peek("login:"+who, rl.FailedPerIP)
+				return ok
+			}, func(who string) {
+				lim.take("fail:"+ip, rl.FailedPerIP)
+				lim.take("login:"+who, rl.FailedPerIP)
+			})
+			return
+		}
 		supplied := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(supplied, "Bearer ")
 		well := strings.HasPrefix(supplied, "Bearer ") && len(token) >= 32 && len(token) <= 512
+		ck, ckErr := r.Cookie(accessCookie)
+		session := supplied == "" && ckErr == nil
+		if session {
+			token = ck.Value
+		}
 		key := keyID(token)
-		// A key verified in the last 30 s skips the per-IP gates, so junk-key
-		// floods or a noisy neighbour behind the same IP/NAT can't lock it out.
-		// It is still authenticated against the database on every request, so a
-		// revoked key stops working immediately.
-		if _, known := keys.get(key); known {
+		// A key or session verified in the last 30 s skips the per-IP gates, so
+		// junk floods or a noisy neighbour behind the same IP/NAT can't lock it
+		// out. It is still checked against the database on every request, so a
+		// revoked key, disabled user or changed role applies immediately.
+		_, known := keys.get(key)
+		if known {
 			if ok, retry := lim.take("vip:"+ip, rl.VerifiedIP); !ok {
 				limited(w, retry)
 				return
 			}
 		} else {
-			// An IP that keeps failing authentication is refused before any key lookup.
+			// An IP that keeps failing authentication is refused before any lookup.
 			if ok, retry := lim.peek("fail:"+ip, rl.FailedPerIP); !ok {
 				limited(w, retry)
 				return
@@ -104,24 +169,40 @@ func New(a *API) (http.Handler, error) {
 				return
 			}
 		}
-		var tenant string
 		var caller store.Caller
-		if well {
-			if a.Authenticate != nil {
-				tenant, _ = a.Authenticate(r.Context(), token)
-				caller = store.Caller{Tenant: tenant, Actor: "test:principal"}
-			} else {
-				caller, _ = a.Store.AuthenticateCaller(r.Context(), token)
-				tenant = caller.Tenant
-			}
+		switch {
+		case session:
+			caller, _ = a.sessionCaller(r.Context(), r)
+		case well && a.Authenticate != nil:
+			t, _ := a.Authenticate(r.Context(), token)
+			caller = store.Caller{Tenant: t, Actor: "test:principal", Role: "admin"}
+		case well:
+			caller, _ = a.Store.AuthenticateCaller(r.Context(), token)
 		}
-		if config.ValidID(tenant) {
-			keys.put(key, tenant)
-		} else {
+		tenant := caller.Tenant
+		if !config.ValidID(tenant) {
 			keys.drop(key)
 			lim.take("fail:"+ip, rl.FailedPerIP)
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			fail(w, 401, "unauthorized")
+			return
+		}
+		if !known {
+			keys.put(key, tenant)
+			if caller.KeyID != "" && !session && a.Authenticate == nil {
+				go func(id string) { // last-used, at most once per cache window
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
+					a.Store.ForTenant(tenant).TouchKey(ctx, id)
+				}(caller.KeyID)
+			}
+		}
+		// Cookies ride along on any request the browser makes, so a session
+		// write must carry a same-origin Origin header (checked by sameOrigin
+		// above): the CSRF control, alongside SameSite=Strict. Bearer keys are
+		// never sent implicitly.
+		if session && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("Origin") == "" {
+			fail(w, 403, "origin_required")
 			return
 		}
 		if ok, retry := lim.take("key:"+key, rl.PerKey); !ok {
@@ -136,8 +217,9 @@ func New(a *API) (http.Handler, error) {
 				return
 			}
 		}
-		if !sameOrigin(r) {
-			fail(w, 403, "browser_cross_origin_requests_disabled")
+		// Role policy: deny anything the caller's role doesn't list.
+		if act := action(r.Method, r.URL.Path); !allowed(caller.Role, act) {
+			write(w, 403, map[string]string{"error": "forbidden", "detail": "role " + caller.Role + " lacks " + act})
 			return
 		}
 		ctx := context.WithValue(r.Context(), tenantKey{}, tenant)
@@ -147,8 +229,7 @@ func New(a *API) (http.Handler, error) {
 
 // sameOrigin allows non-browser clients (no Origin) and the bundled UI served
 // from this host. Browsers set Sec-Fetch-Site/Origin themselves; page scripts
-// cannot forge them. Auth is a bearer header, never a cookie, so this is
-// defence in depth, not the CSRF control.
+// cannot forge them. Session writes additionally require Origin (see New).
 func sameOrigin(r *http.Request) bool {
 	site, origin := r.Header.Get("Sec-Fetch-Site"), r.Header.Get("Origin")
 	if origin == "" {

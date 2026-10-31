@@ -1,7 +1,9 @@
 'use strict';
 // ConfigBridge console. Plain DOM, no innerHTML: every vendor value is rendered
-// as text. The tenant API key lives only in this variable (lost on reload).
-const S = { key: null, tenant: '', meta: null, paths: {} };
+// as text. Sign-in sets two HttpOnly cookies this script can't read: a 15-min
+// access JWT and a rotating refresh token sent only to /auth/refresh.
+const S = { me: null, tenant: '', meta: null, paths: {} };
+const can = (a) => !!(S.me && S.me.actions.includes(a));
 
 // ---------- tiny helpers ----------
 function h(tag, attrs, ...kids) {
@@ -61,16 +63,27 @@ async function busy(btn, fn) {
 
 // ---------- API ----------
 async function api(method, path, body) {
-  const opt = { method, cache: 'no-store', credentials: 'omit', redirect: 'error',
-    headers: { Authorization: 'Bearer ' + S.key, Accept: 'application/json' } };
+  const opt = { method, cache: 'no-store', credentials: 'same-origin', redirect: 'error',
+    headers: { Accept: 'application/json' } };
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = typeof body === 'string' ? body : JSON.stringify(body); }
   let r;
   try { r = await fetch(path, opt); } catch (e) { toast('API unreachable', true); throw e; }
+  if (r.status === 401 && !path.startsWith('/auth/') && path !== '/accounts' && await refresh()) {
+    try { r = await fetch(path, opt); } catch (e) { toast('API unreachable', true); throw e; }
+  }
   const text = await r.text();
   let data = null;
   if (text) { try { data = JSON.parse(text); } catch { data = text; } }
-  if (r.status === 401) { lock('Key rejected or expired.'); throw new Error('unauthorized'); }
+  if (r.status === 401 && !path.startsWith('/auth/login') && path !== '/accounts') { lock('Your session ended. Sign in again.'); throw new Error('unauthorized'); }
+  if (r.status === 403 && data && data.error === 'forbidden') toast('Your role (' + (S.me ? S.me.role : '?') + ') can\'t do this', true);
   return { ok: r.ok, status: r.status, data };
+}
+// refresh swaps the refresh cookie for new tokens; concurrent 401s share one call.
+let refreshing = null;
+function refresh() {
+  refreshing = refreshing || fetch('/auth/refresh', { method: 'POST', credentials: 'same-origin', cache: 'no-store' })
+    .then((r) => r.status === 204).catch(() => false).finally(() => setTimeout(() => { refreshing = null; }, 0));
+  return refreshing;
 }
 async function must(method, path, body) {
   const r = await api(method, path, body);
@@ -123,64 +136,99 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source'], ['records', 'OCSF records'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
 function lock(msg) {
-  S.key = null;
+  S.me = null;
   app().replaceChildren(loginView(msg));
 }
+async function signOut() {
+  await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' }).catch(() => {});
+  lock('Signed out.');
+}
+async function enter(me) {
+  S.me = me; S.tenant = me.account;
+  await loadMeta();
+  shell();
+}
+async function boot() {
+  try {
+    const me = () => fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+    let r = await me();
+    if (r.status === 401 && await refresh()) r = await me();
+    if (r.ok) return enter(await r.json());
+  } catch { /* fall through to sign-in */ }
+  lock();
+}
 function loginView(msg) {
-  const input = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'Tenant API key', 'aria-label': 'Tenant API key' });
+  let mode = 'signin';
+  const f = {
+    account: h('input', { autocomplete: 'organization', spellcheck: 'false', placeholder: 'acme' }),
+    name: h('input', { autocomplete: 'name', placeholder: 'Alice Admin' }),
+    email: h('input', { type: 'email', autocomplete: 'username', spellcheck: 'false', placeholder: 'alice@acme.com' }),
+    password: h('input', { type: 'password', autocomplete: 'current-password', placeholder: '12+ characters' }),
+  };
   const err = h('div', { class: 'small', style: 'color:var(--bad)' }, msg || '');
-  const go = h('button', { class: 'primary', type: 'submit' }, 'Unlock console');
+  const go = h('button', { class: 'primary', type: 'submit' });
+  const title = h('h1', {}), sub = h('p', { class: 'muted small', style: 'margin:6px 0 0' });
+  const body = h('div', { class: 'stack' });
+  const links = h('div', { class: 'row small' });
+  const lab = (t, el, opt) => h('label', { class: 'f' }, h('span', {}, t, opt ? h('span', { class: 'tag', style: 'margin-left:6px' }, 'optional') : null), el);
+  function draw() {
+    f.password.autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+    // Built lazily: an input can only sit in one label at a time.
+    const m = {
+      signin: () => ['Sign in', 'Your account, email and password.', [lab('Account', f.account), lab('Email', f.email), lab('Password', f.password)], 'Sign in'],
+      signup: () => ['Create an account', 'A new, isolated account (tenant). You become its first admin and can add your team after.', [lab('Account id', f.account), lab('Your name', f.name), lab('Email', f.email), lab('Password', f.password)], 'Create account'],
+    }[mode]();
+    title.textContent = m[0]; sub.textContent = m[1]; go.textContent = m[3];
+    body.replaceChildren(...m[2]);
+    const link = (t, to) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); mode = to; err.textContent = ''; draw(); } }, t);
+    links.replaceChildren(mode === 'signin' ? link('Create an account', 'signup') : link('Back to sign in', 'signin'));
+  }
   const form = h('form', { class: 'bd', onsubmit: async (e) => {
     e.preventDefault();
-    const k = input.value.trim();
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)) {
-      err.textContent = 'That looks like a vendor key (e.g. NVD). Vendor keys go on the Secrets page. Sign in with the tenant key from .env (CB_BOOTSTRAP_API_KEY).';
-      input.value = ''; return;
-    }
-    if (k.length < 32) { err.textContent = 'That is not a tenant API key (CB_BOOTSTRAP_API_KEY in .env).'; return; }
-    S.key = k; input.value = '';
+    err.textContent = '';
+    const body = { account: f.account.value.trim().toLowerCase(), email: f.email.value.trim(), password: f.password.value, ...(mode === 'signup' ? { name: f.name.value.trim() } : {}) };
     await busy(go, async () => {
       try {
-        const r = await api('GET', '/health?limit=100');
-        if (!r.ok) { err.textContent = 'API error ' + r.status; S.key = null; return; }
-        S.tenant = (r.data[0] && r.data[0].tenant_id) || '';
-        await loadMeta();
-        shell();
-      } catch { if (S.key) err.textContent = 'API unreachable.'; }
+        const r = await api('POST', mode === 'signup' ? '/accounts' : '/auth/login', body);
+        f.password.value = '';
+        if (r.ok) return enter(r.data);
+        const d = r.data || {};
+        err.textContent = r.status === 401 ? 'Wrong account, email or password.' : d.detail || (d.error || 'HTTP ' + r.status).replace(/_/g, ' ');
+      } catch { err.textContent = 'API unreachable.'; }
     });
   } },
   h('div', { class: 'brand', style: 'padding:0' }, h('span', { class: 'logo' }, 'CB'), 'ConfigBridge'),
-  h('div', {}, h('h1', {}, 'Sign in to your tenant'), h('p', { class: 'muted small', style: 'margin:6px 0 0' },
-    'Paste the tenant API key. It is kept in this tab\'s memory only: never stored, sent only to this API, gone on reload.')),
-  input, err, go);
+  h('div', {}, title, sub), body, err, go, links);
+  draw();
   return h('div', { class: 'login' }, h('div', { class: 'card' }, form));
 }
 function shell() {
-  const nav = h('nav', { class: 'nav' }, NAV.map(([id, label]) => h('a', { href: '#/' + id, 'data-v': id }, label)));
+  const nav = h('nav', { class: 'nav' }, NAV.filter(([, , need]) => !need || can(need)).map(([id, label]) => h('a', { href: '#/' + id, 'data-v': id }, label)));
   const side = h('aside', { class: 'side' },
     h('div', { class: 'brand' }, h('span', { class: 'logo' }, 'CB'), 'ConfigBridge'), nav,
     h('div', { class: 'foot' },
-      h('div', {}, 'Tenant ', h('code', {}, S.tenant || 'unknown')),
+      h('div', {}, h('strong', {}, S.me.name)),
+      h('div', {}, h('span', { class: 'tag' }, S.me.role), ' in ', h('code', {}, S.tenant)),
       h('div', {}, 'OCSF ', h('code', {}, S.meta.schema.version)),
-      h('button', { class: 'sm', onclick: () => lock('Locked.') }, 'Lock')));
+      h('button', { class: 'sm', onclick: signOut }, 'Sign out')));
   app().replaceChildren(h('div', { class: 'shell' }, side, h('main', { class: 'main', id: 'view' })));
   route();
 }
 function route() {
   document.querySelectorAll('.drawer, .scrim').forEach((x) => x.remove());
-  if (!S.key) return;
+  if (!S.me) return;
   const [, view = 'overview', arg = ''] = (location.hash || '#/overview').split('/');
   const q = new URLSearchParams((location.hash.split('?')[1]) || '');
   document.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('on', a.dataset.v === view.split('?')[0]));
   const v = document.getElementById('view');
   if (!v) return;
   const name = view.split('?')[0];
-  const fn = { overview, connectors, builder, records, quarantine, runs, secrets }[name] || overview;
+  const fn = { overview, connectors, builder, records, quarantine, runs, secrets, access }[name] || overview;
   v.replaceChildren(h('div', { class: 'muted' }, 'Loading…'));
   fn(v, decodeURIComponent(arg.split('?')[0]), q).catch((e) => {
-    if (S.key) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
+    if (S.me) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
   });
 }
 window.addEventListener('hashchange', route);
@@ -440,6 +488,126 @@ async function secrets(v) {
     h('div', { class: 'stack' }, h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Add or rotate')), form),
       h('div', { class: 'card' }, table([{ t: 'Name', v: (s) => h('code', {}, s.name) }, { t: 'Bound host', v: (s) => h('code', {}, s.allowed_host) },
         { t: 'Backend', v: (s) => h('span', { class: 'tag' }, s.backend) }, { t: 'Created', v: (s) => ago(s.created_at) }, { t: 'Updated', v: (s) => ago(s.updated_at) }], list))));
+}
+
+// ---------- users & keys (IAM) ----------
+const ROLE_INFO = {
+  admin: 'everything, including users and keys',
+  editor: 'add and change sources and secrets, run them',
+  operator: 'run and test sources, read everything',
+  viewer: 'read only',
+};
+function roleSelect(value) {
+  return h('select', {}, Object.keys(ROLE_INFO).map((r) => h('option', { value: r, selected: r === value }, r + ' — ' + ROLE_INFO[r])));
+}
+function keysCard(user, title) {
+  const card = h('div', { class: 'card' });
+  const name = h('input', { placeholder: 'what it is for, e.g. ci-pipeline', autocomplete: 'off' });
+  const shown = h('div');
+  const add = h('button', { class: 'primary', type: 'submit' }, 'Create key');
+  async function draw() {
+    const keys = await must('GET', '/iam/users/' + encodeURIComponent(user.id) + '/keys');
+    const form = h('form', { class: 'bd row', onsubmit: async (e) => {
+      e.preventDefault();
+      await busy(add, async () => {
+        const r = await api('POST', '/iam/users/' + encodeURIComponent(user.id) + '/keys', { name: name.value });
+        if (!r.ok) { toast((r.data && (r.data.detail || r.data.error) || 'HTTP ' + r.status).replace(/_/g, ' '), true); return; }
+        name.value = '';
+        const secret = h('code', { style: 'user-select:all;word-break:break-all' }, r.data.secret);
+        shown.replaceChildren(h('div', { class: 'bd stack', style: 'border-top:1px solid var(--line)' },
+          h('strong', {}, 'Copy this key now. It will not be shown again.'), secret,
+          h('span', { class: 'small muted' }, 'Use as: Authorization: Bearer <key>. It can do exactly what ' + user.name + ' (' + user.role + ') can.'),
+          h('div', {}, h('button', { class: 'sm', type: 'button', onclick: () => shown.replaceChildren() }, 'Done, I saved it'))));
+        draw();
+      });
+    } }, h('label', { class: 'f', style: 'flex:1' }, 'New access key', name), add);
+    card.replaceChildren(h('div', { class: 'hd' }, h('h2', {}, title), h('span', { class: 'small muted' }, keys.length + ' of 2')),
+      keys.length < 2 ? form : h('div', { class: 'bd small muted' }, 'Two keys max (like AWS IAM): delete or rotate one to add another.'),
+      shown,
+      table([{ t: 'Name', v: (k) => k.name }, { t: 'Status', v: (k) => pill(k.active ? 'live' : 'disabled') },
+        { t: 'Created', v: (k) => ago(k.created_at) }, { t: 'Last used', v: (k) => ago(k.last_used_at) },
+        { t: '', v: (k) => h('div', { class: 'row' },
+          h('button', { class: 'sm', onclick: async () => { await must('PATCH', '/iam/keys/' + k.id, { active: !k.active }); draw(); } }, k.active ? 'Disable' : 'Enable'),
+          h('button', { class: 'sm', onclick: async () => { if (confirm('Delete key "' + k.name + '"? Anything using it stops working.')) { await must('DELETE', '/iam/keys/' + k.id); draw(); } } }, 'Delete')) }], keys));
+  }
+  draw().catch(() => card.replaceChildren(h('div', { class: 'empty' }, 'Could not load keys.')));
+  return card;
+}
+function passwordCard() {
+  const cur = h('input', { type: 'password', autocomplete: 'current-password' });
+  const nw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: '12+ characters' });
+  const btn = h('button', { type: 'submit' }, 'Change password');
+  return h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Your password')),
+    h('form', { class: 'bd row', onsubmit: async (e) => {
+      e.preventDefault();
+      await busy(btn, async () => {
+        const r = await api('POST', '/auth/password', { current_password: cur.value, new_password: nw.value });
+        cur.value = ''; nw.value = '';
+        if (r.status === 204) toast('Password changed. Other sessions were signed out.');
+        else toast(((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status).replace(/_/g, ' '), true);
+      });
+    } }, h('label', { class: 'f' }, 'Current', cur), h('label', { class: 'f' }, 'New', nw), btn));
+}
+function userDrawer(u) {
+  const role = roleSelect(u.role);
+  const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'new temporary password' });
+  const close = () => document.querySelectorAll('.drawer, .scrim').forEach((x) => x.remove());
+  const patch = async (body, okMsg) => {
+    const r = await api('PATCH', '/iam/users/' + u.id, body);
+    if (r.status === 204) { toast(okMsg); close(); route(); } else toast(((r.data && r.data.error) || 'HTTP ' + r.status).replace(/_/g, ' '), true);
+  };
+  const d = h('div', { class: 'drawer' },
+    h('div', { class: 'hd' }, h('h2', {}, u.name), h('button', { class: 'sm', onclick: close }, 'Close')),
+    h('div', { class: 'bd stack' },
+      h('div', { class: 'small muted' }, u.email + ' · added by ' + u.created_by + ' · ' + ago(u.created_at)),
+      h('label', { class: 'f' }, 'Role', role),
+      h('div', {}, h('button', { class: 'primary', onclick: () => patch({ role: role.value }, 'Role changed; their sessions were signed out') }, 'Save role')),
+      h('label', { class: 'f' }, h('span', {}, 'Reset password'), pw),
+      h('div', {}, h('button', { onclick: async () => {
+        const r = await api('POST', '/iam/users/' + u.id + '/password', { password: pw.value });
+        pw.value = '';
+        if (r.status === 204) toast('Password reset; hand it over out of band'); else toast(((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status).replace(/_/g, ' '), true);
+      } }, 'Reset password')),
+      h('div', { class: 'row' },
+        h('button', { onclick: () => patch({ active: !u.active }, u.active ? 'Disabled: sessions and keys stopped' : 'Enabled') }, u.active ? 'Disable user' : 'Enable user'),
+        u.id !== S.me.user_id ? h('button', { onclick: async () => {
+          if (!confirm('Delete ' + u.name + ' and their keys?')) return;
+          const r = await api('DELETE', '/iam/users/' + u.id);
+          if (r.status === 204) { close(); route(); } else toast(((r.data && r.data.error) || 'HTTP ' + r.status).replace(/_/g, ' '), true);
+        } }, 'Delete user') : null),
+      keysCard(u, 'Access keys')));
+  document.body.append(h('div', { class: 'scrim', onclick: close }), d);
+}
+async function access(v) {
+  const parts = [];
+  if (can('iam:read')) {
+    const users = await must('GET', '/iam/users?limit=500');
+    const name = h('input', { placeholder: 'Bob Builder', autocomplete: 'off' });
+    const email = h('input', { type: 'email', placeholder: 'bob@acme.com', autocomplete: 'off' });
+    const role = roleSelect('viewer');
+    const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'temporary, 12+ characters' });
+    const add = h('button', { class: 'primary', type: 'submit' }, 'Add user');
+    parts.push(h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Add a user')),
+      h('form', { class: 'bd stack', onsubmit: async (e) => {
+        e.preventDefault();
+        await busy(add, async () => {
+          const r = await api('POST', '/iam/users', { name: name.value, email: email.value, role: role.value, password: pw.value });
+          if (r.status === 201) { toast('Added ' + r.data.name + ' as ' + r.data.role + '. Give them the account id "' + S.tenant + '" and the password.'); route(); return; }
+          toast(((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status).replace(/_/g, ' '), true);
+        });
+      } }, h('div', { class: 'grid3' }, h('label', { class: 'f' }, 'Name', name), h('label', { class: 'f' }, 'Email', email), h('label', { class: 'f' }, 'Temporary password', pw)),
+      h('div', { class: 'row spread' }, h('label', { class: 'f', style: 'flex:1' }, 'Role', role), add))));
+    parts.push(h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Users'), h('span', { class: 'small muted' }, 'click a user to change role, disable, reset or manage keys')),
+      table([{ t: 'Name', v: (u) => h('strong', {}, u.name) }, { t: 'Email', v: (u) => u.email }, { t: 'Role', v: (u) => h('span', { class: 'tag' }, u.role) },
+        { t: 'Status', v: (u) => pill(u.active ? 'live' : 'disabled') }, { t: 'Last sign-in', v: (u) => ago(u.last_login_at) }], users, userDrawer)));
+  }
+  if (S.me.user_id) {
+    parts.push(keysCard({ id: S.me.user_id, name: S.me.name, role: S.me.role }, 'Your access keys'));
+    parts.push(passwordCard());
+  } else {
+    parts.push(h('div', { class: 'card' }, h('div', { class: 'bd small muted' }, 'Signed in without a user.')));
+  }
+  v.replaceChildren(header('Users & keys', 'Who can use account ' + S.tenant + ', with which role. Access keys inherit their owner\'s role.'), h('div', { class: 'stack' }, parts));
 }
 
 // ---------- builder (B-5): form <-> config JSON, same validator as the API ----------
@@ -826,4 +994,4 @@ async function doStep(k, btn) {
   try { return btn ? await busy(btn, run) : await run(); } catch { return false; }
 }
 
-lock();
+boot();
