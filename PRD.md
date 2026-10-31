@@ -1,12 +1,19 @@
 # ConfigBridge
 
+> Implementation update: the team has chosen **Go + PostgreSQL** for Phase 1.
+> [docs/WORK_SPLIT.md](docs/WORK_SPLIT.md) is the current implementation plan;
+> its language, database, API and ownership decisions supersede the earlier
+> Python/SQLite implementation choices below. Keep this document for product
+> requirements and acceptance criteria. Current Member B progress and handoff:
+> [docs/MEMBER_B.md](docs/MEMBER_B.md).
+
 ## Product requirements and implementation context
 
 Version: 1.0
 Date: 31 October 2026
 Team: npc
 Members: Mohit Kumar M and Prajwal HM
-Selected challenge: Config-Driven Generic Integration Platform â€” Add new tool integrations without writing code
+Selected challenge: Config-Driven Generic Integration Platform — Add new tool integrations without writing code
 Status: Implementation specification. Features and performance targets below are not claims of completed work.
 
 ## 1 Read this first
@@ -590,4 +597,3 @@ Provider documentation, dependency compatibility and live access may change. The
 ## 20 First message to VS Code Codex
 
 > Read PRD.md and any applicable AGENTS.md. Inspect the repository and current branch. Implement Milestone 0 and Milestone 1 first using the proposed small Python structure, an offline HTTP fixture and SQLite. Verify mapping, quarantine and duplicate prevention, then attempt one bounded real CISA feed run if network access permits. Keep the engine generic and configs declarative. Explain the new code in short, simple terms and tell me the exact commands to run it on Windows. Do not add an LLM or build later milestones before this first complete flow works.
-

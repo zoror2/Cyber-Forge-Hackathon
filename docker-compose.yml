@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: configbridge
+      POSTGRES_DB: configbridge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate .env first}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U configbridge -d configbridge']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  engine:
+    build: .
+    environment:
+      DATABASE_URL: postgres://configbridge:${POSTGRES_PASSWORD:?Generate .env first}@postgres:5432/configbridge?sslmode=disable
+      CONFIGBRIDGE_ADMIN_TOKEN: ${CONFIGBRIDGE_ADMIN_TOKEN:?Generate .env first}
+      CONFIGBRIDGE_MASTER_KEY: ${CONFIGBRIDGE_MASTER_KEY:?Generate .env first}
+      CONFIGBRIDGE_SECRETS_BACKEND: local
+      CONFIGBRIDGE_FIXTURE_MODE: ${CONFIGBRIDGE_FIXTURE_MODE:-0}
+      CONFIGBRIDGE_LISTEN: 0.0.0.0:8080
+    ports:
+      - '127.0.0.1:8080:8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+  mock-vendor:
+    build: .
+    entrypoint: ['/app/fixturevendor']
+    ports:
+      - '127.0.0.1:8090:8090'
+    # Static synthetic vendor. Member A adds switchable failure scenarios
+    # and its explicit development egress policy. Offline fixture mode does
+    # not make network requests to this container.
+volumes:
+  pgdata:

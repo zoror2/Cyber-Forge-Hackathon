@@ -1,0 +1,12 @@
+{
+  "name": "ConfigBridge local (fill values locally only)",
+  "values": [
+    {"key": "base_url", "value": "http://127.0.0.1:8080", "enabled": true},
+    {"key": "admin_token", "value": "", "type": "secret", "enabled": true},
+    {"key": "connector", "value": "fixture_events", "enabled": true},
+    {"key": "revision", "value": "1", "enabled": true},
+    {"key": "secret_name", "value": "vendor_token", "enabled": true},
+    {"key": "allowed_host", "value": "api.example.com", "enabled": true}
+  ],
+  "_postman_variable_scope": "environment"
+}
