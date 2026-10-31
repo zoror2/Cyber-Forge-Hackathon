@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -224,7 +225,7 @@ func (c *Client) generate(ctx context.Context, r Request, secrets []Secret) (*Dr
 		if e != nil {
 			return nil, e
 		}
-		msgs[1].Content += researchBlock(facts)
+		msgs[1].Content += "\nResearch from the vendor's CURRENT official docs, found just now with web search. It overrides your memory; take endpoint, auth, paging and sources from it. Where it says unknown, say so in notes:\n" + facts
 	}
 	var last json.RawMessage
 	var issues []config.Issue

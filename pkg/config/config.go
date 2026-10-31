@@ -228,8 +228,8 @@ func (c *Config) Defaults() {
 
 var filterPath = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}(\.[A-Za-z0-9_]{1,64}){0,7}$`)
 
-// PlatformFilled are OCSF fields the platform sets when a config doesn't map them.
-var PlatformFilled = map[string]bool{"time": true, "severity_id": true, "metadata": true, "metadata.product": true}
+// platformFilled are OCSF fields the platform sets when a config doesn't map them.
+var platformFilled = map[string]bool{"time": true, "severity_id": true, "metadata": true, "metadata.product": true}
 
 func (c Config) Validate() []Issue {
 	out := []Issue{}
@@ -428,7 +428,7 @@ func requiredCovered(attrs map[string]ocsf.Attr, mapped map[string]bool, prefix 
 			}
 		}
 		bare := strings.TrimSuffix(p, ".#")
-		if a.Requirement == "required" && !present && !ocsf.PlatformOwned[bare] && !PlatformFilled[bare] {
+		if a.Requirement == "required" && !present && !ocsf.PlatformOwned[bare] && !platformFilled[bare] {
 			out = append(out, Issue{"destination.mapping." + p, "required by OCSF; map it"})
 		}
 		if present && a.Type == "object_t" {
