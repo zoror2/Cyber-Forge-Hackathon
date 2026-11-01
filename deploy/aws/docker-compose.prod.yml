@@ -1,0 +1,87 @@
+# Production stack on one EC2 host in a private subnet (t3.small). Postgres is
+# Amazon RDS (private DB subnets, TLS verified against the RDS CA bundle).
+# No published ports: the only way in is the Cloudflare Tunnel
+# (cloudflared -> api:8080), and the API refuses requests without the Pages
+# proxy secret. Every value comes from .env (SSM Parameter Store); nothing is
+# defaulted, a missing value fails.
+x-db: &db postgres://configbridge_app:${CB_APP_DB_PASSWORD:?}@${CB_DB_HOST:?}:5432/configbridge?sslmode=verify-full&sslrootcert=/certs/rds-ca.pem
+services:
+  # migrations only (no bootstrap tenant/API key: accounts come from sign-up)
+  bootstrap:
+    image: ${CB_BOOTSTRAP_IMAGE:?}
+    environment:
+      MIGRATION_DATABASE_URL: postgres://configbridge:${CB_DB_MASTER_PASSWORD:?}@${CB_DB_HOST:?}:5432/configbridge?sslmode=verify-full&sslrootcert=/certs/rds-ca.pem
+      DATABASE_URL: *db
+      CB_ENV: prod
+    volumes: ['./certs/rds-ca.pem:/certs/rds-ca.pem:ro']
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+  api:
+    image: ${CB_API_IMAGE:?}
+    environment:
+      DATABASE_URL: *db
+      CB_ENV: prod
+      CB_SECRETS_BACKEND: aws
+      AWS_REGION: ${AWS_REGION:?}
+      CB_LISTEN: 0.0.0.0:8080
+      GOMEMLIMIT: 384MiB
+      CB_JWT_SECRET: ${CB_JWT_SECRET:?}
+      CB_OPERATOR_TOKEN: ${CB_OPERATOR_TOKEN:?}
+      CB_PROXY_SECRET: ${CB_PROXY_SECRET:?}
+      CB_AI_PROVIDER: ${CB_AI_PROVIDER:?}
+      CB_AI_MODEL: ${CB_AI_MODEL:?}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?}
+      CB_DOC_RENDERER: ${CB_DOC_RENDERER:?}
+      CB_AI_DAILY_LIMIT: ${CB_AI_DAILY_LIMIT:?}
+      CB_AI_DAILY_TOKEN_LIMIT: ${CB_AI_DAILY_TOKEN_LIMIT:?}
+      CB_AI_ENABLED_TENANTS: ${CB_AI_ENABLED_TENANTS:?}
+      CB_SIEM_ENABLED_TENANTS: ${CB_SIEM_ENABLED_TENANTS:?}
+      CB_OPENSEARCH_URL: https://127.0.0.1:9443
+      CB_OPENSEARCH_USERNAME: ${CB_OPENSEARCH_USERNAME:?}
+      CB_OPENSEARCH_PASSWORD: ${CB_OPENSEARCH_PASSWORD:?}
+      CB_OPENSEARCH_CA_FILE: /certs/ca.pem
+      CB_OPENSEARCH_NAMESPACE: ${CB_OPENSEARCH_NAMESPACE:?}
+    volumes: ['./certs/ca.pem:/certs/ca.pem:ro', './certs/rds-ca.pem:/certs/rds-ca.pem:ro']
+    mem_limit: 512m
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+  # SIEM index: bound to the api's own loopback only (shared network namespace),
+  # reachable solely through the TLS + password sidecar below.
+  opensearch:
+    image: ${CB_OPENSEARCH_IMAGE:?}
+    network_mode: service:api
+    environment:
+      discovery.type: single-node
+      network.host: 127.0.0.1
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+      DISABLE_SECURITY_PLUGIN: 'true'
+      OPENSEARCH_JAVA_OPTS: -Xms384m -Xmx384m
+    volumes: ['osdata:/usr/share/opensearch/data']
+    mem_limit: 900m
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+  opensearch-tls:
+    image: ${CB_NGINX_IMAGE:?}
+    network_mode: service:api
+    volumes: ['./nginx-opensearch.conf:/etc/nginx/conf.d/default.conf:ro', './certs:/certs:ro']
+    mem_limit: 64m
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+  cloudflared:
+    image: ${CB_CLOUDFLARED_IMAGE:?}
+    command: ['tunnel', '--no-autoupdate', 'run']
+    environment:
+      TUNNEL_TOKEN: ${CB_TUNNEL_TOKEN:?}
+    depends_on: [api]
+    mem_limit: 128m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+volumes:
+  osdata:

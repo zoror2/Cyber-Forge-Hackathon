@@ -187,12 +187,16 @@ func run() error {
 	if operator != "" && len(operator) < 32 {
 		return errors.New("CB_OPERATOR_TOKEN must be at least 32 characters")
 	}
+	proxySecret := os.Getenv("CB_PROXY_SECRET")
+	if proxySecret != "" && len(proxySecret) < 32 {
+		return errors.New("CB_PROXY_SECRET must be at least 32 characters")
+	}
 	siem, e := app.SIEM(os.Getenv, drafter)
 	if e != nil {
 		return e
 	}
 	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, SIEM: siem, NotificationTenants: notificationTenants,
-		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, OperatorToken: operator})
+		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, OperatorToken: operator, ProxySecret: proxySecret})
 	if e != nil {
 		return e
 	}
