@@ -17,7 +17,7 @@ browser ──https──> Cloudflare Pages (project "cyberforge")
                                    │  outbound-only connection from the host
 AWS ap-south-1, VPC 10.20.0.0/16   ▼
   private app subnet:  EC2 t3.small (no public IP, no inbound rules, SSM only)
-                         docker compose: cloudflared → localhost:8080 (shared netns)
+                         docker compose: cloudflared → nginx https://localhost:8443 → api:8080 (shared netns)
                                          api ⇄ opensearch-tls (nginx, TLS+basic auth, 127.0.0.1:9443)
                                                ⇄ opensearch (127.0.0.1:9200, loopback only)
   private DB subnets:  RDS PostgreSQL 16 (db.t4g.micro), TLS verify-full, SG allows 5432 from the app SG only
@@ -58,7 +58,7 @@ Cloudflare:
 | Resource | Name | Notes |
 |---|---|---|
 | Pages project | `cyberforge` (`cyberforge-86l.pages.dev`) | custom domain `cyberforge.mohithkumar.dev`; secret `PROXY_SECRET`; var `BACKEND_ORIGIN` |
-| Tunnel | `cyberforge` | public hostname `cyberforge-api.mohithkumar.dev` → `http://localhost:8080` (cloudflared shares the api network namespace); token stored as `CB_TUNNEL_TOKEN` in SSM |
+| Tunnel | `cyberforge` | public hostname `cyberforge-api.mohithkumar.dev` → `https://localhost:8443` + No TLS Verify (nginx in the api namespace → api:8080; the dashboard rejects http origins); token stored as `CB_TUNNEL_TOKEN` in SSM |
 
 ## Files
 

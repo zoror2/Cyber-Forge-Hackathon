@@ -12,7 +12,7 @@ mkdir -p /opt/configbridge && cd /opt/configbridge
 rm -rf src && mkdir src
 aws s3 cp --region "$REGION" --only-show-errors "$BUNDLE" bundle.tar.gz
 tar -xzf bundle.tar.gz -C src && rm bundle.tar.gz
-cp src/deploy/aws/docker-compose.prod.yml src/deploy/aws/nginx-opensearch.conf .
+cp src/deploy/aws/docker-compose.prod.yml src/deploy/aws/nginx-opensearch.conf src/deploy/aws/nginx-origin.conf .
 
 # settings: SSM Parameter Store (SecureString), never in the bundle
 {
@@ -33,8 +33,12 @@ if [ ! -f certs/ca.pem ]; then
   openssl x509 -req -in certs/os.csr -CA certs/ca.pem -CAkey certs/ca-key.pem -CAcreateserial -days 825 -extfile certs/ext.cnf -out certs/opensearch.pem
   rm -f certs/os.csr certs/ext.cnf certs/ca-key.pem
 fi
+# tunnel origin TLS (loopback only; the Cloudflare dashboard requires an https origin), once
+if [ ! -f certs/origin.pem ]; then
+  openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout certs/origin-key.pem -out certs/origin.pem
+fi
 printf '%s:%s\n' "$CB_OPENSEARCH_USERNAME" "$(openssl passwd -apr1 "$CB_OPENSEARCH_PASSWORD")" > certs/htpasswd
-chmod 755 certs; chmod 644 certs/ca.pem certs/opensearch.pem certs/htpasswd certs/rds-ca.pem; chmod 600 certs/opensearch-key.pem
+chmod 755 certs; chmod 644 certs/ca.pem certs/opensearch.pem certs/origin.pem certs/htpasswd certs/rds-ca.pem; chmod 600 certs/opensearch-key.pem certs/origin-key.pem
 
 # RDS runtime role: no superuser, cannot bypass row-level security (once)
 export PGSSLMODE=verify-full PGSSLROOTCERT=/opt/configbridge/certs/rds-ca.pem PGPASSWORD="$CB_DB_MASTER_PASSWORD"

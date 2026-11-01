@@ -68,15 +68,16 @@ services:
   opensearch-tls:
     image: ${CB_NGINX_IMAGE:?}
     network_mode: service:api
-    volumes: ['./nginx-opensearch.conf:/etc/nginx/conf.d/default.conf:ro', './certs:/certs:ro']
+    # also the tunnel origin (https://localhost:8443 -> api), see nginx-origin.conf
+    volumes: ['./nginx-opensearch.conf:/etc/nginx/conf.d/default.conf:ro', './nginx-origin.conf:/etc/nginx/conf.d/origin.conf:ro', './certs:/certs:ro']
     mem_limit: 64m
     security_opt: ['no-new-privileges:true']
     restart: unless-stopped
   cloudflared:
     image: ${CB_CLOUDFLARED_IMAGE:?}
     command: ['tunnel', '--no-autoupdate', 'run']
-    # shares the api's loopback: the tunnel route is http://localhost:8080
-    # (the Cloudflare dashboard rejects single-label hosts like "api")
+    # shares the api's loopback: tunnel route https://localhost:8443 (No TLS
+    # Verify), served by opensearch-tls/nginx-origin.conf
     network_mode: service:api
     environment:
       TUNNEL_TOKEN: ${CB_TUNNEL_TOKEN:?}
