@@ -75,6 +75,9 @@ services:
   cloudflared:
     image: ${CB_CLOUDFLARED_IMAGE:?}
     command: ['tunnel', '--no-autoupdate', 'run']
+    # shares the api's loopback: the tunnel route is http://localhost:8080
+    # (the Cloudflare dashboard rejects single-label hosts like "api")
+    network_mode: service:api
     environment:
       TUNNEL_TOKEN: ${CB_TUNNEL_TOKEN:?}
     depends_on: [api]
