@@ -16,6 +16,8 @@ See the [FR/bonus verification checklist](docs/VERIFICATION.md) and
 [current AI drafting flow](docs/AI_DRAFTS.md) for evidence and limitations.
 For the complete click-by-click local presentation, use the
 [jury demo guide](docs/JURY_DEMO.md).
+Connector configs can be pasted or uploaded as **JSON or YAML**; see
+[config format support](docs/CONFIG_FORMATS.md) and [the YAML example](configs/mock_users.yaml).
 Real AWS Secrets Manager access, cloud deployment, SSO and two-person config
 approval remain separate work. The engine supports the specific auth/paging
 capabilities in its config contract; it does not support every vendor protocol.

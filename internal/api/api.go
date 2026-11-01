@@ -398,7 +398,11 @@ func (a *API) decodeConfig(w http.ResponseWriter, r *http.Request) (config.Confi
 		fail(w, 413, "config_too_large")
 		return config.Config{}, false
 	}
-	c, issues := config.Decode(b)
+	decode := config.DecodeInput
+	if strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]), "application/json") {
+		decode = config.Decode
+	}
+	c, issues := decode(b)
 	if len(issues) > 0 {
 		write(w, 422, map[string]any{"errors": issues})
 		return c, false
