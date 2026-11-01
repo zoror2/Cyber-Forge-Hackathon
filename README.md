@@ -18,8 +18,9 @@ For the complete click-by-click local presentation, use the
 [jury demo guide](docs/JURY_DEMO.md).
 Connector configs can be pasted or uploaded as **JSON or YAML**; see
 [config format support](docs/CONFIG_FORMATS.md) and [the YAML example](configs/mock_users.yaml).
-Real AWS Secrets Manager access, cloud deployment, SSO and two-person config
-approval remain separate work. The engine supports the specific auth/paging
+Production runs on AWS (EC2 + RDS + Secrets Manager, private VPC) behind Cloudflare
+Pages and a Cloudflare Tunnel; see [Production deployment](#production-deployment).
+SSO and two-person config approval remain separate work. The engine supports the specific auth/paging
 capabilities in its config contract; it does not support every vendor protocol.
 
 ## Local setup (Windows PowerShell)
@@ -212,9 +213,9 @@ detector/Sigma workflow or general-purpose autonomous investigations.
 | `GET /ai/usage` | Your tenant's current UTC-day counts, tokens and recent requests |
 | `GET /insights` | Development browser dashboard; same Basic login as onboarding |
 
-The current hosted provider is Groq. Mohit will implement Bedrock later. Operator
-cross-customer dashboards, monthly billing, general free-text questions and
-production deployment remain future work.
+The hosted provider is chosen by `CB_AI_PROVIDER` (production uses Gemini). Operator
+cross-customer dashboards, monthly billing and general free-text questions remain
+future work.
 
 ## KEV and AI config drafts
 
@@ -260,12 +261,35 @@ Groq and public CISA, while the original collection remains synthetic/local.
   cancel work, and run-state checks fence abandoned writers. This requires direct
   or session-pooled PostgreSQL connections, not transaction-mode PgBouncer.
 - Phase 1 API keys and activation are not the phase 2 SSO/RBAC/approval workflow.
-  Remote production hosting and customer onboarding remain outside this release.
+- Production: the API refuses any request without the Cloudflare Pages proxy
+  secret (`CB_PROXY_SECRET`, constant-time compare). The host has no public IP or
+  inbound ports, and Postgres TLS is verify-full against the RDS CA.
 
 Cross-review remains required for security-sensitive code. Push only a branch;
 Member A reviews our secrets/API auth before merge. Request-engine details and
 the broader target-integration analysis remain in [REQUEST_SIDE.md](docs/REQUEST_SIDE.md)
 and [MEMBER_B_HANDOFF.md](docs/MEMBER_B_HANDOFF.md).
+
+## Production deployment
+
+Live at `https://cyberforge.mohithkumar.dev`.
+
+```text
+browser → Cloudflare Pages (/ui static + proxy function, adds secret header)
+        → Cloudflare Tunnel → EC2 t3.small in a private subnet (api, OpenSearch, cloudflared)
+        → RDS PostgreSQL 16 (private, TLS verify-full) + Secrets Manager/KMS for vendor keys
+```
+
+- Settings: `deploy/aws/put-env.ps1` stores the production `.env` in SSM Parameter
+  Store. Nothing secret is in the repo or the image.
+- Host: `deploy/aws/setup.sh` builds the images on the host and starts
+  `deploy/aws/docker-compose.prod.yml`.
+- Frontend: `deploy/pages/deploy.ps1` (wrangler).
+- Data: `deploy/aws/restore.sh` was a one-time migration from local Docker
+  Postgres. Vendor credentials are not migrated and must be re-entered.
+
+**Everything another person needs** (resource IDs, redeploy steps, account limits,
+known gaps and the teardown order) is in [docs/DEPLOYMENT_AWS.md](docs/DEPLOYMENT_AWS.md).
 
 ## Web console
 
@@ -332,6 +356,7 @@ Added on top of the merged engine (all covered by tests in `internal/egress` and
 | [docs/AI.md](docs/AI.md) | (roadmap) AI gateway, AI for configs, prompt-injection and poisoning defences, evals |
 | [docs/AUTOMATION.md](docs/AUTOMATION.md) | (roadmap) What gets automated for users, and what never is |
 | [docs/LIVE_EVIDENCE.md](docs/LIVE_EVIDENCE.md) | Redacted live-run evidence for the three real sources (PRD §15) |
+| [docs/DEPLOYMENT_AWS.md](docs/DEPLOYMENT_AWS.md) | AWS + Cloudflare production setup: inventory, redeploy, teardown |
 | [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | Built architecture, run lifecycle, ranked optimization points (O1–O8) with code references |
 
 **Scope:** PRD first (FR-1..FR-11, three live free-tier sources). Decided 2026-10-31: the common schema is **OCSF 1.9.0** instead of a home-grown User/Device/Event model. The PRD lets us define the common schema; OCSF covers its user/device/event shapes (User Inventory, Device Inventory, Findings) and is what SIEMs and Security Lake ingest without conversion. Roadmap after the PRD: 35 enterprise vendors, SIEM destinations, AI config drafter, KEV-to-connected-vendor/credential exposure matching.

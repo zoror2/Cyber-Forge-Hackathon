@@ -13,7 +13,10 @@ foreach ($l in [IO.File]::ReadAllLines((Resolve-Path $EnvFile))) { if ($l -match
 if (-not $env:AWS_PROFILE -and $local['AWS_PROFILE']) { $env:AWS_PROFILE = $local['AWS_PROFILE'] }
 
 $current = @{}
+# first run: the parameter doesn't exist yet (PowerShell 5.1 would treat the CLI's stderr as fatal)
+$ErrorActionPreference = 'Continue'
 $raw = & $aws ssm get-parameter --region $Region --name $name --with-decryption --query Parameter.Value --output text 2>$null
+$ErrorActionPreference = 'Stop'
 if ($LASTEXITCODE -eq 0 -and $raw) { foreach ($l in ($raw -split "`n")) { if ($l -match '^([A-Z_]+)=(.*)$') { $current[$matches[1]] = $matches[2] } } }
 
 function New-Secret { $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) }
