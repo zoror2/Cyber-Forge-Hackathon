@@ -138,6 +138,13 @@ Logs: `cd /opt/configbridge && docker compose -f docker-compose.prod.yml logs --
   The operator can still create accounts beyond the cap (`POST /accounts` with
   `CB_OPERATOR_TOKEN`). Before real customers, replace this with invite codes
   and add Cloudflare Turnstile.
+- **Alert email** goes through Gmail SMTP (587, STARTTLS, app password) to each
+  account's oldest active admin (`CB_ALERT_USE_ACCOUNT_EMAIL=1`). `put-env.ps1`
+  maps the local `SMTP_HOST/PORT/USERNAME/PASSWORD` to `CB_SMTP_*`.
+  **Gap:** sign-up does not verify email addresses, so with open sign-up
+  someone can register a victim's address and trigger alert mail to it (one per
+  outage plus cooldown, at most 25 accounts). Add email verification before
+  real use.
 - **Per-tenant KMS keys are created lazily.** When a tenant with no key saves its
   first credential, the API creates a KMS key tagged `app=configbridge`,
   `tenant=<id>`, turns on rotation, and binds the key once (migration 017,

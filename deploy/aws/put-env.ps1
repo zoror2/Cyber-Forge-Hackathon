@@ -49,6 +49,14 @@ $settings = [ordered]@{
   # public sign-up, hard-capped (total accounts; also caps KMS keys at ~$1/month each)
   CB_SIGNUP               = 'open'
   CB_SIGNUP_MAX_ACCOUNTS  = '25'
+  # alert email: local SMTP_* names mapped to the app's CB_SMTP_*; alerts go to
+  # each account's oldest active admin (no per-tenant routes needed)
+  CB_SMTP_ADDR               = "$(From-Local 'SMTP_HOST'):$(From-Local 'SMTP_PORT')"
+  CB_SMTP_FROM               = From-Local 'SMTP_USERNAME'
+  CB_SMTP_USERNAME           = From-Local 'SMTP_USERNAME'
+  CB_SMTP_PASSWORD           = (From-Local 'SMTP_PASSWORD') -replace '\s', ''   # Gmail app passwords are shown with spaces
+  CB_SMTP_TLS_MODE           = From-Local 'CB_SMTP_TLS_MODE'
+  CB_ALERT_USE_ACCOUNT_EMAIL = '1'
 }
 $body = ($settings.GetEnumerator() | % { "$($_.Key)=$($_.Value)" }) -join "`n"
 $tmp = [IO.Path]::GetTempFileName()
