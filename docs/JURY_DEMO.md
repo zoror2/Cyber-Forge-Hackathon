@@ -67,6 +67,9 @@ where fields are, and PostgreSQL updates the same record instead of duplicating 
 ## 4. Add a source without AI — B-2, B-3, B-5
 
 1. **Add source → Paste a config**.
+   The box accepts **JSON or YAML**. You may also use **Upload config file**;
+   `configs/mock_users.yaml` is a complete YAML example. Both formats pass the
+   same validation and become the same engine config, without calling AI.
 2. Paste `data/jury-demo-configs/demo_users.json`; change `id` to `jury_new_users`
    and `name` to `Jury-created synthetic users` so this is a new source.
 3. Press **Check config**, inspect the returned settings, then **Connect**.
