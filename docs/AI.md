@@ -40,14 +40,14 @@ schema, OCSF 1.9.0** (`ocsf_records`; decided 2026-10-31, replacing User / Devic
 All model calls go through one internal service. Nothing else talks to a model.
 
 ```
-feature (drafter / triage / ...) ──► AI gateway ──► AWS Bedrock (Claude, our region)
+feature (drafter / triage / ...) ──► AI gateway ──► model provider (CB_AI_PROVIDER)
                                        │
        opt-in check · input redaction · versioned prompt · output schema
        validation · per-tenant token/cost budget · rate limit · audit log
        · kill switch
 ```
 
-- **Models:** Claude via AWS Bedrock. Data stays in our AWS region, and Bedrock doesn't train on it. Sonnet by default, Opus for hard drafting, Haiku for cheap classification. Exact model IDs get pinned in config when we build it, and changing them means rerunning evals.
+- **Models:** the provider and model are chosen by `CB_AI_PROVIDER` / `CB_AI_MODEL` (production: Gemini; AWS Bedrock is supported for in-region processing). Changing the model means rerunning evals.
 - **No fine-tuning on customer data.**
 - **Redaction before sending:** secret-shaped strings (keys, tokens, JWTs), plus anything the template marks sensitive.
 - **Structured output only**: JSON validated against a schema; free text only in designated `explanation` fields, escaped when rendered.
