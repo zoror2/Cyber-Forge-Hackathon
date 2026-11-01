@@ -87,6 +87,19 @@ func (s *Store) LoginLookup(ctx context.Context, tenant, email string) (Login, e
 
 const userCols = "id,name,email,role,active,created_by,created_at,last_login_at,token_version"
 
+// AlertRecipient chooses one active admin for this account, oldest first.
+// An operator may override this address in private server routes. No global lookup.
+func (s Scope) AlertRecipient(ctx context.Context) (email string, err error) {
+	err = s.WithTx(ctx, func(tx pgx.Tx) error {
+		e := tx.QueryRow(ctx, "SELECT email FROM iam_users WHERE tenant_id=$1 AND active AND role='admin' ORDER BY created_at,id LIMIT 1", s.Tenant).Scan(&email)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return nil
+		}
+		return e
+	})
+	return
+}
+
 func scanUser(r pgx.Row) (u User, e error) {
 	e = r.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.Active, &u.CreatedBy, &u.CreatedAt, &u.LastLoginAt, &u.Version)
 	if errors.Is(e, pgx.ErrNoRows) {

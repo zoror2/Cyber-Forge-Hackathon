@@ -15,19 +15,37 @@ type Worker struct {
 	Store  *store.Store
 	Sender Sender
 	Routes map[string]string
+	// Optional tenant-scoped account-admin lookup; explicit routes take precedence.
+	AccountRecipient func(context.Context, string) (string, error)
+}
+
+func (w *Worker) Recipient(ctx context.Context, tenant string) (string, error) {
+	if to, ok := w.Routes[tenant]; ok {
+		return to, nil
+	}
+	if w.AccountRecipient != nil {
+		to, err := w.AccountRecipient(ctx, tenant)
+		if err != nil {
+			return "", err
+		}
+		if ValidEmail(to) {
+			return to, nil
+		}
+	}
+	return "", nil
 }
 
 func (w *Worker) Process(ctx context.Context, j store.AlertJob) error {
-	to, ok := w.Routes[j.Tenant]
-	if !ok {
-		return nil
-	}
 	scope := w.Store.ForTenant(j.Tenant)
 	lease, unlock, err := scope.Lock(ctx, j.Connector)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	to, err := w.Recipient(lease, j.Tenant)
+	if err != nil || to == "" {
+		return err
+	}
 	a, err := scope.ClaimAlert(lease, j.ID)
 	if err != nil || a.ID == "" {
 		return err

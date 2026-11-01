@@ -101,7 +101,12 @@ func run() error {
 		return e
 	}
 	notificationTenants := map[string]bool{}
+	var notificationReady func(context.Context, string) (bool, error)
 	if alerts != nil {
+		notificationReady = func(ctx context.Context, tenant string) (bool, error) {
+			to, err := alerts.Recipient(ctx, tenant)
+			return to != "", err
+		}
 		for tenant := range alerts.Routes {
 			notificationTenants[tenant] = true
 		}
@@ -209,7 +214,9 @@ func run() error {
 		return e
 	}
 	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, SIEM: siem, NotificationTenants: notificationTenants,
-		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, SignupMax: signupMax, OperatorToken: operator, ProxySecret: proxySecret})
+		NotificationLocalCapture: dev && os.Getenv("CB_SMTP_TLS_MODE") == "plain",
+		NotificationReady:        notificationReady,
+		SessionKey:               sessionKey, InsecureCookies: dev, OpenSignup: signup, SignupMax: signupMax, OperatorToken: operator, ProxySecret: proxySecret})
 	if e != nil {
 		return e
 	}
