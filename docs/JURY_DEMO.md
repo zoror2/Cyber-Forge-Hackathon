@@ -17,6 +17,22 @@ These are synthetic, localhost-only demonstration accounts. Do not use these
 credentials for a public deployment. The existing local Docker API, PostgreSQL,
 TLS vendor fixture and OpenSearch must be running. Mohit handles AWS separately.
 
+**The Sources list displays names, rather than internal IDs.** `demo_users`
+appears as **Synthetic paginated users**. Other displayed names are:
+
+| Internal ID used in this guide | Displayed source name |
+|---|---|
+| `demo_malformed` | SYNTHETIC mixed valid/invalid users |
+| `demo_repair` | SYNTHETIC repair exercise |
+| `demo_security` | Synthetic security events |
+| `demo_vulnerabilities` | SYNTHETIC vulnerable assets (not real sensor data) |
+| `cisa_kev` | CISA Known Exploited Vulnerabilities (live) |
+
+The **Sources** list has **Run** and **Data** actions. Use **Overview** for
+**Test** and **Run** together; its health table also displays the internal ID,
+which distinguishes sources that share a display name. Clicking a source row
+opens its editor, with preview/test actions in the pipeline.
+
 The saved local settings are `data/docker-app-proof/settings.env`; they contain
 private credentials, so do not open that file during screen sharing. The demo's
 own API throttling is disabled through the existing development-only switch to
@@ -39,7 +55,7 @@ so an old checkpoint cannot invalidate the starting counts.
 | Order | Page/action | What to explain |
 |---|---|---|
 | 1 | Overview | One place shows source health, accepted/rejected counts and last results. Some red sources are intentional failure tests. |
-| 2 | Sources → `demo_users` → Test, then Run | A config controls fetching, pagination and mapping. Preview samples without storing; a real run stores records. |
+| 2 | Overview → `demo_users` → Test, then Run | A config controls fetching, pagination and mapping. Preview samples without storing; a real run stores records. |
 | 3 | OCSF records → Users → source `demo_users` | 25 users collected across 3 pages. Running again keeps 25 unique rows. |
 | 4 | Add source → Paste a config | Show the full validate → preview → activate → collect flow without depending on AI. |
 | 5 | Quarantine → `demo_malformed` | Two valid rows were accepted and two invalid rows were isolated with reasons. |
@@ -52,7 +68,8 @@ so an old checkpoint cannot invalidate the starting counts.
 
 ## 3. Collect, map and prevent duplicates — FR-2, FR-3, FR-5, FR-11
 
-1. Open **Sources**, find `demo_users`, press **Test**.
+1. Open **Overview**, find **Synthetic paginated users** with ID `demo_users`,
+   and press **Test**. The Sources list itself offers Run/Data, rather than Test.
 2. Test returns a bounded first page: **10 accepted**. It does not insert records,
    advance a checkpoint or create a live collection history entry.
 3. Press **Run**. Expect **25 accepted, 3 pages, success**.

@@ -1,0 +1,47 @@
+# Local Docker test: synthetic asset findings checked against the real CISA feed.
+# The same file can be used in separate customer accounts without changing its ID.
+version: 1
+id: kev_practice
+name: KEV practice - three synthetic asset findings
+vendor: Synthetic scanner
+request:
+  method: GET
+  url: https://mockvendor:8081/vulnerabilities
+  allowed_ports: [8081]
+  timeout_seconds: 10
+auth:
+  type: none
+items_path: ""
+pagination:
+  type: none
+schedule:
+  enabled: false
+  interval_seconds: 3600
+limits:
+  max_pages: 1
+  max_records: 100
+  max_response_bytes: 1048576
+  max_run_seconds: 30
+retry:
+  max_attempts: 2
+  base_delay_ms: 100
+  max_retry_after_seconds: 5
+destination:
+  class: vulnerability_finding
+  mapping:
+    finding_info.uid:
+      path: id
+      required: true
+      transform: string
+    finding_info.title:
+      path: title
+      required: true
+      transform: string
+    time:
+      path: timestamp
+      required: true
+      transform: datetime
+    vulnerabilities.0.cve.uid:
+      path: cve
+      required: true
+      transform: trim
