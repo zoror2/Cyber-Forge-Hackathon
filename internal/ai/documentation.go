@@ -35,7 +35,7 @@ func (r Request) checkDocumentation() error {
 		return ErrDocumentation
 	}
 	switch r.Scope {
-	case "public", "repository", "organization", "account", "enterprise":
+	case "public", "repository", "organization", "account", "tenant", "enterprise":
 	default:
 		return ErrDocumentation
 	}
@@ -48,7 +48,36 @@ func (r Request) checkDocumentation() error {
 }
 func publicDocURL(raw string) bool {
 	u, e := url.Parse(raw)
-	return e == nil && len(raw) <= 2000 && u.Scheme == "https" && u.Host != "" && u.User == nil && u.RawQuery == "" && (u.Port() == "" || u.Port() == "443") && !strings.Contains(u.Host, "your-") && (egress.Policy{}).CheckURL(u) == nil
+	return e == nil && len(raw) <= 2000 && u.Scheme == "https" && u.Host != "" && u.User == nil && safeQuery(u) && (u.Port() == "" || u.Port() == "443") && !strings.Contains(u.Host, "your-") && (egress.Policy{}).CheckURL(u) == nil
+}
+
+// Docs sites select content by query (learn.microsoft.com ?view=...), so a
+// query is allowed, but never one that looks like it carries a credential.
+var credentialParam = regexp.MustCompile(`(?i)(key|token|secret|sig|signature|password|passwd|auth|session|credential)`)
+
+func safeQuery(u *url.URL) bool {
+	q, e := url.ParseQuery(u.RawQuery)
+	if e != nil {
+		return false
+	}
+	for k := range q {
+		if credentialParam.MatchString(k) {
+			return false
+		}
+	}
+	return true
+}
+
+// dropTracking removes analytics parameters search results append.
+func dropTracking(u *url.URL) {
+	q := u.Query()
+	for k := range q {
+		l := strings.ToLower(k)
+		if strings.HasPrefix(l, "utm_") || l == "gclid" || l == "fbclid" || l == "srsltid" || l == "ref" || l == "source" {
+			q.Del(k)
+		}
+	}
+	u.RawQuery = q.Encode()
 }
 
 var scriptTags = regexp.MustCompile(`(?is)<(?:script|style)\b[^>]*>.*?</(?:script|style)>`)
@@ -56,6 +85,11 @@ var markupTags = regexp.MustCompile(`<[^>]+>`)
 var documentationSlots = make(chan struct{}, 4)
 
 const maxDocumentationBytes = 8 << 20
+
+// maxDocumentationText bounds the excerpt sent to the model per reference.
+// API references put auth, paging and response examples far down the page;
+// 6000 characters cut them off, so evidence checks failed on real vendors.
+const maxDocumentationText = 40000
 
 func compact(s string) string { return strings.Join(strings.Fields(s), " ") }
 func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
@@ -65,36 +99,9 @@ func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
 	u, _ := url.Parse(raw)
 	fragment := u.Fragment
 	u.Fragment = ""
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	select {
-	case documentationSlots <- struct{}{}:
-		defer func() { <-documentationSlots }()
-	case <-ctx.Done():
-		return "", fmt.Errorf("%w: documentation reader busy", ErrDocumentation)
-	}
-	client := (egress.Policy{}).Client(15 * time.Second)
-	defer client.CloseIdleConnections()
-	req, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	b, contentType, e := fetchPublic(ctx, u, "text/html, text/plain, application/json", maxDocumentationBytes)
 	if e != nil {
-		return "", ErrDocumentation
-	}
-	req.Header.Set("Accept", "text/html, text/plain, application/json")
-	res, e := client.Do(req)
-	if e != nil {
-		return "", fmt.Errorf("%w: public documentation could not be reached", ErrDocumentation)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return "", fmt.Errorf("%w: documentation returned HTTP %d; provide its final public URL", ErrDocumentation, res.StatusCode)
-	}
-	contentType := strings.ToLower(res.Header.Get("Content-Type"))
-	if !strings.Contains(contentType, "text/") && !strings.Contains(contentType, "json") {
-		return "", fmt.Errorf("%w: use a text, HTML or JSON reference", ErrDocumentation)
-	}
-	b, e := io.ReadAll(io.LimitReader(res.Body, maxDocumentationBytes+1))
-	if e != nil || len(b) > maxDocumentationBytes {
-		return "", fmt.Errorf("%w: document unavailable or larger than 8 MiB", ErrDocumentation)
+		return "", e
 	}
 	text := string(b)
 	if strings.Contains(contentType, "html") {
@@ -109,10 +116,57 @@ func readPublicDocumentation(ctx context.Context, raw string) (string, error) {
 	}
 	// Bound prompt size as well as download size. Evidence can only cite the
 	// transmitted excerpt; a later section needs a more focused reference.
-	if len(text) > 6000 {
-		text = strings.Clone(text[:6000])
+	if len(text) > maxDocumentationText {
+		text = strings.Clone(text[:maxDocumentationText])
 	}
 	return text, nil
+}
+
+// fetchPublic downloads one public HTTPS reference: egress guarded, no
+// redirects, bounded in time, concurrency and size. Shared by documentation
+// pages and OpenAPI specs.
+func fetchPublic(ctx context.Context, u *url.URL, accept string, limit int) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	select {
+	case documentationSlots <- struct{}{}:
+		defer func() { <-documentationSlots }()
+	case <-ctx.Done():
+		return nil, "", fmt.Errorf("%w: documentation reader busy", ErrDocumentation)
+	}
+	client := (egress.Policy{}).Client(15 * time.Second)
+	// Docs sites redirect canonical URLs (learn.microsoft.com adds ?view=).
+	// No credentials travel here, so follow a few same-host redirects that
+	// pass the same public checks; the egress dialer still guards the IP.
+	client.CheckRedirect = func(r *http.Request, via []*http.Request) error {
+		if len(via) > 3 || r.URL.Hostname() != via[0].URL.Hostname() || !publicDocURL(r.URL.String()) {
+			return fmt.Errorf("redirect not followed")
+		}
+		return nil
+	}
+	defer client.CloseIdleConnections()
+	req, e := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if e != nil {
+		return nil, "", ErrDocumentation
+	}
+	req.Header.Set("Accept", accept)
+	res, e := client.Do(req)
+	if e != nil {
+		return nil, "", fmt.Errorf("%w: public documentation could not be reached", ErrDocumentation)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		return nil, "", fmt.Errorf("%w: documentation returned HTTP %d; provide its final public URL", ErrDocumentation, res.StatusCode)
+	}
+	contentType := strings.ToLower(res.Header.Get("Content-Type"))
+	if !strings.Contains(contentType, "text/") && !strings.Contains(contentType, "json") && !strings.Contains(contentType, "yaml") {
+		return nil, "", fmt.Errorf("%w: use a text, HTML, JSON or YAML reference", ErrDocumentation)
+	}
+	b, e := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
+	if e != nil || len(b) > limit {
+		return nil, "", fmt.Errorf("%w: document unavailable or larger than %d MiB", ErrDocumentation, limit>>20)
+	}
+	return b, contentType, nil
 }
 
 // A supplied heading fragment focuses a large API reference on the operation
@@ -135,6 +189,10 @@ func focusedSection(body, fragment string) string {
 // Prepare retrieves public references before reserving paid AI tokens.
 func (c *Client) Prepare(ctx context.Context, r Request) (Request, error) {
 	if len(r.DocumentationURLs) == 0 {
+		// name-only needs web search; refuse before any budget is reserved
+		if p, _ := selectProfile(r); p == nil && r.nameOnly() && !c.gemini {
+			return r, ErrSearchRequired
+		}
 		return r, nil
 	}
 	if e := r.checkDocumentation(); e != nil {
@@ -154,8 +212,8 @@ func (c *Client) Prepare(ctx context.Context, r Request) (Request, error) {
 			return r, e
 		}
 		text = compact(text)
-		if len(text) > 6000 {
-			text = strings.Clone(text[:6000])
+		if len(text) > maxDocumentationText {
+			text = strings.Clone(text[:maxDocumentationText])
 		}
 		r.documents[source] = text
 	}
@@ -232,6 +290,14 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 		return u.String()
 	}
 	for _, e := range out.Evidence {
+		attached := false
+		for source := range r.documents {
+			attached = attached || canonicalURL(source) == canonicalURL(e.URL)
+		}
+		if !attached {
+			problem("evidence", "cites a page that was not fetched ("+e.URL+"); fabricated sources are rejected")
+			continue
+		}
 		q := compact(e.Quote)
 		if len(q) < 4 || len(q) > 4000 {
 			continue
@@ -242,6 +308,28 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 				by[e.Kind] = append(by[e.Kind], e)
 				break
 			}
+		}
+	}
+	// Models rarely copy long excerpts (multi-line JSON especially)
+	// byte-exactly. The platform therefore also reads the fetched official
+	// pages itself: overlapping windows of text and every valid JSON example
+	// on them become candidate evidence, checked by the same predicates. Every
+	// fact must still be on the vendor's page; nothing rests on the model.
+	pages := []string{}
+	for source := range r.documents {
+		pages = append(pages, source)
+	}
+	sort.Strings(pages)
+	for _, source := range pages {
+		doc := r.documents[source]
+		for _, w := range windows(doc, 400, 200) {
+			for _, k := range []string{"endpoint", "api_host", "query_param", "scope", "dataset", "auth", "token_url", "pagination"} {
+				by[k] = append(by[k], Evidence{Kind: k, URL: source, Quote: w})
+			}
+		}
+		for _, ex := range docJSON(doc) {
+			by["items_path"] = append(by["items_path"], Evidence{Kind: "items_path", URL: source, Quote: ex})
+			by["field"] = append(by["field"], Evidence{Kind: "field", URL: source, Quote: ex})
 		}
 	}
 	checked := []Evidence{}
@@ -258,14 +346,53 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 		return false
 	}
 	u, _ := url.Parse(cfg.Request.URL)
-	if !proven("endpoint", cfg.Request.URL, func(q string) bool {
-		// Syntax-highlight spans can add spaces around route slashes during
-		// HTML text extraction. Normalize those separators, preserving the
-		// exact route and an ending boundary (not a prefix of another route).
-		q = slashSpacing.ReplaceAllString(q, "/")
-		path := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(cfg.Request.Method) + `\s*` + regexp.QuoteMeta(route(u.Path)) + `(?:[\s?\x22'\\),\]]|$)`)
-		return path.MatchString(route(q)) && strings.Contains(strings.ToLower(q), strings.ToLower(r.Dataset))
-	}) {
+	// Syntax-highlight spans can add spaces around route slashes during HTML
+	// text extraction. Normalize those separators, preserving the exact route
+	// and an ending boundary (not a prefix of another route).
+	routeFor := func(p string) *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(cfg.Request.Method) + `\s*` + regexp.QuoteMeta(route(p)) + `(?:[\s?\x22'\\),\]]|$)`)
+	}
+	routes := []*regexp.Regexp{routeFor(u.Path)}
+	// Docs often print routes relative to a base URL ("GET /users" under
+	// https://graph.microsoft.com/v1.0). A shorter route counts only when
+	// that exact base URL (host + the omitted prefix) is on a fetched page.
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for k := 1; k < len(segs); k++ {
+		base := "https://" + u.Host + "/" + strings.Join(segs[:k], "/")
+		baseRE := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(base) + `(?:[/\s\x22'\\),\]]|$)`)
+		for _, doc := range r.documents {
+			if baseRE.MatchString(doc) {
+				routes = append(routes, routeFor("/"+strings.Join(segs[k:], "/")))
+				break
+			}
+		}
+	}
+	names := func(q string) bool { return strings.Contains(strings.ToLower(q), strings.ToLower(r.Dataset)) }
+	endpointOK := false
+	for _, e := range by["endpoint"] {
+		q := route(slashSpacing.ReplaceAllString(e.Quote, "/"))
+		hit := false
+		for _, re := range routes {
+			hit = hit || re.MatchString(q)
+		}
+		if !hit {
+			continue
+		}
+		// The heading and the route can be thousands of characters apart
+		// (learn.microsoft.com), so the dataset may be proven by its own
+		// quote from the same page instead of the same excerpt.
+		ok := names(e.Quote)
+		for _, d := range by["dataset"] {
+			ok = ok || (d.URL == e.URL && names(d.Quote))
+		}
+		if ok {
+			e.Value = cfg.Request.URL
+			checked = append(checked, e)
+			endpointOK = true
+			break
+		}
+	}
+	if !endpointOK {
 		problem("request.url", "cite one literal excerpt containing the requested dataset heading, HTTP method and exact endpoint path; no replacement URL will be guessed")
 	}
 	host := regexp.MustCompile(`(?i)https://` + regexp.QuoteMeta(u.Hostname()) + `(?:[/:\s\x22'\\),\]]|$)`)
@@ -312,7 +439,7 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 	}) {
 		problem("auth", "authentication scheme/header needs evidence from the public reference")
 	}
-	if cfg.Auth.TokenURL != "" && !proven("token_url", cfg.Auth.TokenURL, func(q string) bool { return strings.Contains(q, cfg.Auth.TokenURL) }) {
+	if cfg.Auth.TokenURL != "" && !proven("token_url", cfg.Auth.TokenURL, func(q string) bool { return strings.Contains(route(q), route(cfg.Auth.TokenURL)) }) {
 		problem("auth.token_url", "documented token endpoint required")
 	}
 	if !proven("items_path", cfg.ItemsPath, func(q string) bool {
@@ -330,7 +457,18 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 		if cfg.Pagination.Type == "none" {
 			return strings.Contains(q, "no pagination") || strings.Contains(q, "single response")
 		}
-		if !strings.Contains(q, strings.ToLower(cfg.Pagination.Type)) {
+		named := strings.Contains(q, strings.ToLower(cfg.Pagination.Type))
+		if cfg.Pagination.Type == "link" {
+			// "link" is the HTTP Link response header; a body field such as
+			// "@odata.nextLink" is next_url paging and must not pass as link.
+			named = strings.Contains(q, "link header") || strings.Contains(q, `rel="next"`) || strings.Contains(q, "link:")
+		}
+		if cfg.Pagination.Type == "next_url" && cfg.Pagination.NextURLPath != "" {
+			// docs name the field ("@odata.nextLink"), never our type word
+			p := cfg.Pagination.NextURLPath
+			named = named || strings.Contains(q, strings.ToLower(p[strings.LastIndexAny(p, "/.")+1:]))
+		}
+		if !named {
 			return false
 		}
 		for _, param := range []string{cfg.Pagination.PageParam, cfg.Pagination.OffsetParam, cfg.Pagination.SizeParam, cfg.Pagination.CursorParam, cfg.Pagination.CursorPath} {
@@ -342,17 +480,7 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 	}) {
 		problem("pagination", "documented pagination strategy and configured parameters required")
 	}
-	for dest, field := range cfg.Destination.Mapping {
-		if field.Default != nil && !(dest == "severity_id" && fmt.Sprint(field.Default) == "0") {
-			problem("destination.mapping."+dest, "do not invent fallback record values; leave missing optional fields empty and quarantine missing required fields")
-		}
-		if field.Path == nil {
-			if !strings.HasPrefix(dest, "metadata.product.") && !(dest == "severity_id" && fmt.Sprint(field.Constant) == "0") {
-				problem("destination.mapping."+dest, "AI must map vendor facts from documented response fields rather than invent constant record values")
-			}
-			continue
-		}
-		path := *field.Path
+	for dest, path := range mappedPaths(cfg, problem) {
 		if !proven("field", path, func(q string) bool {
 			v, ok := jsonExample(q)
 			if !ok {
@@ -372,20 +500,82 @@ func verifyDocumentation(r Request, cfg config.Config, out *modelOutput) []confi
 	return issues
 }
 
-var inputPlaceholder = regexp.MustCompile(`your-[a-zA-Z0-9_-]+`)
-
-func documentedMetadata(d *Draft, r Request, cfg config.Config, out *modelOutput) {
-	d.Sources = []string{}
-	for source := range r.documents {
-		d.Sources = append(d.Sources, source)
-	}
-	sort.Strings(d.Sources)
-	d.Evidence = nil
-	for _, e := range out.Evidence {
-		if doc, ok := r.documents[e.URL]; ok && strings.Contains(doc, compact(e.Quote)) {
-			d.Evidence = append(d.Evidence, e)
+// windows: overlapping slices of a page, so a fact near a cut is still whole.
+func windows(s string, size, step int) []string {
+	var out []string
+	for i := 0; i < len(s); i += step {
+		out = append(out, s[i:min(len(s), i+size)])
+		if i+size >= len(s) {
+			break
 		}
 	}
+	return out
+}
+
+// docJSON returns the valid JSON objects/arrays printed on a page
+// (response examples), largest first per start, bounded for cost.
+func docJSON(doc string) []string {
+	var out []string
+	for i := 0; i < len(doc) && len(out) < 40; i++ {
+		if doc[i] != '{' && doc[i] != '[' {
+			continue
+		}
+		dec := json.NewDecoder(strings.NewReader(doc[i:]))
+		var v any
+		if dec.Decode(&v) != nil {
+			continue
+		}
+		end := i + int(dec.InputOffset())
+		m, isObj := v.(map[string]any)
+		rows, isArr := v.([]any)
+		if (isObj && len(m) > 0) || (isArr && len(rows) > 0) {
+			out = append(out, doc[i:end])
+			i = end - 1 // skip nested objects of this example
+		}
+	}
+	return out
+}
+
+// mappedPaths enforces the no-invented-values rules every grounded draft
+// shares and returns destination -> mapped response path for proof.
+func mappedPaths(cfg config.Config, problem func(field, msg string)) map[string]string {
+	paths := map[string]string{}
+	for dest, field := range cfg.Destination.Mapping {
+		if field.Default != nil && !(dest == "severity_id" && fmt.Sprint(field.Default) == "0") {
+			problem("destination.mapping."+dest, "do not invent fallback record values; leave missing optional fields empty and quarantine missing required fields")
+		}
+		if field.Path == nil {
+			if !strings.HasPrefix(dest, "metadata.product.") && !(dest == "severity_id" && fmt.Sprint(field.Constant) == "0") {
+				problem("destination.mapping."+dest, "AI must map vendor facts from documented response fields rather than invent constant record values")
+			}
+			continue
+		}
+		paths[dest] = *field.Path
+	}
+	return paths
+}
+
+var inputPlaceholder = regexp.MustCompile(`your-[a-zA-Z0-9_-]+`)
+
+// citedDocuments: the fetched references and the evidence that quotes them.
+func citedDocuments(r Request, out *modelOutput) ([]string, []Evidence) {
+	sources, cited := []string{}, []Evidence(nil)
+	for source := range r.documents {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	for _, e := range out.Evidence {
+		if doc, ok := r.documents[e.URL]; ok && strings.Contains(doc, compact(e.Quote)) {
+			cited = append(cited, e)
+		}
+	}
+	return sources, cited
+}
+
+const documentedAccess = "Evidence checked against the public references you supplied. Review the publisher, permissions and preview result before activation."
+
+func documentedMetadata(d *Draft, r Request, cfg config.Config, sources []string, evidence []Evidence, profile, access string) {
+	d.Sources, d.Evidence = sources, evidence
 	d.AlsoAvailable = nil
 	d.Optional = []string{"Review collection limits and schedule locally; every draft starts disabled."}
 	d.Notes = []string{"The requested dataset and scope were retained. Execution settings have cited public-reference evidence; this is not a guarantee of publisher authenticity, subscription eligibility or working credentials.", "No customer notes, stored-secret metadata or collected records were supplied to the hosted model. Preview before activation.", "Scheduling, incremental checkpoints and notifications are configured separately after the API contract is tested."}
@@ -400,7 +590,7 @@ func documentedMetadata(d *Draft, r Request, cfg config.Config, out *modelOutput
 		}
 	}
 	sort.Strings(fields)
-	d.Contract = &Contract{Profile: "documented_vendor", Scope: r.Dataset + " (" + r.Scope + ")", Access: "Evidence checked against the public references you supplied. Review the publisher, permissions and preview result before activation.", Method: cfg.Request.Method, Endpoint: cfg.Request.URL, Auth: cfg.Auth.Type, ItemsPath: cfg.ItemsPath, Pagination: cfg.Pagination.Type, Fields: fields, Status: "documented_candidate"}
+	d.Contract = &Contract{Profile: profile, Scope: r.Dataset + " (" + r.Scope + ")", Access: access, Method: cfg.Request.Method, Endpoint: cfg.Request.URL, Auth: cfg.Auth.Type, ItemsPath: cfg.ItemsPath, Pagination: cfg.Pagination.Type, Fields: fields, Status: "documented_candidate"}
 	seen := map[string]bool{}
 	for _, x := range inputPlaceholder.FindAllString(cfg.Request.URL, -1) {
 		if x == "your-tenant" {

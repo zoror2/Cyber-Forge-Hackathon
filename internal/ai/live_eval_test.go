@@ -55,11 +55,16 @@ var evalCases = []struct {
 }
 
 func TestLiveEval(t *testing.T) {
-	key := os.Getenv("GROQ_API_KEY")
-	if key == "" {
-		t.Skip("GROQ_API_KEY not set")
+	var c *Client
+	switch {
+	case os.Getenv("CB_AI_PROVIDER") == "gemini" && os.Getenv("GEMINI_API_KEY") != "":
+		c = NewGemini(os.Getenv("GEMINI_API_KEY"), os.Getenv("CB_AI_MODEL"))
+		c.Resolve = LookupDNS
+	case os.Getenv("GROQ_API_KEY") != "":
+		c = New(os.Getenv("GROQ_API_KEY"), os.Getenv("CB_AI_MODEL"))
+	default:
+		t.Skip("set CB_AI_PROVIDER=gemini + GEMINI_API_KEY, or GROQ_API_KEY")
 	}
-	c := New(key, os.Getenv("CB_AI_MODEL"))
 	only := os.Getenv("EVAL_ONLY")
 	pass, total := 0, 0
 	rows := []string{}

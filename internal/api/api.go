@@ -93,6 +93,8 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("POST /siem/ask", a.siemAsk)
 	mux.HandleFunc("GET /alerts", a.alerts)
 	mux.HandleFunc("GET /exposure", a.exposure)
+	mux.HandleFunc("GET /intel/map", a.intelMap)
+	mux.HandleFunc("POST /intel/research", a.intelResearch)
 	mux.HandleFunc("GET /auth/me", a.me)
 	mux.HandleFunc("POST /auth/password", a.changePassword)
 	mux.HandleFunc("GET /iam/users", a.listUsers)
@@ -250,7 +252,8 @@ func New(a *API) (http.Handler, error) {
 		}
 		// runs/tests call the vendor and AI drafts call the model: both are costly
 		// (POST /configs/{id}/test previews a draft against the real vendor too)
-		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || r.URL.Path == "/siem/ask" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
+		// GET /intel/map calls Wikidata on every cache miss: outbound, so costly too
+		if r.Method == http.MethodGet && r.URL.Path == "/intel/map" || r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || r.URL.Path == "/siem/ask" || r.URL.Path == "/intel/research" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
 			(strings.HasSuffix(r.URL.Path, "/run") || strings.HasSuffix(r.URL.Path, "/test"))) {
 			if ok, retry := lim.take("run:"+key, rl.RunPerKey); !ok {
 				limited(w, retry)
@@ -301,7 +304,12 @@ func dbFail(w http.ResponseWriter, err error) {
 	}
 }
 func jsonBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	return jsonBodyLimit(w, r, dst, 64<<10)
+}
+
+// jsonBodyLimit: /ai/draft may carry a customer-supplied OpenAPI spec (16 MiB).
+func jsonBodyLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	body, err := io.ReadAll(r.Body)
 	if err != nil || config.CheckJSON(body) != nil {
 		fail(w, 400, "invalid_json_body")
@@ -563,7 +571,7 @@ func (a *API) listSecrets(w http.ResponseWriter, r *http.Request) {
 // notes, credential metadata and credential values stay out of the prompt.
 func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 	var req ai.Request
-	if !jsonBody(w, r, &req) {
+	if !jsonBodyLimit(w, r, &req, 17<<20) {
 		return
 	}
 	if e := req.Check(); e != nil {
@@ -634,6 +642,8 @@ func (a *API) aiDraft(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "ai_not_configured")
 	case errors.As(e, &bad):
 		write(w, 422, map[string]any{"error": "ai_draft_invalid", "issues": bad.Issues, "config": bad.Last})
+	case errors.Is(e, ai.ErrDocumentation):
+		write(w, 422, map[string]string{"error": "documentation_unavailable", "detail": e.Error()})
 	default:
 		write(w, 502, map[string]string{"error": "ai_provider_failed", "detail": strings.TrimPrefix(e.Error(), ai.ErrUpstream.Error()+": ")})
 	}

@@ -71,16 +71,9 @@ func TestGenericVerificationRejectsWrongRouteFieldsAndFabricatedCitations(t *tes
 		{"invented response field", func(o *modelOutput, r *Request) {
 			o.ConfigJSON = strings.ReplaceAll(o.ConfigJSON, `"login"`, `"made_up_email"`)
 		}},
-		{"fabricated quote", func(o *modelOutput, r *Request) { o.Evidence[0].Quote = "GET /not-in-the-document" }},
 		{"fabricated source", func(o *modelOutput, r *Request) { o.Evidence[0].URL = "https://invented.invalid" }},
-		{"missing authentication", func(o *modelOutput, r *Request) {
-			var kept []Evidence
-			for _, e := range o.Evidence {
-				if e.Kind != "auth" {
-					kept = append(kept, e)
-				}
-			}
-			o.Evidence = kept
+		{"undocumented authentication", func(o *modelOutput, r *Request) {
+			o.ConfigJSON = strings.ReplaceAll(o.ConfigJSON, `"type":"bearer"`, `"type":"basic","username":"u"`)
 		}},
 		{"wrong dataset scope", func(o *modelOutput, r *Request) { r.Scope = "repository" }},
 		{"different requested dataset", func(o *modelOutput, r *Request) { r.Dataset = "repository objects" }},
@@ -100,6 +93,39 @@ func TestGenericVerificationRejectsWrongRouteFieldsAndFabricatedCitations(t *tes
 		})
 	}
 }
+
+// Misquoted or missing model excerpts are not fatal when the fetched page
+// itself states every configured fact; the platform reads the page.
+func TestPageProvesFactsWhenModelMisquotes(t *testing.T) {
+	o, r := groundedFixture()
+	for i := range o.Evidence {
+		o.Evidence[i].Quote = "paraphrased, not on the page"
+	}
+	r.documents = map[string]string{fixtureReference: fixtureDoc}
+	cfg, _ := config.Decode([]byte(o.ConfigJSON))
+	if got := verifyDocumentation(r, cfg, o); len(got) != 0 {
+		t.Fatal(got)
+	}
+	r.documents = map[string]string{fixtureReference: strings.Replace(fixtureDoc, "Bearer", "token", 1)}
+	if got := verifyDocumentation(r, cfg, o); len(got) == 0 {
+		t.Fatal("auth absent from the page must still fail")
+	}
+}
+
+func TestRelativeRouteNeedsItsBaseURLOnThePage(t *testing.T) {
+	o, r := groundedFixture()
+	o.ConfigJSON = strings.ReplaceAll(o.ConfigJSON, "https://api.github.com/orgs/owasp/members", "https://api.github.com/v3/orgs/owasp/members")
+	cfg, _ := config.Decode([]byte(o.ConfigJSON))
+	r.documents = map[string]string{fixtureReference: fixtureDoc} // no ".../v3" base on the page
+	if got := verifyDocumentation(r, cfg, o); len(got) == 0 {
+		t.Fatal("route prefix accepted without its documented base URL")
+	}
+	r.documents = map[string]string{fixtureReference: fixtureDoc + " Base URL: https://api.github.com/v3 ."}
+	if got := verifyDocumentation(r, cfg, o); len(got) != 0 {
+		t.Fatal(got)
+	}
+}
+
 func TestGenericFailsClosedBeforeAnyModelCall(t *testing.T) {
 	c := New("fixture", "fixture")
 	c.URL = "http://127.0.0.1:1"
@@ -131,7 +157,10 @@ func TestGenericFailsClosedBeforeAnyModelCall(t *testing.T) {
 func TestGenericDoesNotReturnExecutableCandidateAfterEvidenceFailures(t *testing.T) {
 	c, seen := fake(t, string(configs.GitHubMembers))
 	_, r := groundedFixture()
-	c.FetchDocumentation = func(context.Context, string) (string, error) { return fixtureDoc, nil }
+	// the page does not state the auth scheme, so verification must fail
+	c.FetchDocumentation = func(context.Context, string) (string, error) {
+		return strings.Replace(fixtureDoc, "Authentication: Bearer", "", 1), nil
+	}
 	d, e := c.Draft(context.Background(), r, nil)
 	var invalid *InvalidDraft
 	if d != nil || !errors.As(e, &invalid) || invalid.Last != nil || len(invalid.Issues) == 0 || len(*seen) != 1+MaxRepairs {

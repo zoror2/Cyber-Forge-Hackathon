@@ -1,0 +1,28 @@
+{
+ "version":1,"id":"github_advisories","name":"GitHub Advisory Database - reviewed advisories (live)","vendor":"GitHub",
+ "request":{"method":"GET","url":"https://api.github.com/advisories","timeout_seconds":20,
+  "params":{"per_page":"100","type":"reviewed"},
+  "headers":{"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}},
+ "auth":{"type":"bearer","secret":"github_token"},
+ "items_path":"","pagination":{"type":"link"},
+ "schedule":{"enabled":false,"interval_seconds":3600},
+ "destination":{"class":"vulnerability_finding","mapping":{
+  "finding_info.uid":{"path":"ghsa_id","required":true,"transform":"trim"},
+  "finding_info.title":{"path":"summary","required":true,"transform":"trim"},
+  "finding_info.desc":{"path":"description","transform":"string"},
+  "time":{"path":"published_at","required":true,"transform":"datetime"},
+  "severity_id":{"path":"severity","transform":"lookup","lookup":{"low":"2","medium":"3","high":"4","critical":"5"}},
+  "vulnerabilities.0.cve.uid":{"path":"cve_id","transform":"trim"},
+  "vulnerabilities.0.title":{"path":"summary","transform":"trim"},
+  "unmapped.cvss_score":{"path":"cvss.score"},
+  "unmapped.cvss_vector":{"path":"cvss.vector_string","transform":"string"},
+  "vulnerabilities.0.cwe.uid":{"path":"cwes.0.cwe_id","transform":"trim"},
+  "metadata.product.name":{"constant":"GitHub Advisory Database"},
+  "metadata.product.vendor_name":{"constant":"GitHub"},
+  "unmapped.ecosystem":{"path":"vulnerabilities.0.package.ecosystem","transform":"string"},
+  "unmapped.package":{"path":"vulnerabilities.0.package.name","transform":"string"},
+  "unmapped.url":{"path":"html_url","transform":"string"}
+ }},
+ "limits":{"max_pages":10,"max_records":1000,"max_response_bytes":8388608,"max_run_seconds":120},
+ "retry":{"max_attempts":3,"base_delay_ms":1000,"max_retry_after_seconds":60}
+}

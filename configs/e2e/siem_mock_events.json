@@ -1,0 +1,17 @@
+{
+ "version":1,"id":"siem_mock_events","name":"Synthetic security events","vendor":"Synthetic",
+ "request":{"method":"GET","url":"https://mockvendor:8081/security-events","timeout_seconds":5,"allowed_ports":[8081]},
+ "auth":{"type":"none"},
+ "items_path":"","pagination":{"type":"none"},
+ "schedule":{"enabled":false,"interval_seconds":900},
+ "destination":{"class":"authentication","mapping":{
+  "metadata.uid":{"path":"id","required":true,"transform":"string"},
+  "time":{"path":"timestamp","required":true,"transform":"datetime","timezone":"UTC"},
+  "severity_id":{"path":"severity","required":true,"transform":"lookup","lookup":{"low":"2","medium":"3","high":"4","critical":"5"}},
+  "status_id":{"path":"type","required":true,"transform":"lookup","lookup":{"authentication_failure":"2","security_alert":"0"}},
+  "user.uid":{"constant":"synthetic-user"},
+  "unmapped.type":{"path":"type","transform":"string"}
+ }},
+ "limits":{"max_pages":1,"max_records":100,"max_response_bytes":1048576,"max_run_seconds":15},
+ "retry":{"max_attempts":1,"base_delay_ms":100,"max_retry_after_seconds":1}
+}

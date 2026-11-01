@@ -145,6 +145,12 @@ func (c *Client) geminiOnce(ctx context.Context, msgs []message, s schema) (stri
 // reported tokens (output = everything billed beyond the prompt: thoughts,
 // search tool use and the answer).
 func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, insights.Usage, time.Duration, error) {
+	return c.geminiGrounded(ctx, body, nil)
+}
+
+// geminiGrounded also returns the web pages Google Search actually used
+// (groundingChunks), when refs is non-nil.
+func (c *Client) geminiGrounded(ctx context.Context, body map[string]any, refs *[]string) (string, insights.Usage, time.Duration, error) {
 	none := insights.Usage{}
 	raw, _ := json.Marshal(body)
 	req, e := http.NewRequestWithContext(ctx, "POST", c.URL+url.PathEscape(c.Model)+":generateContent", bytes.NewReader(raw))
@@ -178,6 +184,13 @@ func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, i
 			Total  int64 `json:"totalTokenCount"`
 		} `json:"usageMetadata"`
 		Candidates []struct {
+			GroundingMetadata struct {
+				Chunks []struct {
+					Web struct {
+						URI string `json:"uri"`
+					} `json:"web"`
+				} `json:"groundingChunks"`
+			} `json:"groundingMetadata"`
 			FinishReason string `json:"finishReason"`
 			Content      struct {
 				Parts []struct {
@@ -196,6 +209,13 @@ func (c *Client) geminiCall(ctx context.Context, body map[string]any) (string, i
 	}
 	if len(gr.Candidates) == 0 {
 		return "", u, 0, fmt.Errorf("%w: no answer", ErrUpstream)
+	}
+	if refs != nil {
+		for _, ch := range gr.Candidates[0].GroundingMetadata.Chunks {
+			if ch.Web.URI != "" && len(*refs) < 10 {
+				*refs = append(*refs, ch.Web.URI)
+			}
+		}
 	}
 	var sb strings.Builder
 	for _, p := range gr.Candidates[0].Content.Parts {
