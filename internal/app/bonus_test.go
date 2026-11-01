@@ -25,4 +25,16 @@ func TestNotificationEnvironmentIsExplicitAndTenantBound(t *testing.T) {
 		}
 		env[k] = old
 	}
+	env["CB_ALERT_EMAIL_ROUTES"] = ""
+	if _, err := Notifications(get, nil); err == nil {
+		t.Fatal("relay without any recipient source accepted")
+	}
+	env["CB_ALERT_USE_ACCOUNT_EMAIL"] = "1"
+	if w, err := Notifications(get, nil); err != nil || w.AccountRecipient == nil {
+		t.Fatal("explicit account-email mode rejected", err)
+	}
+	env["CB_ALERT_USE_ACCOUNT_EMAIL"] = "true"
+	if _, err := Notifications(get, nil); err == nil {
+		t.Fatal("invalid account-email switch accepted")
+	}
 }

@@ -263,6 +263,8 @@ available for every vendor. Failed/quarantined runs do not advance the checkpoin
 
 ## 13. Repeated-failure email notifications — B-4
 
+Open **Email alerts** in the sidebar. It shows this customer's setup status, each source's live notification settings and delivery history. Use **Edit source → Failure email alerts (B-4)** to enable alerts, then **Save** and **Activate**. Three consecutive failures trigger one message by default; tests/previews do not count. Refresh delivery history to see SMTP acceptance or bounded retries. A configured SMTP relay alone does not prove inbox delivery. Customer admin addresses are resolved within their tenant when `CB_ALERT_USE_ACCOUNT_EMAIL=1`; private operator routes may override them. KEV findings still appear only in **KEV alerts**.
+
 The automated suite uses a local SMTP capture and verifies threshold, tenant routing,
 cooldown, recovery, retry caps and opt-out. No real mailbox is contacted by those tests.
 The prepared jury dashboard does not configure an SMTP recipient, so do not claim
