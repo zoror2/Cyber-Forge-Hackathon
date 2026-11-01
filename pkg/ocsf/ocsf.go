@@ -33,6 +33,9 @@ type Attr struct {
 	Enum        map[string]string `json:"enum"` // value -> caption
 }
 
+// BaseType resolves named types such as username_t using the pinned schema.
+func (a Attr) BaseType() string { return base(a.Type) }
+
 // Class is one OCSF event class.
 type Class struct {
 	Name         string          `json:"-"`

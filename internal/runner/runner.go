@@ -75,7 +75,13 @@ func (r *Runner) capacity(tenant string) (func(), bool) {
 	}, true
 }
 func (r *Runner) Run(ctx context.Context, tenant, id string, test, scheduled bool) (model.Run, error) {
-	return r.run(ctx, tenant, id, test, scheduled, 0)
+	return r.run(ctx, tenant, id, test, scheduled, 0, 0)
+}
+
+// AcquireCapacity also bounds short repair probes that use the same fetcher.
+func (r *Runner) AcquireCapacity(tenant string) (func(), bool) { return r.capacity(tenant) }
+func (r *Runner) RunExpected(ctx context.Context, tenant, id string, expected int) (model.Run, error) {
+	return r.run(ctx, tenant, id, false, false, 0, expected)
 }
 
 // Preview tests an exact saved draft revision without activating it or writing
@@ -84,9 +90,9 @@ func (r *Runner) Preview(ctx context.Context, tenant, id string, revision int) (
 	if revision < 1 {
 		return model.Run{}, store.ErrNotFound
 	}
-	return r.run(ctx, tenant, id, true, false, revision)
+	return r.run(ctx, tenant, id, true, false, revision, 0)
 }
-func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled bool, revision int) (model.Run, error) {
+func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled bool, revision, expected int) (model.Run, error) {
 	release, ok := r.capacity(tenant)
 	// A manual run waits briefly for the tenant's slot (another source may be
 	// running on schedule) instead of failing; scheduled runs just retry next tick.
@@ -114,6 +120,9 @@ func (r *Runner) run(ctx context.Context, tenant, id string, test, scheduled boo
 		return model.Run{}, e
 	}
 	c := saved.Config
+	if expected > 0 && saved.Revision != expected {
+		return model.Run{}, store.ErrBusy
+	}
 	if len(c.Validate()) > 0 {
 		return model.Run{}, errors.New("invalid_config")
 	}

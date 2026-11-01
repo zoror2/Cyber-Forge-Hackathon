@@ -14,6 +14,8 @@ tenant API key → live DB config → guarded HTTP/auth/retry/paging engine
 Local tests use synthetic TLS fixtures plus live GitHub, NVD and CISA checks.
 See the [FR/bonus verification checklist](docs/VERIFICATION.md) and
 [current AI drafting flow](docs/AI_DRAFTS.md) for evidence and limitations.
+For the complete click-by-click local presentation, use the
+[jury demo guide](docs/JURY_DEMO.md).
 Real AWS Secrets Manager access, cloud deployment, SSO and two-person config
 approval remain separate work. The engine supports the specific auth/paging
 capabilities in its config contract; it does not support every vendor protocol.

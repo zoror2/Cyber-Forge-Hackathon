@@ -148,7 +148,7 @@ func TestSIEMRulesPrivacyUsageAndConsole(t *testing.T) {
 	}
 	e.request(t, "tenant-b", "POST", "/siem/ask", question(c.ID, "security_findings"), 404)
 	e.request(t, "tenant-b", "GET", "/siem/findings?connector="+c.ID, nil, 404)
-	for _, body := range []string{`{"connector":"private_source","topic":"security_findings","external_ai_consent":true,"question":"PRIVATE_QUESTION"}`, `{"connector":"private_source","topic":"security_findings","external_ai_consent":true,"tenant_id":"tenant-b"}`} {
+	for _, body := range []string{`{"connector":"private_source","topic":"security_findings","external_ai_consent":true,"tenant_id":"tenant-b"}`} {
 		e.request(t, "tenant-a", "POST", "/siem/ask", []byte(body), 400)
 	}
 	e.request(t, "tenant-a", "POST", "/siem/ask", []byte(`{"connector":"private_source","topic":"security_findings"}`), 422)

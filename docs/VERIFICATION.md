@@ -1,8 +1,14 @@
 # Verification and PRD checklist
 
 Audit date: 1 November 2026. Branch: `member-b`. Mohit's `main` at
-`a03e3ed` was fast-forwarded locally, independently tested, then updated here.
-A subsequent fetch found no newer `main` commit.
+`aa59250` was fast-forwarded locally and independently tested before these changes.
+A subsequent fetch found no newer `main` commit. The current release passed
+**383 cases/subcases**, race detection, vet and command builds in Docker with real
+isolated PostgreSQL/OpenSearch. Eight opt-in live/vendor tests were skipped by that
+offline gate; separate live Groq and public CISA checks passed as described below.
+
+The complete click-by-click presentation is [JURY_DEMO.md](JURY_DEMO.md).
+See [DEMO_VERIFICATION.md](DEMO_VERIFICATION.md) for this release's evidence.
 
 Additional commercial-vendor engine work and its explicit live-test blockers are
 tracked in [VENDOR_TESTING.md](VENDOR_TESTING.md). Those local contract tests do

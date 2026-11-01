@@ -136,7 +136,7 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['vendor-map', 'Vendor map'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['kev-alerts', 'KEV alerts'], ['vendor-map', 'Vendor map'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
 function lock(msg) {
   S.me = null;
   app().replaceChildren(loginView(msg));
@@ -231,7 +231,7 @@ function route() {
   const v = document.getElementById('view');
   if (!v) return;
   const name = view.split('?')[0];
-  const fn = { overview, connectors, builder, records, insights, 'vendor-map': vendorMap, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
+  const fn = { overview, connectors, builder, records, insights, 'kev-alerts': kevAlerts, 'vendor-map': vendorMap, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
   v.replaceChildren(h('div', { class: 'muted' }, 'Loading…'));
   fn(v, decodeURIComponent(arg.split('?')[0]), q).catch((e) => {
     if (S.me) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
@@ -484,19 +484,45 @@ async function vendorMap(v, _a, q) {
     ...m.notes.map((n) => h('div', { class: 'small muted' }, n)),
     node(m.vendor, true), subsBox));
 }
+async function kevAlerts(v, _a, q) {
+  const offset = Math.max(0, Number(q.get('offset')) || 0);
+  const d = await must('GET', '/kev/matches?limit=50&offset=' + offset);
+  v.replaceChildren(header('KEV alerts', 'Exact CVE matches in this customer’s collected vulnerability findings. Refreshed when you open this page.', h('button', { onclick: () => route() }, 'Refresh')),
+    h('div', { class: 'stack' },
+      h('div', { class: 'card bd' }, h('strong', {}, d.status === 'catalog_missing' ? 'CISA catalog missing — collect the CISA KEV source first.' : d.total ? d.total + ' matching findings need review' : 'No exact CVE matches in the stored findings.'),
+        h('p', { class: 'small muted' }, d.assessment), h('p', { class: 'small muted' }, d.catalog_entries + ' catalog CVEs · catalog last fetched: ' + when(d.catalog_fetched_at)),
+        h('p', { class: 'small muted' }, 'This checks retained records when opened; it is not a background email service. A vendor-name match alone does not trigger an alert.')),
+      h('div', { class: 'card' }, table([{ t: 'CVE', v: (m) => h('strong', {}, m.cve) }, { t: 'Source', v: (m) => m.connector }, { t: 'Record', v: (m) => h('code', {}, m.record_id) }, { t: 'Fetched', v: (m) => when(m.fetched_at) },
+        { t: 'Evidence', v: (m) => h('a', { href: '#/runs?connector=' + encodeURIComponent(m.connector) }, 'Run ' + short(m.run_id, 12)) },
+        { t: '', v: (m) => h('a', { class: 'btn sm', href: '#/insights?connector=' + encodeURIComponent(m.connector) + '&topic=security_findings' }, 'Ask AI') }], d.matches)),
+      h('div', { class: 'row' }, offset ? h('a', { class: 'btn', href: '#/kev-alerts?offset=' + Math.max(0, offset - 50) }, 'Previous') : null,
+        offset + 50 < d.total ? h('a', { class: 'btn', href: '#/kev-alerts?offset=' + (offset + 50) }, 'Next') : null)));
+}
 async function quarantine(v, _a, q) {
   const id = q.get('connector') || '';
   const [rows, cfgs] = await Promise.all([must('GET', '/quarantine?limit=500' + (id ? '&connector=' + encodeURIComponent(id) : '')), must('GET', '/configs?limit=500')]);
   const groups = {};
+  const consent = h('input', { type: 'checkbox' });
+  const result = h('div', { class: 'small', role: 'status' });
+  const repair = (source, button) => busy(button, async () => {
+    if (!consent.checked) { result.textContent = 'Tick repair consent first.'; return; }
+    result.textContent = 'Checking a bounded sample, asking AI to select a tested conversion, then previewing before activation and rerun…';
+    const r = await api('POST', '/configs/' + encodeURIComponent(source) + '/repair', { external_ai_consent: true });
+    if (!r.ok) { result.textContent = (r.data && (r.data.detail || r.data.error) || 'HTTP ' + r.status).replace(/_/g, ' '); return; }
+    const d = r.data, run = d.run;
+    result.replaceChildren(h('strong', {}, d.status.replace(/_/g, ' ')), h('p', {}, 'Revision ' + d.previous_revision + ' → ' + d.revision + '. Latest run: ' + run.outcome + ', ' + run.accepted + ' accepted, ' + run.quarantined + ' quarantined.'), h('p', {}, d.note), h('a', { href: '#/runs?connector=' + encodeURIComponent(source) }, 'Inspect new run'));
+  });
   for (const r of rows) { const k = r.source + '\u0000' + r.field + '\u0000' + r.reason; (groups[k] = groups[k] || { ...r, n: 0 }).n++; }
   const sel = h('select', { style: 'width:240px', onchange: (e) => { location.hash = '#/quarantine?connector=' + encodeURIComponent(e.target.value); } },
     h('option', { value: '' }, 'All connectors'), cfgs.map((c) => h('option', { value: c.id, selected: c.id === id }, c.id)));
   v.replaceChildren(
     header('Quarantine', 'Records that failed a required mapping, an OCSF type or an enum. The rest of the page still landed. Raw payloads are never stored.', sel),
     h('div', { class: 'stack' },
+      can('ai:draft') ? h('div', { class: 'card bd stack' }, h('label', { class: 'inline-check small' }, consent, 'Allow AI to select a locally tested type/timestamp conversion and rerun after preview. Only conversion labels and counts leave the server.'),
+        h('p', { class: 'small muted' }, 'Missing paths, invalid source values and ambiguous mappings need manual/documented review. Required fields, URLs, credentials and filters are never changed by automatic repair.'), result) : null,
       h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Grouped by cause'), h('span', { class: 'small muted' }, 'one config fix usually clears a whole group')),
         table([{ t: 'Rows', num: 1, v: (g) => g.n }, { t: 'Connector', v: (g) => h('code', {}, g.source) }, { t: 'OCSF field', v: (g) => h('code', {}, g.field) }, { t: 'Reason', v: (g) => g.reason },
-          { t: '', v: (g) => h('a', { class: 'btn sm', href: '#/builder/' + encodeURIComponent(g.source) }, 'Fix config') }],
+          { t: '', v: (g) => h('div', { class: 'row' }, can('ai:draft') ? h('button', { class: 'sm', onclick: (e) => repair(g.source, e.currentTarget) }, 'Fix config with AI') : null, can('configs:write') ? h('a', { class: 'btn sm', href: '#/builder/' + encodeURIComponent(g.source) }, 'Manual edit') : null) }],
         Object.values(groups).sort((a, b) => b.n - a.n))),
       h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Rows'), h('span', { class: 'small muted' }, rows.length + ' newest')),
         table([{ t: 'Run', v: (r) => h('code', { class: 'faint' }, short(r.run_id, 12)) }, { t: 'Connector', v: (r) => h('code', {}, r.source) },
@@ -544,7 +570,7 @@ const TOPIC = { connection_health: 'Why is collection having problems?', securit
 async function insights(v, _a, q) {
   const [cfgs, usage] = await Promise.all([must('GET', '/configs?limit=500'), must('GET', '/ai/usage')]);
   const live = cfgs.filter((c) => c.live_revision);
-  const I = { id: q.get('connector') || (live[0] || {}).id || '', topic: 'connection_health', consent: false, snap: null, answer: null, msg: '' };
+  const I = { id: q.get('connector') || (live[0] || {}).id || '', topic: q.get('topic') === 'security_findings' ? 'security_findings' : 'connection_health', consent: false, snap: null, answer: null, msg: '' };
   const out = h('div', { class: 'stack' });
   const show = () => {
     const parts = [];
@@ -562,7 +588,8 @@ async function insights(v, _a, q) {
     out.replaceChildren(...parts);
   };
   const sel = h('select', { onchange: (e) => { I.id = e.target.value; I.snap = I.answer = null; show(); } }, live.map((c) => h('option', { value: c.id, selected: c.id === I.id }, c.name + ' (' + c.id + ')')));
-  const topic = h('select', { onchange: (e) => { I.topic = e.target.value; } }, Object.entries(TOPIC).map(([k, t]) => h('option', { value: k }, t)));
+  const topic = h('select', { onchange: (e) => { I.topic = e.target.value; } }, Object.entries(TOPIC).map(([k, t]) => h('option', { value: k, selected: k === I.topic }, t)));
+  const question = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'For example: What does the KEV match mean, and what should I check next?', 'aria-label': 'Your question' });
   const consent = h('input', { type: 'checkbox', onchange: (e) => { I.consent = e.target.checked; } });
   const fail = (r) => { const err = (r.data && r.data.error) || 'HTTP ' + r.status; I.msg = err === 'siem_disabled' ? 'Insights are not enabled for this account (operator setting CB_SIEM_ENABLED_TENANTS).' : err === 'ai_budget_reached' ? 'Today\'s AI budget is used up.' : err.replace(/_/g, ' '); };
   const refreshBtn = h('button', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
@@ -570,17 +597,18 @@ async function insights(v, _a, q) {
   }) }, 'Refresh findings');
   const askBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     I.msg = ''; if (!I.consent) { I.msg = 'Tick the consent box first.'; show(); return; }
-    const r = await api('POST', '/siem/ask', { connector: I.id, topic: I.topic, external_ai_consent: true });
+    const r = await api('POST', '/siem/ask', { connector: I.id, topic: I.topic, question: question.value.trim(), external_ai_consent: true });
     if (r.ok) { I.answer = r.data; I.snap = { window_end: new Date().toISOString(), findings: r.data.findings || [] }; } else fail(r); show();
   }) }, 'Explain');
   const kpi = (val, label) => h('div', { class: 'kpi' }, h('div', { class: 'v' }, val), h('div', { class: 'l' }, label));
-  v.replaceChildren(header('Insights', 'Rule-based findings from your stored OCSF events and run history. AI only sees counts and fixed categories, never records, names or keys.'),
+  v.replaceChildren(header('Insights', 'Rule findings from your stored events and run history. AI receives your question, approved counts/categories and matched CVE IDs; it cannot browse the database.'),
     h('div', { class: 'kpis' }, kpi(usage.requests, 'AI requests today (UTC)'), kpi(usage.reported_tokens.toLocaleString(), 'reported tokens'),
       kpi(usage.unreported_reserved_tokens.toLocaleString(), 'reserved, not yet reported')),
     live.length ? h('div', { class: 'card' }, h('div', { class: 'bd stack' },
-      h('div', { class: 'grid2' }, h('label', { class: 'f' }, 'Source', sel), h('label', { class: 'f' }, 'Question', topic)),
+      h('div', { class: 'grid2' }, h('label', { class: 'f' }, 'Source', sel), h('label', { class: 'f' }, 'Evidence topic', topic)),
+      h('label', { class: 'f' }, 'Your question (optional)', question), h('p', { class: 'small muted' }, 'Do not enter keys, personal data or private records. Questions are not stored in our usage logs. Answers are limited to the selected source and evidence topic.'),
       h('div', { class: 'row' }, refreshBtn, can('ai:draft') ? askBtn : null),
-      can('ai:draft') ? h('label', { class: 'inline-check small' }, consent, 'Send the selected aggregate counts and categories to the AI provider for this explanation.') : null))
+      can('ai:draft') ? h('label', { class: 'inline-check small' }, consent, 'Send my question, selected aggregate counts/categories and matched public CVE IDs to the AI provider.') : null))
       : h('div', { class: 'card', style: 'padding:24px' }, 'No live sources yet.'),
     out);
   show();
