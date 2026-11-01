@@ -41,7 +41,7 @@ type discovery struct {
 }
 
 var discoveryLine = regexp.MustCompile(`(?im)^\s*[-*]?\s*(URL|DATASET|SCOPE)\s*:\s*(.+?)\s*$`)
-var scopes = map[string]bool{"public": true, "repository": true, "organization": true, "account": true, "enterprise": true}
+var scopes = map[string]bool{"public": true, "repository": true, "organization": true, "account": true, "tenant": true, "enterprise": true}
 
 // parseDiscovery reads the labelled lines; anything else in the answer is ignored.
 func parseDiscovery(text string) (discovery, error) {
@@ -104,7 +104,7 @@ func resolveGrounding(ctx context.Context, raw string) string {
 	if e != nil {
 		return ""
 	}
-	l.RawQuery = "" // tracking parameters; references must be query-free
+	dropTracking(l) // keep content selectors like ?view=, drop analytics
 	if publicDocURL(l.String()) {
 		return l.String()
 	}
@@ -150,9 +150,10 @@ func (c *Client) discover(ctx context.Context, r Request, used *meter) (discover
 Search the vendor's CURRENT official API documentation. Find the read-only REST GET endpoint that lists that data.
 Answer with exactly these lines and nothing else:
 URL: <the official reference page for that endpoint, on the vendor's own documentation site; the page must show the route, authentication and a JSON response example>
-URL: <optional second official page, e.g. the authentication or pagination page>
+URL: <optional second official page: how to get credentials / the token URL, if the API uses OAuth or app registration>
+URL: <optional third official page, e.g. the pagination page>
 DATASET: <the endpoint's heading copied verbatim from that page, e.g. List users>
-SCOPE: <one word that appears on that page describing what it lists across: public, repository, organization, account or enterprise>
+SCOPE: <one word that appears on that page describing what it lists across: public, repository, organization, account, tenant or enterprise>
 Never invent a URL. If you cannot find an official page, answer: URL: none`
 	body := map[string]any{
 		"contents":         []map[string]any{{"role": "user", "parts": []map[string]any{{"text": q}}}},
@@ -410,7 +411,7 @@ func pickSchema() schema {
 		"properties": map[string]any{
 			"operation":    map[string]any{"type": "string", "description": "one key copied exactly from the catalog (e.g. GET /api/v1/users), or none"},
 			"class":        map[string]any{"type": "string", "enum": append(ocsf.Classes(), "none"), "description": "the OCSF class that describes what ONE record of that operation is"},
-			"scope":        map[string]any{"type": "string", "enum": []string{"public", "repository", "organization", "account", "enterprise", "none"}},
+			"scope":        map[string]any{"type": "string", "enum": []string{"public", "repository", "organization", "account", "tenant", "enterprise", "none"}},
 			"alternatives": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "up to 3 other catalog keys with other security datasets"},
 			"reason":       map[string]any{"type": "string"},
 		}}}

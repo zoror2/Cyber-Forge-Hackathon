@@ -93,6 +93,8 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("POST /siem/ask", a.siemAsk)
 	mux.HandleFunc("GET /alerts", a.alerts)
 	mux.HandleFunc("GET /exposure", a.exposure)
+	mux.HandleFunc("GET /intel/map", a.intelMap)
+	mux.HandleFunc("POST /intel/research", a.intelResearch)
 	mux.HandleFunc("GET /auth/me", a.me)
 	mux.HandleFunc("POST /auth/password", a.changePassword)
 	mux.HandleFunc("GET /iam/users", a.listUsers)
@@ -250,7 +252,8 @@ func New(a *API) (http.Handler, error) {
 		}
 		// runs/tests call the vendor and AI drafts call the model: both are costly
 		// (POST /configs/{id}/test previews a draft against the real vendor too)
-		if r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || r.URL.Path == "/siem/ask" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
+		// GET /intel/map calls Wikidata on every cache miss: outbound, so costly too
+		if r.Method == http.MethodGet && r.URL.Path == "/intel/map" || r.Method == http.MethodPost && (r.URL.Path == "/ai/draft" || r.URL.Path == "/siem/ask" || r.URL.Path == "/intel/research" || (strings.HasPrefix(r.URL.Path, "/connectors/") || strings.HasPrefix(r.URL.Path, "/configs/")) &&
 			(strings.HasSuffix(r.URL.Path, "/run") || strings.HasSuffix(r.URL.Path, "/test"))) {
 			if ok, retry := lim.take("run:"+key, rl.RunPerKey); !ok {
 				limited(w, retry)

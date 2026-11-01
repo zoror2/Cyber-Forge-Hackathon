@@ -136,7 +136,7 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['vendor-map', 'Vendor map'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
 function lock(msg) {
   S.me = null;
   app().replaceChildren(loginView(msg));
@@ -231,7 +231,7 @@ function route() {
   const v = document.getElementById('view');
   if (!v) return;
   const name = view.split('?')[0];
-  const fn = { overview, connectors, builder, records, insights, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
+  const fn = { overview, connectors, builder, records, insights, 'vendor-map': vendorMap, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
   v.replaceChildren(h('div', { class: 'muted' }, 'Loading…'));
   fn(v, decodeURIComponent(arg.split('?')[0]), q).catch((e) => {
     if (S.me) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
@@ -440,6 +440,49 @@ function showRecord(r) {
       h('span', { class: 'tag' }, 'class_uid ' + r.class_uid), h('span', { class: 'tag' }, 'type_uid ' + r.type_uid),
       h('span', { class: 'tag' }, 'OCSF ' + get(r, 'metadata.version')), h('span', { class: 'grow' }), copy),
     h('pre', { class: 'code' }, jsonNode(r)));
+}
+// Vendor map: vendor -> companies it owns (Wikidata, dated; AI-found only
+// with a verified quote) -> CISA KEV exploited CVEs and cited attack reports.
+async function vendorMap(v, _a, q) {
+  const vendor = q.get('vendor') || '';
+  const input = h('input', { value: vendor, placeholder: 'Vendor, e.g. Cisco, Microsoft, Atlassian', style: 'width:320px', onkeydown: (e) => { if (e.key === 'Enter') go(); } });
+  const go = () => { const x = input.value.trim(); if (x.length >= 2) location.hash = '#/vendor-map?vendor=' + encodeURIComponent(x); };
+  const head = header('Vendor map', 'Who a vendor owns, and which of those companies have actively exploited CVEs (CISA KEV) or reported attacks. Ownership is a vendor-level signal, not proof you run the product.', input, h('button', { class: 'primary', type: 'button', onclick: go }, 'Map'));
+  if (!vendor) { v.replaceChildren(head, h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Type a vendor and press Map.'))); return; }
+  v.replaceChildren(head, h('div', { class: 'muted' }, 'Looking up who ' + vendor + ' owns…'));
+  const r = await api('GET', '/intel/map?vendor=' + encodeURIComponent(vendor));
+  if (!r.ok) { v.replaceChildren(head, h('div', { class: 'card' }, h('div', { class: 'empty' }, (r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status))); return; }
+  const m = r.data;
+  const cited = (c) => h('div', { class: 'small' }, '“' + c.quote + '” ', h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer' }, new URL(c.url).hostname));
+  const kevList = (k) => k.length ? h('ul', { class: 'small', style: 'margin:4px 0 0 18px' }, k.slice(0, 15).map((x) => h('li', {}, h('code', {}, x.cve), ' ', x.product, x.added ? h('span', { class: 'faint' }, ' · added ' + x.added) : null)), k.length > 15 ? h('li', { class: 'faint' }, '+' + (k.length - 15) + ' more') : null) : h('div', { class: 'small faint' }, 'No KEV entries under this name.');
+  const node = (c, root) => {
+    const attacks = h('div', { class: 'stack' });
+    const find = h('button', { class: 'sm', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+      attacks.replaceChildren(h('div', { class: 'small muted' }, 'Searching the web and checking every quote on its page… (up to a minute)'));
+      const x = await api('POST', '/intel/research', { vendor: m.vendor.name, company: c.name });
+      if (!x.ok) { attacks.replaceChildren(h('div', { class: 'small' }, (x.data && (x.data.detail || x.data.error)) || 'HTTP ' + x.status)); return; }
+      attacks.replaceChildren(...(x.data.claims.length ? x.data.claims.map((i) => h('div', {}, h('b', {}, (i.date ? i.date + ' · ' : '') + i.title), cited(i))) : [h('div', { class: 'small faint' }, 'No reported attack could be verified on a cited page.')]));
+    }) }, 'Find reported attacks');
+    return h('details', { class: 'card', open: root || c.kev.length > 0, style: root ? '' : 'margin-left:28px;border-left:3px solid var(--line, #ddd)' },
+      h('summary', {}, h('b', {}, c.name), ' ', c.since ? h('span', { class: 'tag' }, 'since ' + c.since) : null, ' ',
+        h('span', { class: 'tag' }, c.source === 'cited' ? 'AI-found, quote verified' : 'Wikidata'), ' ',
+        h('span', { class: 'tag' }, c.kev.length + ' KEV')),
+      c.source === 'cited' ? cited(c) : null, kevList(c.kev), h('div', { class: 'row', style: 'margin-top:6px' }, find), attacks);
+  };
+  const subsBox = h('div', { class: 'stack' }, m.subsidiaries.map((c) => node(c, false)));
+  const more = h('button', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+    const x = await api('POST', '/intel/research', { vendor: m.vendor.name, known: m.subsidiaries.map((s) => s.name) });
+    if (!x.ok) { toast((x.data && (x.data.detail || x.data.error)) || 'HTTP ' + x.status, true); return; }
+    if (!x.data.claims.length) { toast('No further acquisition could be verified on a cited page.'); return; }
+    // KEV for the new names: re-ask the map endpoint is not needed; show them, KEV appears on next Map
+    for (const c of x.data.claims) subsBox.prepend(node({ name: c.company, since: c.date, source: 'cited', url: c.url, quote: c.quote, kev: [] }, false));
+    toast(x.data.claims.length + ' verified acquisition(s) added. Their KEV counts appear after you press Map again.');
+  }) }, 'Find more companies with AI');
+  const total = [m.vendor, ...m.subsidiaries].reduce((n, c) => n + c.kev.length, 0);
+  v.replaceChildren(head, h('div', { class: 'stack' },
+    h('div', { class: 'row' }, h('span', { class: 'tag' }, m.subsidiaries.length + ' companies owned'), h('span', { class: 'tag' }, total + ' KEV entries across them'), h('span', { class: 'grow' }), more),
+    ...m.notes.map((n) => h('div', { class: 'small muted' }, n)),
+    node(m.vendor, true), subsBox));
 }
 async function quarantine(v, _a, q) {
   const id = q.get('connector') || '';
@@ -953,7 +996,7 @@ function renderWizard(v) {
   // verifies every setting against them. Supplying them yourself is optional.
   const documentation = generic ? h('details', { open: !!W.documentation.trim() || !!W.askRefs }, h('summary', {}, 'Point to the documentation yourself', optTag()), h('div', { class: 'stack' },
     h('label', { class: 'f' }, h('span', {}, 'Requested dataset (public description only)'), h('input', { 'aria-label': 'Requested dataset', value: W.dataset, placeholder: 'e.g. users, login events, vulnerability findings', oninput: (e) => { W.dataset = e.target.value; } })),
-    h('label', { class: 'f' }, h('span', {}, 'Access scope'), h('select', { 'aria-label': 'Access scope', onchange: (e) => { W.scope = e.target.value; } }, ['public', 'repository', 'organization', 'account', 'enterprise'].map((x) => h('option', { value: x, selected: W.scope === x }, x)))),
+    h('label', { class: 'f' }, h('span', {}, 'Access scope'), h('select', { 'aria-label': 'Access scope', onchange: (e) => { W.scope = e.target.value; } }, ['public', 'repository', 'organization', 'account', 'tenant', 'enterprise'].map((x) => h('option', { value: x, selected: W.scope === x }, x)))),
     h('label', { class: 'f' }, h('span', {}, 'Official public API documentation URLs (one per line, up to 3)'), h('textarea', { 'aria-label': 'Public documentation URLs', rows: 3, value: W.documentation, placeholder: 'https://vendor.example/developers/api', oninput: (e) => { W.documentation = e.target.value; } })),
     h('span', { class: 'small faint' }, 'Only needed if the automatic search picks the wrong page. Fill all three together. Only the product, public dataset/scope and retrieved public documentation go to the hosted AI; never customer names, private URLs, keys or records.'))) : null;
   // a vendor spec the search cannot reach (e.g. behind the vendor's login)

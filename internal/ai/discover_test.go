@@ -154,7 +154,11 @@ func TestLiveNameOnly(t *testing.T) {
 		}
 		t.Run(p, func(t *testing.T) {
 			c.debugDiscovery = func(s string) { t.Logf("SEARCH %q", s) }
-			d, e := c.Draft(context.Background(), Request{Product: p, Data: "auto"}, nil)
+			data := os.Getenv("LIVE_DATA")
+			if data == "" {
+				data = "auto"
+			}
+			d, e := c.Draft(context.Background(), Request{Product: p, Data: data}, nil)
 			var bad *InvalidDraft
 			switch {
 			case errors.As(e, &bad):
