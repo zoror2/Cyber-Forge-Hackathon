@@ -73,4 +73,3 @@ responses are sent. Exact KEV matches remain dashboard-only.
 | `.env.example`, `docker-compose.yml` | Document and pass the opt-in account-email setting. |
 | `tests/notifications_test.go`, `internal/app/bonus_test.go`, `internal/api/access_test.go` | Check routing, privacy, validation, activation and authentication. |
 | `scripts/check-email-alerts.cjs` | Tests the local browser/capture flow and refuses external SMTP. |
-
