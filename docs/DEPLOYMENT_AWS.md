@@ -130,6 +130,14 @@ Logs: `cd /opt/configbridge && docker compose -f docker-compose.prod.yml logs --
 
 ## Security notes (fix before real customers)
 
+- **Public sign-up is open with a hard cap:** `CB_SIGNUP=open` and
+  `CB_SIGNUP_MAX_ACCOUNTS=25` (set in `put-env.ps1`; the cap counts total
+  accounts, including migrated ones). Production refuses to start with open
+  sign-up and no cap. Sign-ups are serialized in SQL (migration 018), so
+  concurrent requests can't overshoot. Per-IP and per-sign-up rate limits apply.
+  The operator can still create accounts beyond the cap (`POST /accounts` with
+  `CB_OPERATOR_TOKEN`). Before real customers, replace this with invite codes
+  and add Cloudflare Turnstile.
 - **Per-tenant KMS keys are created lazily.** When a tenant with no key saves its
   first credential, the API creates a KMS key tagged `app=configbridge`,
   `tenant=<id>`, turns on rotation, and binds the key once (migration 017,

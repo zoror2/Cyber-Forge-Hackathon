@@ -345,7 +345,20 @@ func (a *API) signup(w http.ResponseWriter, r *http.Request) {
 			fail(w, 503, "unavailable")
 			return
 		}
-		id, e := a.Store.CreateAccount(r.Context(), in.Account, in.KMSKey, name, email, hash)
+		var id string
+		if operator {
+			id, e = a.Store.CreateAccount(r.Context(), in.Account, in.KMSKey, name, email, hash)
+		} else {
+			limit := a.SignupMax // 0 = uncapped (development; production refuses to start without a cap)
+			if limit == 0 {
+				limit = 1 << 30
+			}
+			id, e = a.Store.CreateOpenAccount(r.Context(), in.Account, name, email, hash, limit)
+		}
+		if errors.Is(e, store.ErrSignupClosed) {
+			fail(w, 403, "signup_closed")
+			return
+		}
 		if errors.Is(e, store.ErrExists) {
 			fail(w, 409, "account_exists")
 			return

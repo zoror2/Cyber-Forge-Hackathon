@@ -46,6 +46,9 @@ $settings = [ordered]@{
   CB_OPENSEARCH_IMAGE     = From-Local 'CB_OPENSEARCH_IMAGE'
   CB_NGINX_IMAGE          = 'nginx:1.27.3-alpine'
   CB_CLOUDFLARED_IMAGE    = 'cloudflare/cloudflared:2026.10.7'
+  # public sign-up, hard-capped (total accounts; also caps KMS keys at ~$1/month each)
+  CB_SIGNUP               = 'open'
+  CB_SIGNUP_MAX_ACCOUNTS  = '25'
 }
 $body = ($settings.GetEnumerator() | % { "$($_.Key)=$($_.Value)" }) -join "`n"
 $tmp = [IO.Path]::GetTempFileName()

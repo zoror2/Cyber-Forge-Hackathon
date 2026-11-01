@@ -46,8 +46,10 @@ type API struct {
 	SessionKey []byte
 	// InsecureCookies drops the Secure flag: dev over plain http only.
 	InsecureCookies bool
-	// OpenSignup lets anyone create an account (dev demo: CB_SIGNUP=open).
+	// OpenSignup lets anyone create an account (CB_SIGNUP=open), refused once
+	// SignupMax accounts exist (CB_SIGNUP_MAX_ACCOUNTS, required with open).
 	OpenSignup bool
+	SignupMax  int
 	// OperatorToken lets the platform operator create accounts (CB_OPERATOR_TOKEN).
 	OperatorToken string
 	// ProxySecret (CB_PROXY_SECRET): when set, the API sits behind the

@@ -180,9 +180,21 @@ func run() error {
 	if len(sessionKey) < 32 {
 		return errors.New("CB_JWT_SECRET must be at least 32 bytes")
 	}
+	// Public sign-up: production requires a hard account cap (it also bounds
+	// KMS spend: one key per account). 0 = uncapped, development only.
 	signup := os.Getenv("CB_SIGNUP") == "open"
-	if signup && !dev {
-		return errors.New("CB_SIGNUP=open is development-only; use CB_OPERATOR_TOKEN")
+	signupMax := 0
+	if signup {
+		if raw := os.Getenv("CB_SIGNUP_MAX_ACCOUNTS"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 {
+				return errors.New("CB_SIGNUP_MAX_ACCOUNTS must be a positive integer")
+			}
+			signupMax = n
+		}
+		if signupMax == 0 && !dev {
+			return errors.New("CB_SIGNUP=open in production requires CB_SIGNUP_MAX_ACCOUNTS")
+		}
 	}
 	operator := os.Getenv("CB_OPERATOR_TOKEN")
 	if operator != "" && len(operator) < 32 {
@@ -197,7 +209,7 @@ func run() error {
 		return e
 	}
 	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, SIEM: siem, NotificationTenants: notificationTenants,
-		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, OperatorToken: operator, ProxySecret: proxySecret})
+		SessionKey: sessionKey, InsecureCookies: dev, OpenSignup: signup, SignupMax: signupMax, OperatorToken: operator, ProxySecret: proxySecret})
 	if e != nil {
 		return e
 	}
