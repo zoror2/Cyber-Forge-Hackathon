@@ -70,6 +70,17 @@ The guide and reusable demo scripts are committed; those private artifacts are n
 
 ## Practical limits
 
+### Fresh customer config check after YAML support
+
+A newly submitted YAML source named **Fresh customer config verification**, with
+an unrelated vendor name and a previously unused connector ID, passed check
+without saving, preview without storing, activation, collection and repeat upsert.
+It stored 3 unique vulnerability findings and produced exactly the two expected
+CVE matches against the customer's 1,766-entry CISA catalog. This demonstrates
+that source IDs and vendor display names are not hardcoded into exact matching.
+The vendor response is synthetic; collection, storage and correlation are real.
+Local evidence: `data/fresh-jury-config-check.json`.
+
 AWS setup/deployment remains with Mohit. Real device/SIEM sensor ingestion and
 commercial-vendor accounts were not supplied. Email alert delivery is verified
 through local SMTP capture tests, not an external mailbox. Vendor ownership/

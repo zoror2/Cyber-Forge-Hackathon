@@ -62,10 +62,10 @@ async function busy(btn, fn) {
 }
 
 // ---------- API ----------
-async function api(method, path, body) {
+async function api(method, path, body, contentType = 'application/json') {
   const opt = { method, cache: 'no-store', credentials: 'same-origin', redirect: 'error',
     headers: { Accept: 'application/json' } };
-  if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = typeof body === 'string' ? body : JSON.stringify(body); }
+  if (body !== undefined) { opt.headers['Content-Type'] = contentType; opt.body = typeof body === 'string' ? body : JSON.stringify(body); }
   let r;
   try { r = await fetch(path, opt); } catch (e) { toast('API unreachable', true); throw e; }
   if (r.status === 401 && !path.startsWith('/auth/') && path !== '/accounts' && await refresh()) {
@@ -1051,13 +1051,24 @@ function renderWizard(v) {
     re();
   }) }, W.draft ? 'Draft again' : 'Set it up');
 
-  // Paste mode: a ready config JSON -> server check (same validator, nothing saved) -> same Connect card
-  const paste = h('textarea', { class: 'json', rows: 12, spellcheck: 'false', 'aria-label': 'Config JSON', value: W.pasteText || '',
-    placeholder: '{ "version": 1, "id": "okta_users", ... }', oninput: (e) => { W.pasteText = e.target.value; } });
+  // Both data formats normalize through the server's shared config validator.
+  const clearPasteDraft = () => { W.draft = null; W.pasteIssues = []; };
+  const paste = h('textarea', { class: 'json', rows: 12, spellcheck: 'false', 'aria-label': 'Config JSON or YAML', value: W.pasteText || '',
+    placeholder: 'version: 1\nid: okta_users\n# Paste a complete JSON or YAML connector config', oninput: (e) => { const hadDraft = !!W.draft, position = e.target.selectionStart; W.pasteText = e.target.value; clearPasteDraft(); if (hadDraft) { re(); const input = v.querySelector('[aria-label="Config JSON or YAML"]'); input.focus(); input.setSelectionRange(position, position); } } });
+  const upload = h('input', { type: 'file', accept: '.json,.yaml,.yml,application/json,application/yaml,text/yaml', 'aria-label': 'Upload config file', onchange: async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    clearPasteDraft();
+    if (!/\.(json|ya?ml)$/i.test(file.name)) { say('Choose a .json, .yaml or .yml file.', true); re(); return; }
+    if (file.size > 262144) { say('Config must be at most 256 KiB.', true); re(); return; }
+    try { W.pasteText = await file.text(); say('File loaded. Check config to review the normalized engine settings.'); } catch { say('Could not read the config file.', true); }
+    re();
+  } });
   const checkBtn = h('button', { class: 'primary', type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
     W.draft = null; W.pasteIssues = []; say('');
-    try { JSON.parse(W.pasteText || ''); } catch (err) { say('Not valid JSON: ' + err.message, true); re(); return; }
-    const r = await api('POST', '/configs/check', W.pasteText);
+    if (new TextEncoder().encode(W.pasteText || '').length > 262144) { say('Config must be at most 256 KiB.', true); re(); return; }
+    const checkedText = W.pasteText;
+    const r = await api('POST', '/configs/check', checkedText, 'text/plain; charset=utf-8');
+    if (checkedText !== W.pasteText) { say('Config changed while checking. Check it again before connecting.', true); re(); return; }
     if (r.ok) loadDraft({ config: r.data.config, credential: r.data.credential }, true);
     else if (r.status === 422) W.pasteIssues = (r.data && r.data.errors) || [{ field: 'config', message: ((r.data && r.data.error) || 'rejected').replace(/_/g, ' ') }];
     else say((r.data && (r.data.detail || r.data.error)) || 'HTTP ' + r.status, true);
@@ -1068,8 +1079,9 @@ function renderWizard(v) {
     header('Add source', null, modeBtn('ai', 'Set up with AI'), modeBtn('paste', 'Paste a config'),
       h('button', { class: 'ghost', type: 'button', onclick: () => { B.advanced = true; if (!W.draft) B.f = null; route(); } }, 'Fill in manually')),
     W.mode === 'paste' ? h('div', { class: 'card' }, h('div', { class: 'bd stack' },
-      h('label', { class: 'f' }, h('span', {}, 'Config JSON'), paste),
-      h('div', { class: 'small faint' }, 'Secret names only, never key values. Checked with the same validator as saving; nothing is stored until Connect. A config with the id of an existing source updates it as a new revision.'),
+      h('label', { class: 'f' }, h('span', {}, 'Upload config file'), upload),
+      h('label', { class: 'f' }, h('span', {}, 'Config JSON or YAML'), paste),
+      h('div', { class: 'small faint' }, 'JSON and YAML use the same connector fields. Both become the same validated engine config. Use secret names, never key values. Nothing is stored until Connect; an existing source ID creates an updated revision. YAML aliases, anchors, merge keys and multiple documents are rejected.'),
       (W.pasteIssues || []).length ? h('ul', { class: 'issues' }, W.pasteIssues.map((x) => h('li', {}, h('code', {}, x.field), ': ', x.message))) : null,
       h('div', { class: 'row' }, checkBtn, W.msg ? h('span', { class: 'small', style: W.bad ? 'color:var(--bad)' : 'color:var(--muted)' }, W.msg) : null))) :
     h('div', { class: 'card' }, h('div', { class: 'bd stack' },
