@@ -15,6 +15,7 @@ import (
 	"errors"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"log/slog"
 	"net/http"
@@ -77,7 +78,7 @@ func run() error {
 		if err != nil {
 			return errors.New("AWS configuration unavailable")
 		}
-		backend = &secrets.AWS{Client: secretsmanager.NewFromConfig(cfg), Store: db, Prefix: "configbridge/"}
+		backend = &secrets.AWS{Client: secretsmanager.NewFromConfig(cfg), KMS: kms.NewFromConfig(cfg), Store: db, Prefix: "configbridge/"}
 	default:
 		return errors.New("CB_SECRETS_BACKEND must be local or aws")
 	}

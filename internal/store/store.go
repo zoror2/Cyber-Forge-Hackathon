@@ -68,6 +68,9 @@ var migrationConfigRepair string
 //go:embed migrations/016_ai_research_reporting.sql
 var migrationAIResearchReporting string
 
+//go:embed migrations/017_tenant_kms.sql
+var migrationTenantKMS string
+
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
 // 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
@@ -93,6 +96,7 @@ var migrations = []struct {
 	{14, migrationVendorIntel, nil},
 	{15, migrationConfigRepair, nil},
 	{16, migrationAIResearchReporting, nil},
+	{17, migrationTenantKMS, nil},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -240,7 +244,7 @@ func Migrate(ctx context.Context, dsn, appRole string) error {
 		return e
 	}
 	for _, fn := range []string{"authenticate_api_key(bytea)", "authenticate_api_key_identity(bytea)", "due_connectors()", "running_connectors()", "due_alerts()",
-		"authenticate_api_key_user(bytea)", "iam_login_lookup(text,text)", "iam_create_account(text,text,text,text,text)",
+		"authenticate_api_key_user(bytea)", "iam_login_lookup(text,text)", "iam_create_account(text,text,text,text,text)", "bind_tenant_kms_key(text)",
 		"ai_consumption_report(date,date,text,integer,integer)", "operator_ai_consumption_report(date,date,text,integer,integer)"} {
 		if _, e = tx.Exec(ctx, "GRANT EXECUTE ON FUNCTION "+sch+"."+fn+" TO "+role); e != nil {
 			return e

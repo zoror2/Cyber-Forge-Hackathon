@@ -46,10 +46,10 @@ AWS ap-south-1, VPC 10.20.0.0/16   ▼
 | DB security group | `sg-00490b5d3f1863cc7` | 5432 from the app SG only, no egress |
 | EC2 | `i-026767bb6c8ac98a7` (t3.small, 10.20.10.227) | instance profile `configbridge-ec2`; docker, compose, psql 16, 1 GB swap |
 | RDS | `configbridge` (`configbridge.c3cwoy8gsop9.ap-south-1.rds.amazonaws.com`) | PG 16, db.t4g.micro, deletion protection ON, 1-day backups (free-plan cap) |
-| KMS | `alias/configbridge-secrets` | per-tenant `kms_key_id` for Secrets Manager; rotation ON |
+| KMS | `alias/configbridge-secrets` (mitigata) + one auto-created key per tenant | tagged `app=configbridge`, `tenant=<id>`; rotation ON |
 | S3 | `configbridge-deploy-481912007303-aps1` | private, encrypted: `bundles/` (code tarballs), `migration/` (pg_dump) |
 | SSM params | `/configbridge/prod/env`, `/configbridge/prod/db-master-password` | SecureString; the whole `.env` for the host |
-| IAM role | `configbridge-ec2` | SSM core, ECR read; inline: Secrets Manager on `configbridge/*`, KMS via Secrets Manager only, `ssm:GetParameter` on `/configbridge/prod/*`, `s3:GetObject` on the bucket |
+| IAM role | `configbridge-ec2` | SSM core, ECR read; inline policy = `deploy/aws/iam-host-policy.json` (Secrets Manager `configbridge/*`, create/use only `app=configbridge` KMS keys, SSM `/configbridge/prod/*`, S3 bucket read) |
 | IAM role | `configbridge-flowlogs` | VPC flow logs writer |
 | ECR | `configbridge-api`, `configbridge-bootstrap` | **unused** (images are built on the host): delete |
 
@@ -130,10 +130,17 @@ Logs: `cd /opt/configbridge && docker compose -f docker-compose.prod.yml logs --
 
 ## Security notes (fix before real customers)
 
-- **Self sign-up tenants get an empty `kms_key_id`, so they cannot store vendor
-  credentials** (`pkg/secrets/aws.go` refuses). Only `mitigata` has the KMS key
-  (one key per tenant, unique index). Fix: provision a key on sign-up, or use a
-  shared key with tenant encryption context.
+- **Per-tenant KMS keys are created lazily.** When a tenant with no key saves its
+  first credential, the API creates a KMS key tagged `app=configbridge`,
+  `tenant=<id>`, turns on rotation, and binds the key once (migration 017,
+  `bind_tenant_kms_key`: caller's tenant only, never replaces a key). A racing
+  writer's extra key is scheduled for deletion. Each key costs about $1/month;
+  creation is lazy so sign-ups that never store a credential cost nothing.
+  The IAM policy is `deploy/aws/iam-host-policy.json`: the host can only create
+  or use keys tagged `app=configbridge`.
+  Risk: the host can also schedule deletion of any such key (7-day window,
+  recoverable with `CancelKeyDeletion`). Alarm on `ScheduleKeyDeletion` in CloudTrail.
+  On teardown, schedule deletion of every key tagged `app=configbridge`.
 - Pages secrets are set with `bash deploy/pages/set-secrets.sh <aws profile> https://cyberforge-api.mohithkumar.dev`
   (piped from SSM, never printed), then `deploy.ps1` again.
 
