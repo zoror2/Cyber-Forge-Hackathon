@@ -17,7 +17,8 @@ import (
 )
 
 // Explainer is the model boundary (internal/ai.Client: Gemini, Groq or
-// Bedrock). It receives validated aggregate facts, never SQL, raw questions or raw data.
+// Bedrock). It receives validated aggregate facts, public CVE IDs and an opt-in
+// question as untrusted text. It has no SQL executor or raw-record access.
 type Explainer interface {
 	Explain(context.Context, insights.Evidence) (insights.Answer, insights.Usage, error)
 	Provider() string
@@ -130,6 +131,7 @@ func (a *API) siemFindings(w http.ResponseWriter, r *http.Request) {
 }
 
 type SIEMQuestion struct {
+	Question  string `json:"question,omitempty"`
 	Connector string `json:"connector"`
 	Topic     string `json:"topic"`
 	Consent   bool   `json:"external_ai_consent"`
@@ -148,7 +150,7 @@ type SIEMResponse struct {
 
 func (a *API) answerSIEM(ctx context.Context, scope store.Scope, actor string, in SIEMQuestion) (out SIEMResponse, err error) {
 	out.RunHistory = runReference(in.Connector)
-	if !config.ValidID(in.Connector) || !insights.Topic(in.Topic) || !in.Consent {
+	if !insights.ValidQuestion(in.Question) || !config.ValidID(in.Connector) || !insights.Topic(in.Topic) || !in.Consent {
 		return out, insights.ErrEvidence
 	}
 	if !a.SIEM.acquire(scope.Tenant) {
@@ -157,22 +159,63 @@ func (a *API) answerSIEM(ctx context.Context, scope store.Scope, actor string, i
 	defer a.SIEM.release(scope.Tenant)
 	// Keep the connector lease through index retrieval and DB revalidation only;
 	// a slow LLM must never block scheduled collection.
-	snap, err := a.refreshSIEM(ctx, scope, in.Connector)
-	if err != nil {
-		return out, err
-	}
-	ids, err := a.SIEM.Search.Find(ctx, scope.Tenant, snap, in.Topic)
-	if err != nil {
-		return out, err
-	}
-	findings, err := scope.ResolveSIEM(ctx, in.Connector, snap.Generation, ids, in.Topic)
+	var snap insights.Snapshot
+	var findings []insights.Finding
+	var matched store.KEVMatches
+	err = func() error {
+		bounded, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		lease, unlock, e := scope.Lock(bounded, in.Connector)
+		if e != nil {
+			return e
+		}
+		defer unlock()
+		snap, e = scope.BuildSIEMSnapshot(lease, in.Connector)
+		if e != nil {
+			return e
+		}
+		if e = a.SIEM.Search.Index(lease, scope.Tenant, snap); e != nil {
+			return e
+		}
+		ids, e := a.SIEM.Search.Find(lease, scope.Tenant, snap, in.Topic)
+		if e != nil {
+			return e
+		}
+		findings, e = scope.ResolveSIEM(lease, in.Connector, snap.Generation, ids, in.Topic)
+		if e != nil {
+			return e
+		}
+		for _, f := range findings {
+			if f.Rule == "kev_exact_matches" {
+				matched, e = scope.KEVMatches(lease, in.Connector, 20, 0)
+				if e != nil {
+					return e
+				}
+				if matched.Total != f.Count {
+					return insights.ErrEvidence
+				}
+			}
+		}
+		return nil
+	}()
 	if err != nil {
 		return out, err
 	}
 	out.Findings = findings
 	out.Evidence = insights.Evidence{Topic: in.Topic, WindowHours: 24, RunSampleCapped: snap.RunSampleCapped, Facts: []insights.Fact{}}
+	out.Evidence.Question = in.Question
 	for i, f := range findings {
 		out.Evidence.Facts = append(out.Evidence.Facts, insights.Fact{ID: fmt.Sprintf("e%d", i+1), Rule: f.Rule, Severity: f.Severity, Category: f.Category, Count: f.Count})
+		if f.Rule == "kev_exact_matches" {
+			seen := map[string]bool{}
+			for _, m := range matched.Matches {
+				if !seen[m.CVE] {
+					out.Evidence.KEVCVEs = append(out.Evidence.KEVCVEs, m.CVE)
+					seen[m.CVE] = true
+				}
+			}
+			out.Evidence.KEVListCapped = matched.Total > int64(len(matched.Matches))
+		}
 	}
 	if len(findings) == 0 {
 		out.Status = "no_findings"
@@ -228,7 +271,7 @@ func (a *API) siemAsk(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "external_ai_consent_required")
 		return
 	}
-	if !config.ValidID(in.Connector) || !insights.Topic(in.Topic) {
+	if !insights.ValidQuestion(in.Question) || !config.ValidID(in.Connector) || !insights.Topic(in.Topic) {
 		fail(w, 422, "invalid_siem_question")
 		return
 	}

@@ -101,6 +101,12 @@ func (a *API) intelResearch(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "ai_not_configured")
 		return
 	}
+	// Web research requires Gemini search; refuse before spending a customer's
+	// daily reservation when the configured provider cannot perform it.
+	if a.AI.Provider() != "gemini" {
+		write(w, 422, map[string]string{"error": "search_required", "detail": "Web acquisition/incident research requires Gemini. KEV alerts and SIEM explanations work with Groq."})
+		return
+	}
 	id := make([]byte, 16)
 	rand.Read(id)
 	subject := req.Vendor + "|" + req.Company

@@ -20,8 +20,10 @@
 findings. PostgreSQL remains the source of truth, and OpenSearch is a searchable
 index of approved metadata. Before AI sees anything, the server checks each
 search result against the authenticated customer's current database snapshot.
-AI receives counts and categories, then explains the evidence. It cannot read
-the database, execute queries, change configs or activate connections.”
+AI receives approved counts, categories, matched public CVE IDs and the user's
+consented question, then explains the evidence. The explanation endpoint cannot
+execute SQL or change configs. A separate consented quarantine repair endpoint
+can select a locally tested conversion, preview it and rerun after safe activation.”
 
 Example: nine synthetic events include six recent authentication failures,
 one recent high event, one old critical event and one future critical event.
@@ -38,15 +40,20 @@ emails, IPs, source/customer names, credentials and raw configs are excluded.
 | `high_severity_events` | Count of source-reported high/critical events in the last 24 hours of event time. |
 | `authentication_failures` | At least five events with exact types login_failed, authentication_failure or failed_login in that event-time window. |
 | `kev_catalog_entries` | Informational count of recently dated known_exploited_vulnerability events; no deployment-exposure assertion. |
+| `kev_exact_matches` | Exact intersection of retained customer vulnerability CVEs with that tenant's trusted CISA catalog. Checked now, independently of the event-time window; review freshness and affected versions. |
 
-Questions are the fixed topics `connection_health` and `security_findings`.
-Arbitrary free-text prompts and query DSL are rejected. Refresh/ask operate on
+Questions use the evidence topics `connection_health` and `security_findings`.
+An optional free-text question is bounded to 1,000 UTF-8 bytes and sent as
+untrusted text with explicit consent. Obvious credential/email/URL patterns are
+rejected; this is not complete PII detection. SQL/query DSL fields are rejected.
+Refresh/ask operate on
 one live connector. They generate a new snapshot from PostgreSQL, index it, and
 filter search by a deployment namespace, tenant, connector, generation and topic.
-The provider sees only eN ordinal labels, counts, allowlisted rule/error/severity
-values, a 24-hour-window label and the run-sample-cap flag.
+The provider sees eN ordinal labels, counts, allowlisted rule/error/severity
+values, the question, up to 20 matched public CVE IDs and truncation flags.
+The KEV list describes retained findings, rather than just the 24-hour event window.
 
-Five fixed rules are implemented in Go/SQL. The OpenSearch Security Analytics
+Six fixed rules are implemented in Go/SQL. The OpenSearch Security Analytics
 plugin's detector/Sigma setup, user/IP correlation, confirmed attack detection,
 automatic remediation, broad natural-language investigations and background
 continuous indexing are separate future features. Refresh happens on demand.

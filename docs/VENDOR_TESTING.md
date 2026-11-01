@@ -155,3 +155,42 @@ Useful official references for confirmed gaps:
 [Check Point management](https://sc1.checkpoint.com/documents/latest/APIs/),
 [Security Hub GetFindings](https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_GetFindings.html),
 [GuardDuty ListFindings](https://docs.aws.amazon.com/guardduty/latest/APIReference/API_ListFindings.html).
+
+## Multiple vendor tokens (1 November 2026, IST)
+
+`TestConcurrentVendorTokensRemainBoundToTenantAndConnector` checks four synthetic
+GitHub-style Bearer tokens against a strict local TLS vendor with Link pagination.
+Two customers each have `repo_one` and `repo_two`, and deliberately reuse secret
+names `github_one` and `github_two`. Their secret values are different.
+
+- All four first-page requests overlap; the vendor checks the exact assigned
+  token on every page. Stored records remain scoped to the customer and source.
+- Rotating one token leaves the other three working.
+- An invalid token produces `auth_failed` after one vendor request; other tokens
+  stay usable, and replacing the invalid value restores collection.
+- A reference available only in another tenant fails as missing. A host-binding
+  mismatch is blocked before any vendor request.
+- Secret values are excluded from run/secret/quarantine responses and logs.
+
+This proves credential routing in our engine, not live GitHub scopes or private
+repository permissions. No real vendor PAT is used. Each connector uses its
+configured secret reference; automatic PAT pooling/round-robin is not implemented.
+
+`TestMultipleCustomerKeysShareUsageAndRemainIsolated` separately checks inbound
+customer access keys: four keys, 24 concurrent reads, shared per-customer AI
+usage/quota, audit attribution, role changes, immediate revocation and owner
+deactivation. Customer access keys and outgoing vendor PATs are separate things.
+
+Both checks can be rerun with `go test -race -count=1 ./tests -run
+'TestConcurrentVendorTokens|TestMultipleCustomerKeys'` using disposable
+`TEST_DATABASE_URL` and optional `TEST_OPENSEARCH_URL` test services. The sandbox
+verification also runs the complete race-enabled suite inside the existing
+Dockerfile's Go build stage, mounting only the tests directory read-only and
+using the dedicated Docker PostgreSQL/OpenSearch services. It receives no real
+API keys or private `.env` file.
+
+Result: the full Docker gate passed vet, race-enabled tests and all command
+builds; the integration package took 118.175 seconds. The test runner shares
+OpenSearch's network namespace to use its approved development loopback URL.
+The initial Docker-IP HTTP setup was correctly rejected by the search client's
+security check; no application security rule was relaxed.

@@ -1,5 +1,6 @@
 // Package insights defines the deliberately small evidence boundary for SIEM AI.
-// It contains no credentials, arbitrary questions, raw events or config bodies.
+// It contains no credentials, raw events or config bodies. An explicitly
+// consented question and validated public CVE identifiers may accompany counts.
 package insights
 
 import (
@@ -24,6 +25,7 @@ var Rules = []Rule{
 	{"high_severity_events", "security_findings", "high", "The source reported high/critical events; this is source severity, not an independently confirmed incident."},
 	{"authentication_failures", "security_findings", "warning", "At least five authentication-failure events in 24 hours; no user/IP correlation or confirmed attack is implied."},
 	{"kev_catalog_entries", "security_findings", "info", "Recently dated KEV catalog entries; presence in a feed does not establish deployment exposure."},
+	{"kev_exact_matches", "security_findings", "high", "Exact CVE matches between retained customer vulnerability findings and that customer's trusted CISA catalog, checked now. Review asset versions and freshness; not proof of compromise."},
 }
 
 func RuleByID(id string) (Rule, bool) {
@@ -66,21 +68,45 @@ type Fact struct {
 	Count    int64  `json:"count"`
 }
 type Evidence struct {
-	Topic           string `json:"topic"`
-	WindowHours     int    `json:"window_hours"`
-	RunSampleCapped bool   `json:"run_sample_capped"`
-	Facts           []Fact `json:"facts"`
+	KEVCVEs         []string `json:"kev_cves,omitempty"`
+	KEVListCapped   bool     `json:"kev_list_capped,omitempty"`
+	Question        string   `json:"question,omitempty"`
+	Topic           string   `json:"topic"`
+	WindowHours     int      `json:"window_hours"`
+	RunSampleCapped bool     `json:"run_sample_capped"`
+	Facts           []Fact   `json:"facts"`
 }
 
 func Category(s string) bool {
 	switch s {
-	case "collection_failed", "auth_failed", "credential_missing", "credential_incomplete", "credential_binding_mismatch", "destination_denied", "response_too_large", "collection_limit", "timeout", "rate_limited", "vendor_http_failed", "storage_failed", "incremental_filter_not_respected", "mapping_rejections", "source_high_severity", "authentication_failure", "public_kev_catalog":
+	case "collection_failed", "auth_failed", "credential_missing", "credential_incomplete", "credential_binding_mismatch", "destination_denied", "response_too_large", "collection_limit", "timeout", "rate_limited", "vendor_http_failed", "storage_failed", "incremental_filter_not_respected", "mapping_rejections", "source_high_severity", "authentication_failure", "public_kev_catalog", "exact_cve_match":
 		return true
 	}
 	return false
 }
 func (e Evidence) Validate() error {
-	if !Topic(e.Topic) || e.WindowHours != 24 || len(e.Facts) == 0 || len(e.Facts) > 20 {
+	if len(e.KEVCVEs) > 20 {
+		return ErrEvidence
+	}
+	seenCVEs := map[string]bool{}
+	for _, cve := range e.KEVCVEs {
+		if !regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,}$`).MatchString(cve) || len(cve) > 64 || seenCVEs[cve] {
+			return ErrEvidence
+		}
+		seenCVEs[cve] = true
+	}
+	if len(e.KEVCVEs) > 0 {
+		found := false
+		for _, f := range e.Facts {
+			if f.Rule == "kev_exact_matches" {
+				found = true
+			}
+		}
+		if !found {
+			return ErrEvidence
+		}
+	}
+	if !ValidQuestion(e.Question) || !Topic(e.Topic) || e.WindowHours != 24 || len(e.Facts) == 0 || len(e.Facts) > 20 {
 		return ErrEvidence
 	}
 	for i, f := range e.Facts {

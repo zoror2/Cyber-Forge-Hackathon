@@ -59,6 +59,15 @@ var migrationSIEM string
 //go:embed migrations/013_ai_reports.sql
 var migrationAIReports string
 
+//go:embed migrations/014_vendor_intel.sql
+var migrationVendorIntel string
+
+//go:embed migrations/015_config_repair.sql
+var migrationConfigRepair string
+
+//go:embed migrations/016_ai_research_reporting.sql
+var migrationAIResearchReporting string
+
 // migrations run in order, once each, inside the migration transaction. Each
 // lists the tables it creates so they get forced row-level security.
 // 2-5 were applied first on main; OCSF (6) retires the PRD-era tables after them.
@@ -81,6 +90,9 @@ var migrations = []struct {
 	// 12 was 006_siem on main (member-b); renumbered after this branch's 6-11.
 	{12, migrationSIEM, []string{"siem_snapshots", "siem_findings", "ai_requests"}},
 	{13, migrationAIReports, nil},
+	{14, migrationVendorIntel, nil},
+	{15, migrationConfigRepair, nil},
+	{16, migrationAIResearchReporting, nil},
 }
 var ErrNotFound = errors.New("not_found")
 var ErrBusy = errors.New("connector_busy")
@@ -430,6 +442,11 @@ func (s Scope) Configs(ctx context.Context, limit, offset int) (out []ConfigSumm
 	return
 }
 func (s Scope) Activate(ctx context.Context, id string, revision int) error {
+	return s.ActivateExpected(ctx, id, revision, 0)
+}
+
+// ActivateExpected prevents a repair overwriting a concurrent live revision.
+func (s Scope) ActivateExpected(ctx context.Context, id string, revision, expected int) error {
 	return s.WithTx(ctx, func(tx pgx.Tx) error {
 		var locked bool
 		if e := tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock(hashtextextended($1,0))", s.LockKey("connector", id)).Scan(&locked); e != nil {
@@ -437,6 +454,15 @@ func (s Scope) Activate(ctx context.Context, id string, revision int) error {
 		}
 		if !locked {
 			return ErrBusy
+		}
+		if expected > 0 {
+			var current int
+			if e := tx.QueryRow(ctx, "SELECT version FROM configs WHERE tenant_id=$1 AND id=$2 AND status='live'", s.Tenant, id).Scan(&current); e != nil {
+				return e
+			}
+			if current != expected {
+				return ErrBusy
+			}
 		}
 		var body []byte
 		if e := tx.QueryRow(ctx, "SELECT body FROM configs WHERE tenant_id=$1 AND id=$2 AND version=$3", s.Tenant, id, revision).Scan(&body); errors.Is(e, pgx.ErrNoRows) {

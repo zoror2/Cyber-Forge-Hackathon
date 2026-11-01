@@ -95,6 +95,11 @@ func (s Scope) BuildSIEMSnapshot(ctx context.Context, connector string) (out ins
 			add("authentication_failures", "authentication_failure", auth)
 		}
 		add("kev_catalog_entries", "public_kev_catalog", kev)
+		var exact int64
+		if e = tx.QueryRow(ctx, kevCatalogSQL+`SELECT count(*) FROM matches`, s.Tenant, connector).Scan(&exact); e != nil {
+			return e
+		}
+		add("kev_exact_matches", "exact_cve_match", exact)
 		_, e = tx.Exec(ctx, `INSERT INTO siem_snapshots(tenant_id,connector,generation,window_start,window_end,run_sample_capped)VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,connector)DO UPDATE SET generation=excluded.generation,window_start=excluded.window_start,window_end=excluded.window_end,run_sample_capped=excluded.run_sample_capped`, s.Tenant, connector, out.Generation, out.WindowStart, out.WindowEnd, out.RunSampleCapped)
 		if e != nil {
 			return e

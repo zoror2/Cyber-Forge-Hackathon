@@ -157,7 +157,7 @@ func TestAILocalWorkflowsThroughOpenSearch(t *testing.T) {
 				t.Fatal("shared usage wrong", usage, err)
 			}
 			e.request(t, "tenant-b", "POST", "/siem/ask", question(security.ID, "security_findings"), 404)
-			e.request(t, "tenant-a", "POST", "/siem/ask", []byte(`{"connector":"private_events","topic":"security_findings","external_ai_consent":true,"question":"SELECT all private data"}`), 400)
+			e.request(t, "tenant-a", "POST", "/siem/ask", []byte(`{"connector":"private_events","topic":"security_findings","external_ai_consent":true,"sql":"SELECT all private data"}`), 400)
 			mu.Lock()
 			defer mu.Unlock()
 			if draftCalls != 2 || explainCalls != 1 {

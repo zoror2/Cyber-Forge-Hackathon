@@ -82,6 +82,15 @@ func window(total, start, size int) (int, int) {
 
 func Handler() http.Handler {
 	mux := http.NewServeMux()
+	// Synthetic assets for exact-CVE correlation demos; never claim these are
+	// findings from an installed security sensor or a real customer device.
+	mux.HandleFunc("GET /vulnerabilities", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, []map[string]any{
+			{"id": "synthetic-asset-log4j", "cve": "CVE-2021-44228", "title": "SYNTHETIC Log4j finding", "timestamp": time.Now().UTC().Format(time.RFC3339)},
+			{"id": "synthetic-asset-panos", "cve": "CVE-2024-3400", "title": "SYNTHETIC PAN-OS finding", "timestamp": time.Now().UTC().Format(time.RFC3339)},
+			{"id": "synthetic-unmatched", "cve": "CVE-2099-99999", "title": "SYNTHETIC unmatched finding", "timestamp": time.Now().UTC().Format(time.RFC3339)},
+		})
+	})
 	mux.HandleFunc("GET /security-events", func(w http.ResponseWriter, r *http.Request) {
 		out := []map[string]any{}
 		now := time.Now().UTC().Add(-time.Minute)
