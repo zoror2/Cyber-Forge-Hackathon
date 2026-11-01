@@ -124,6 +124,139 @@ func TestNotificationThresholdEmailAndTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestNotificationDashboardReportsLiveSettingsAndTenantCapability(t *testing.T) {
+	e := setup(t)
+	h, err := api.New(&api.API{Store: e.db.Store, Engine: e.runs, Secrets: e.svc, Limits: &api.Limits{},
+		NotificationTenants: map[string]bool{"tenant-a": true}, NotificationLocalCapture: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.api.Close()
+	e.api = httptest.NewServer(h)
+	t.Cleanup(e.api.Close)
+	for _, tc := range []struct {
+		tenant string
+		ready  bool
+		mode   string
+	}{{"tenant-a", true, "local_capture"}, {"tenant-b", false, "disabled"}} {
+		var status struct {
+			Configured bool   `json:"configured"`
+			Mode       string `json:"delivery_mode"`
+		}
+		raw := e.request(t, tc.tenant, "GET", "/notifications/status", nil, 200)
+		if json.Unmarshal(raw, &status) != nil || status.Configured != tc.ready || status.Mode != tc.mode || strings.Contains(string(raw), "@") {
+			t.Fatal("incorrect or leaky capability report", string(raw))
+		}
+	}
+	c := alertConfig(e, "dashboard_alert")
+	e.save(t, "tenant-a", c, true)
+	live := func() *config.Notifications {
+		t.Helper()
+		var summaries []store.ConfigSummary
+		if err := json.Unmarshal(e.request(t, "tenant-a", "GET", "/configs", nil, 200), &summaries); err != nil || len(summaries) != 1 {
+			t.Fatal("summaries", err)
+		}
+		return summaries[0].LiveNotifications
+	}
+	c.Notifications.Enabled = false
+	saved := e.save(t, "tenant-a", c, false)
+	if n := live(); n == nil || !n.Enabled || n.FailureThreshold != 3 {
+		t.Fatal("draft changed displayed live settings", n)
+	}
+	body, _ := json.Marshal(map[string]int{"revision": saved})
+	e.request(t, "tenant-a", "POST", "/configs/"+c.ID+"/activate", body, 200)
+	if n := live(); n == nil || n.Enabled {
+		t.Fatal("activated disable not reflected", n)
+	}
+	if string(e.request(t, "tenant-b", "GET", "/configs", nil, 200)) != "[]\n" {
+		t.Fatal("source settings crossed tenants")
+	}
+	c.Notifications.Enabled = true
+	body, _ = json.Marshal(c)
+	e.request(t, "tenant-b", "POST", "/configs", body, 422)
+}
+
+func TestNotificationAccountAdminRoutingAndSMTPDelivery(t *testing.T) {
+	e := notificationEnv(t)
+	ctx := context.Background()
+	for _, tenant := range []string{"tenant-a", "tenant-b"} {
+		s := e.db.Store.ForTenant(tenant)
+		if to, err := s.AlertRecipient(ctx); err != nil || to != "" {
+			t.Fatal("empty account recipient", to, err)
+		}
+		if _, err := s.CreateUser(ctx, "Viewer", "viewer@"+tenant+".invalid", "viewer", "synthetic-test-hash", "test"); err != nil {
+			t.Fatal(err)
+		}
+		if to, err := s.AlertRecipient(ctx); err != nil || to != "" {
+			t.Fatal("viewer used as notification recipient", to, err)
+		}
+		if _, err := s.CreateUser(ctx, "Admin", "admin@"+tenant+".invalid", "admin", "synthetic-test-hash", "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	mailCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	mailbox := &mailcapture.Server{}
+	go mailbox.ServeSMTP(mailCtx, listener)
+	sender, err := notify.NewSMTP(notify.SMTPConfig{Address: listener.Addr().String(), From: "alerts@example.invalid", Mode: "plain", Environment: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &notify.Worker{Store: e.db.Store, Sender: sender, AccountRecipient: func(ctx context.Context, tenant string) (string, error) {
+		return e.db.Store.ForTenant(tenant).AlertRecipient(ctx)
+	}}
+	for _, tenant := range []string{"tenant-a", "tenant-b"} {
+		c := alertConfig(e, "same_source")
+		e.save(t, tenant, c, true)
+		for i := 0; i < 3; i++ {
+			e.run(t, tenant, c.ID, 502)
+		}
+		if err := w.Process(ctx, store.AlertJob{Tenant: tenant, Connector: c.ID, ID: readAlerts(t, e, tenant, c.ID)[0].ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	msgs := mailbox.Messages()
+	if len(msgs) != 2 {
+		t.Fatal("missing routed messages", len(msgs))
+	}
+	for i, tenant := range []string{"tenant-a", "tenant-b"} {
+		if !strings.Contains(msgs[i].To, "admin@"+tenant+".invalid") || !strings.Contains(msgs[i].Body, tenant) {
+			t.Fatal("wrong tenant recipient")
+		}
+	}
+	w.Routes = map[string]string{"tenant-a": "override@example.invalid"}
+	if to, err := w.Recipient(ctx, "tenant-a"); err != nil || to != "override@example.invalid" {
+		t.Fatal("operator override lost", err)
+	}
+	if to, err := w.Recipient(ctx, "tenant-b"); err != nil || to != "admin@tenant-b.invalid" {
+		t.Fatal("override leaked across accounts", err)
+	}
+	// A demoted/deactivated admin must not remain the default recipient.
+	s := e.db.Store.ForTenant("tenant-a")
+	users, _ := s.Users(ctx, 100, 0)
+	var old string
+	for _, u := range users {
+		if u.Role == "admin" {
+			old = u.ID
+		}
+	}
+	if _, err := s.CreateUser(ctx, "New admin", "new@tenant-a.invalid", "admin", "synthetic-test-hash", "test"); err != nil {
+		t.Fatal(err)
+	}
+	active := false
+	if err := s.UpdateUser(ctx, old, nil, nil, &active); err != nil {
+		t.Fatal(err)
+	}
+	if to, err := s.AlertRecipient(ctx); err != nil || to != "new@tenant-a.invalid" {
+		t.Fatal("inactive admin still selected", to, err)
+	}
+}
+
 func TestNotificationRecoveryCooldownRetriesAndFencing(t *testing.T) {
 	e := notificationEnv(t)
 	ctx := context.Background()

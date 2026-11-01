@@ -70,6 +70,7 @@ services:
       CB_SMTP_PASSWORD: ${CB_SMTP_PASSWORD:-}
       CB_SMTP_TLS_MODE: ${CB_SMTP_TLS_MODE:-}
       CB_ALERT_EMAIL_ROUTES: ${CB_ALERT_EMAIL_ROUTES:-}
+      CB_ALERT_USE_ACCOUNT_EMAIL: ${CB_ALERT_USE_ACCOUNT_EMAIL:-0}
     # local dev only: your AWS profile, read-only (in AWS use a task role instead)
     volumes: ['./data/devcert/cert.pem:/certs/cert.pem:ro', '${AWS_DIR:?set AWS_DIR in .env}:/aws:ro']
     ports: ['127.0.0.1:8080:8080']

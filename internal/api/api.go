@@ -32,6 +32,9 @@ type API struct {
 	Engine              *runner.Runner
 	Secrets             *secrets.Service
 	NotificationTenants map[string]bool
+	// LocalCapture labels the development mailbox; never implies external delivery.
+	NotificationLocalCapture bool
+	NotificationReady        func(context.Context, string) (bool, error)
 	// Test seam only; the binary always uses Store.Authenticate.
 	Authenticate func(context.Context, string) (string, error)
 	// Limits for this API; nil means DefaultLimits.
@@ -93,6 +96,7 @@ func New(a *API) (http.Handler, error) {
 	mux.HandleFunc("GET /siem/findings", a.siemFindings)
 	mux.HandleFunc("POST /siem/ask", a.siemAsk)
 	mux.HandleFunc("GET /alerts", a.alerts)
+	mux.HandleFunc("GET /notifications/status", a.notificationStatus)
 	mux.HandleFunc("GET /exposure", a.exposure)
 	mux.HandleFunc("GET /kev/matches", a.kevMatches)
 	mux.HandleFunc("GET /intel/map", a.intelMap)
@@ -372,9 +376,16 @@ func (a *API) decodeConfig(w http.ResponseWriter, r *http.Request) (config.Confi
 		write(w, 422, map[string]any{"errors": issues})
 		return c, false
 	}
-	if c.Notifications != nil && c.Notifications.Enabled && !a.NotificationTenants[a.scope(r).Tenant] {
-		fail(w, 422, "email_notifications_not_configured_for_tenant")
-		return c, false
+	if c.Notifications != nil && c.Notifications.Enabled {
+		ready, err := a.notificationsReady(r)
+		if err != nil {
+			dbFail(w, err)
+			return c, false
+		}
+		if !ready {
+			fail(w, 422, "email_notifications_not_configured_for_tenant")
+			return c, false
+		}
 	}
 	return c, true
 }

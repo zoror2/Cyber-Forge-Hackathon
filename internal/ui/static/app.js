@@ -49,8 +49,8 @@ function when(v) {
   return isNaN(d) ? String(v) : d.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
 }
 const short = (s, n = 10) => (s ? String(s).slice(0, n) : '');
-const OK = ['healthy', 'success', 'live', 'drafted', 'explained'];
-const WARN = ['degraded', 'completed_with_errors', 'incomplete', 'draft', 'approved', 'partial', 'reserved'];
+const OK = ['healthy', 'success', 'live', 'drafted', 'explained', 'sent'];
+const WARN = ['degraded', 'completed_with_errors', 'incomplete', 'draft', 'approved', 'partial', 'reserved', 'pending', 'sending'];
 function pill(v) {
   const s = String(v || 'idle');
   const cls = OK.includes(s) ? 'ok' : WARN.includes(s) ? 'warn' : ['idle', 'running', 'test'].includes(s) ? '' : 'bad';
@@ -136,7 +136,7 @@ function enumText(a) {
 }
 
 // ---------- shell ----------
-const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['kev-alerts', 'KEV alerts'], ['vendor-map', 'Vendor map'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
+const NAV = [['overview', 'Overview'], ['connectors', 'Sources'], ['builder', 'Add source', 'configs:write'], ['records', 'OCSF records'], ['insights', 'Insights'], ['kev-alerts', 'KEV alerts'], ['email-alerts', 'Email alerts'], ['vendor-map', 'Vendor map'], ['ai-usage', 'AI usage'], ['quarantine', 'Quarantine'], ['runs', 'Runs'], ['secrets', 'Secrets'], ['access', 'Users & keys']];
 function lock(msg) {
   S.me = null;
   app().replaceChildren(loginView(msg));
@@ -231,7 +231,7 @@ function route() {
   const v = document.getElementById('view');
   if (!v) return;
   const name = view.split('?')[0];
-  const fn = { overview, connectors, builder, records, insights, 'kev-alerts': kevAlerts, 'vendor-map': vendorMap, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
+  const fn = { overview, connectors, builder, records, insights, 'kev-alerts': kevAlerts, 'email-alerts': emailAlerts, 'vendor-map': vendorMap, 'ai-usage': aiUsagePage, quarantine, runs, secrets, access }[name] || overview;
   v.replaceChildren(h('div', { class: 'muted' }, 'Loading…'));
   fn(v, decodeURIComponent(arg.split('?')[0]), q).catch((e) => {
     if (S.me) v.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Could not load: ' + e.message)));
@@ -366,6 +366,43 @@ async function connectors(v) {
         h('a', { class: 'btn sm', href: '#/records?class=' + c.class + '&source=' + encodeURIComponent(c.id), onclick: (e) => e.stopPropagation() }, 'Data')) },
     ], cfgs, (c) => { location.hash = '#/builder/' + encodeURIComponent(c.id); }))
       : h('div', { class: 'card', style: 'padding:24px' }, 'No sources yet. ', h('a', { href: '#/builder' }, 'Add your first source'), '.'));
+}
+
+// ---------- B-4: tenant-only setup capability and durable delivery history ----------
+let emailAlertsRequest = 0;
+async function emailAlerts(v, _arg, q) {
+  const request = ++emailAlertsRequest;
+  const connector = q.get('connector') || '', offset = +q.get('offset') || 0, limit = 50;
+  const [status, cfgs, alerts] = await Promise.all([
+    must('GET', '/notifications/status'), must('GET', '/configs?limit=500'),
+    must('GET', '/alerts?' + new URLSearchParams({ connector, limit, offset }))]);
+  if (request !== emailAlertsRequest || !location.hash.startsWith('#/email-alerts')) return;
+  const nav = (source, start = 0) => { location.hash = '#/email-alerts?' + new URLSearchParams({ connector: source, offset: start }); };
+  const select = h('select', { 'aria-label': 'Filter email alerts by source', onchange: (e) => nav(e.target.value) },
+    h('option', { value: '' }, 'All sources'), cfgs.map((c) => h('option', { value: c.id, selected: connector === c.id }, c.name + ' (' + c.id + ')')));
+  const ready = status.configured;
+  const title = ready ? (status.delivery_mode === 'local_capture' ? 'Local test mailbox configured' : 'SMTP configured for this customer') : 'Email delivery is not configured';
+  v.replaceChildren(header('Email alerts', 'B-4: repeated connector failures. KEV matches remain on the KEV alerts page.', h('button', { onclick: () => route() }, 'Refresh')),
+    h('div', { class: 'stack' },
+      h('div', { class: 'card', 'data-testid': 'email-setup' }, h('div', { class: 'hd' }, h('h2', {}, title)),
+        h('div', { class: 'bd stack small' },
+          h('p', {}, ready ? (status.delivery_mode === 'local_capture' ? 'Messages stay in the synthetic local mailbox; no real inbox receives them.' : 'The server can attempt delivery to this customer’s recipient. Account-email mode uses the oldest active admin’s email; a private operator route takes precedence. Check delivery history below for results.') : 'Ask the platform operator to configure the SMTP relay and this customer’s recipient in private server environment settings, then restart the API.'),
+          h('p', {}, 'Enable alerts in a source’s settings, then save and activate that revision. Three consecutive failed collections trigger an alert by default. Tests and previews do not count. Further failures in the same outage do not queue duplicate alerts.'),
+          h('p', {}, 'Delivery retries up to five times. “Sent” means the SMTP server accepted the message; inbox placement is not guaranteed. Recovery or opting out cancels pending delivery. No collected records or credentials are included.'))),
+      h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Source alert settings'), h('span', { class: 'small muted' }, 'Settings shown are from each live revision.')),
+        table([{ t: 'Source', v: (c) => h('div', {}, c.name, h('div', { class: 'small faint' }, c.id)) },
+          { t: 'Live alerts', v: (c) => c.live_notifications && c.live_notifications.enabled ? 'Enabled' : 'Off' },
+          { t: 'Threshold', v: (c) => c.live_notifications && c.live_notifications.enabled ? c.live_notifications.failure_threshold + ' failures' : '—' },
+          { t: '', v: (c) => can('configs:write') ? h('a', { class: 'btn sm', href: '#/builder/' + encodeURIComponent(c.id) }, 'Edit source') : 'Read only' }], cfgs)),
+      h('div', { class: 'card' }, h('div', { class: 'hd' }, h('h2', {}, 'Delivery history'), select),
+        table([{ t: 'Created', v: (a) => when(a.created_at) }, { t: 'Source', v: (a) => h('code', {}, a.connector) },
+          { t: 'Failures', v: (a) => a.failure_count }, { t: 'Reason', v: (a) => a.error.replace(/_/g, ' ') },
+          { t: 'Delivery', v: (a) => pill(a.status) }, { t: 'Attempts', v: (a) => a.attempts },
+          { t: 'Accepted by SMTP', v: (a) => when(a.sent_at) },
+          { t: 'Last delivery error', v: (a) => a.delivery_error ? 'SMTP unavailable; check server settings or retry status.' : '—' },
+          { t: 'Evidence', v: (a) => h('a', { href: '#/runs?connector=' + encodeURIComponent(a.connector) }, 'Run ' + short(a.run_id, 12)) }], alerts),
+        h('div', { class: 'bd row' }, offset ? h('button', { onclick: () => nav(connector, Math.max(0, offset - limit)) }, 'Previous') : null,
+          alerts.length === limit ? h('button', { onclick: () => nav(connector, offset + limit) }, 'Next') : null))));
 }
 
 const COLS = {
@@ -743,13 +780,13 @@ function blank() {
     auth: { type: 'none', secret: '', header: '', username: '', token_url: '', client_id: '', scopes: '', extra: [], tpl: [] },
     items_path: '', pag: { type: 'none', page_param: 'page', start_page: '1', offset_param: 'offset', size_param: 'limit', page_size: '100', cursor_param: '', cursor_path: '' },
     filter: [], cls: 'user_inventory', activity: '', rows: [{ o: 'user.uid', src: 'path', val: 'id', tf: 'string', req: true, lookup: '', def: '', fmt: '', tz: '' }],
-    sched: { enabled: false, interval: '3600' }, limits: { max_pages: '10', max_records: '1000', max_response_bytes: '1048576', max_run_seconds: '60' },
+    sched: { enabled: false, interval: '3600' }, notifications: { present: false, enabled: false, failure_threshold: '3', cooldown_seconds: '3600' }, limits: { max_pages: '10', max_records: '1000', max_response_bytes: '1048576', max_run_seconds: '60' },
     retry: { max_attempts: '4', base_delay_ms: '1000', max_retry_after_seconds: '60' } };
 }
 function parse(c) {
   const f = blank(), a = c.auth || {}, p = c.pagination || {}, r = c.request || {};
   // keep: config sections the form doesn't edit, carried through unchanged
-  Object.assign(f, { id: c.id || '', name: c.name || '', vendor: c.vendor || '', keep: { incremental: c.incremental, notifications: c.notifications }, url: r.url || '', timeout: String(r.timeout_seconds || ''), ports: (r.allowed_ports || []).join(', '),
+  Object.assign(f, { id: c.id || '', name: c.name || '', vendor: c.vendor || '', keep: { incremental: c.incremental }, url: r.url || '', timeout: String(r.timeout_seconds || ''), ports: (r.allowed_ports || []).join(', '),
     params: kv(r.params), headers: kv(r.headers), items_path: c.items_path || '', cls: (c.destination || {}).class || 'user_inventory',
     activity: (c.destination || {}).activity_id ? String(c.destination.activity_id) : '' });
   f.auth = { type: a.type || 'none', secret: a.secret || '', header: a.header || '', username: a.username || '', token_url: a.token_url || '', client_id: a.client_id || '',
@@ -763,6 +800,7 @@ function parse(c) {
     lookup: Object.entries(m.lookup || {}).map(([k, x]) => `${k}=${x}`).join('\n'), def: m.default !== undefined ? asText(m.default) : '', rawDef: m.default, fmt: m.format || '', tz: m.timezone || '' }));
   const s = c.schedule || {}, l = c.limits || {}, t = c.retry || {};
   f.sched = { enabled: !!s.enabled, interval: String(s.interval_seconds || '') };
+  if (c.notifications) f.notifications = { present: true, enabled: !!c.notifications.enabled, failure_threshold: String(c.notifications.failure_threshold), cooldown_seconds: String(c.notifications.cooldown_seconds) };
   for (const k of Object.keys(f.limits)) f.limits[k] = l[k] ? String(l[k]) : '';
   for (const k of Object.keys(f.retry)) f.retry[k] = t[k] ? String(t[k]) : '';
   return f;
@@ -820,7 +858,7 @@ function serialize(f) {
   if (Object.keys(limits).length) c.limits = limits;
   if (Object.keys(retry).length) c.retry = retry;
   if (f.keep.incremental) c.incremental = f.keep.incremental;
-  if (f.keep.notifications) c.notifications = f.keep.notifications;
+  if (f.notifications.present || f.notifications.enabled) c.notifications = { enabled: f.notifications.enabled, failure_threshold: num(f.notifications.failure_threshold), cooldown_seconds: num(f.notifications.cooldown_seconds) };
   return c;
 }
 
@@ -969,6 +1007,10 @@ function renderBuilder(v) {
           pl, f.rows.map(mapRow),
           h('div', { class: 'row' }, h('button', { class: 'sm', type: 'button', onclick: () => { f.rows.push({ o: '', src: 'path', val: '', tf: '', req: false, lookup: '', def: '', fmt: '', tz: '' }); rerender(); } }, '+ Add mapping'),
             !mapped.has(identity) ? h('button', { class: 'sm', type: 'button', onclick: () => { f.rows.unshift({ o: identity, src: 'path', val: 'id', tf: 'string', req: true, lookup: '', def: '', fmt: '', tz: '' }); rerender(); } }, '+ Add identity ' + identity) : null)),
+        section('Failure email alerts (B-4)', 'Uses the operator-configured recipient for this customer. Save and activate a revision to apply changes.',
+          h('label', { class: 'inline-check' }, h('input', { type: 'checkbox', checked: f.notifications.enabled, onchange: (e) => { f.notifications.present = true; f.notifications.enabled = e.target.checked; refreshJSON(); } }), 'Email after repeated failures'),
+          h('div', { class: 'grid2' }, field('Consecutive failures', inp(f.notifications, 'failure_threshold', { type: 'number', min: 1, max: 100 })), field('Cooldown (seconds)', inp(f.notifications, 'cooldown_seconds', { type: 'number', min: 60, max: 604800 }))),
+          h('a', { href: '#/email-alerts' }, 'Check email setup and delivery history')),
         h('details', { class: 'card', style: 'padding:12px 16px' }, h('summary', {}, 'Schedule, limits and retries'),
           h('div', { class: 'stack', style: 'margin-top:12px' },
             h('div', { class: 'grid2' }, h('label', { class: 'inline-check' }, h('input', { type: 'checkbox', checked: f.sched.enabled, onchange: (e) => { f.sched.enabled = e.target.checked; refreshJSON(); } }), 'Run on a schedule'),
@@ -1243,7 +1285,7 @@ async function doStep(k, btn) {
         B.saved = r.data;
         return set(true, r.data.unchanged ? `unchanged, rev ${r.data.revision} (${r.data.status})` : `rev ${r.data.revision} saved as ${r.data.status}`, []);
       }
-      if (r.status === 422) return set(false, r.data.errors.length + ' problem(s)', r.data.errors);
+      if (r.status === 422 && Array.isArray(r.data.errors)) return set(false, r.data.errors.length + ' problem(s)', r.data.errors);
       return set(false, (r.data && r.data.error) || 'HTTP ' + r.status, []);
     }
     if (k === 'validate') {

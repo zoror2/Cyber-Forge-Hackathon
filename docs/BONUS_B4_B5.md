@@ -57,9 +57,38 @@ go run ./cmd/api
 These overrides affect this terminal only. Use the actual bootstrap tenant ID
 if yours differs. Restart the API after changing operator routes. The mailbox
 is a bounded, unauthenticated loopback test utility; use only synthetic messages.
-The native demonstration is verified; Docker startup remains unverified.
+The native demonstration was verified earlier. The current Docker dashboard and
+local capture flow were verified again on 2026-11-01; see
+`docs/EMAIL_ALERT_VERIFICATION.md` for current evidence.
 
 ## Show B-4
+
+The main dashboard now has **Email alerts** (`/ui/#/email-alerts`):
+
+1. Check whether this account has SMTP delivery configured or only a local capture mailbox.
+2. Under **Source alert settings**, choose **Edit source**.
+3. Enable **Email after repeated failures**; set the failure threshold and cooldown.
+4. **Save** the draft, then **Activate** it. The dashboard reports the live revision's settings, even when a newer draft exists.
+5. Run the source. Only live failed/incomplete/mapping-degraded collections contribute to the streak; previews do not.
+6. Return to **Email alerts**, filter by source and **Refresh** to see pending/sending/sent/abandoned/cancelled delivery history, attempts and run evidence.
+
+`sent` means SMTP accepted the message, not a guarantee of inbox placement. SMTP credentials and recipient routes are never returned by the status API (`GET /notifications/status`).
+
+For Gmail, the operator sets these privately (never in a connector config):
+
+```dotenv
+CB_SMTP_ADDR=smtp.gmail.com:587
+CB_SMTP_TLS_MODE=starttls
+CB_SMTP_FROM=<sender Gmail address>
+CB_SMTP_USERNAME=<same sender Gmail address>
+CB_SMTP_PASSWORD=<Gmail app password, without spaces>
+CB_ALERT_USE_ACCOUNT_EMAIL=1
+CB_ALERT_EMAIL_ROUTES=
+```
+
+Account-email mode is an explicit opt-in. It resolves one recipient from the current tenant's oldest active admin, under PostgreSQL RLS. Disabled users and viewers are excluded. An explicit `CB_ALERT_EMAIL_ROUTES` entry overrides the default for that tenant; this also supports accounts created with only a bootstrap key. Account email addresses are not independently verified by ConfigBridge. Restart the API after environment changes. Both Compose and native startup support these settings. KEV matches remain dashboard-only.
+
+`node scripts/check-email-alerts.cjs` verifies the running local Docker dashboard with a synthetic mailbox and refuses external SMTP. It checks draft/activation, preview exclusion, the third-failure threshold, duplicate suppression, recovery and cross-account isolation.
 
 In another terminal:
 
@@ -100,7 +129,10 @@ category. They contain no credentials, vendor response bodies or record values.
 Production SMTP uses certificate-verified STARTTLS or implicit TLS, TLS 1.2+,
 and a 15-second total deadline. Plain SMTP is allowed only in development to a
 literal loopback address with no authentication credentials. Real external
-mailbox delivery has not been tested; no real recipient was contacted.
+mailbox delivery was initially untested. On 2026-11-01, one explicitly authorized
+synthetic alert was accepted by Gmail over verified STARTTLS and its arrival in
+the selected inbox was confirmed by the user. This does not establish delivery
+for every provider, recipient or future message.
 
 ## Show B-5
 
