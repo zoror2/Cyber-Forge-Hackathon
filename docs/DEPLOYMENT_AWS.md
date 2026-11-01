@@ -130,6 +130,13 @@ Logs: `cd /opt/configbridge && docker compose -f docker-compose.prod.yml logs --
 
 ## Security notes (fix before real customers)
 
+- **Self sign-up tenants get an empty `kms_key_id`, so they cannot store vendor
+  credentials** (`pkg/secrets/aws.go` refuses). Only `mitigata` has the KMS key
+  (one key per tenant, unique index). Fix: provision a key on sign-up, or use a
+  shared key with tenant encryption context.
+- Pages secrets are set with `bash deploy/pages/set-secrets.sh <aws profile> https://cyberforge-api.mohithkumar.dev`
+  (piped from SSM, never printed), then `deploy.ps1` again.
+
 - The deploy IAM user (`FEDGRID-DEPLOY`) has `AdministratorAccess`. Replace it
   with a scoped deploy role.
 - There is one EC2 host and a single-AZ RDS, so there is no high availability.

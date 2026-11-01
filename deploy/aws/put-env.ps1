@@ -45,7 +45,7 @@ $settings = [ordered]@{
   CB_TUNNEL_TOKEN         = From-Local 'CB_TUNNEL_TOKEN'
   CB_OPENSEARCH_IMAGE     = From-Local 'CB_OPENSEARCH_IMAGE'
   CB_NGINX_IMAGE          = 'nginx:1.27.3-alpine'
-  CB_CLOUDFLARED_IMAGE    = 'cloudflare/cloudflared:2024.12.2'
+  CB_CLOUDFLARED_IMAGE    = 'cloudflare/cloudflared:2026.10.7'
 }
 $body = ($settings.GetEnumerator() | % { "$($_.Key)=$($_.Value)" }) -join "`n"
 $tmp = [IO.Path]::GetTempFileName()
