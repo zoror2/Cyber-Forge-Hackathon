@@ -60,6 +60,12 @@ func run() error {
 	if store.Migrate(ctx, adminDSN, role) != nil {
 		return errors.New("database migration failed")
 	}
+	// Accounts are created by sign-up (operator token in production); a
+	// bootstrap tenant + API key is optional, e.g. for local smoke scripts.
+	if os.Getenv("CB_BOOTSTRAP_TENANT") == "" {
+		slog.Info("migrations complete; no bootstrap tenant requested", "tenant_id", "system")
+		return nil
+	}
 	if store.Bootstrap(ctx, adminDSN, os.Getenv("CB_BOOTSTRAP_TENANT"), os.Getenv("CB_BOOTSTRAP_API_KEY"), os.Getenv("CB_TENANT_KMS_KEY")) != nil {
 		return errors.New("tenant bootstrap failed")
 	}

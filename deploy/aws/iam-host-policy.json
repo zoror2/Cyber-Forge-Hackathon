@@ -1,0 +1,44 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TenantSecrets",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:CreateSecret", "secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue", "secretsmanager:DescribeSecret"],
+      "Resource": "arn:aws:secretsmanager:ap-south-1:481912007303:secret:configbridge/*"
+    },
+    {
+      "Sid": "TenantKeysViaSecretsManager",
+      "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+      "Resource": "arn:aws:kms:ap-south-1:481912007303:key/*",
+      "Condition": {"StringEquals": {"kms:ViaService": "secretsmanager.ap-south-1.amazonaws.com", "aws:ResourceTag/app": "configbridge"}}
+    },
+    {
+      "Sid": "CreateTaggedTenantKeys",
+      "Effect": "Allow",
+      "Action": ["kms:CreateKey", "kms:TagResource"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestTag/app": "configbridge"}, "ForAllValues:StringEquals": {"aws:TagKeys": ["app", "tenant"]}}
+    },
+    {
+      "Sid": "ManageOwnTenantKeys",
+      "Effect": "Allow",
+      "Action": ["kms:EnableKeyRotation", "kms:ScheduleKeyDeletion"],
+      "Resource": "arn:aws:kms:ap-south-1:481912007303:key/*",
+      "Condition": {"StringEquals": {"aws:ResourceTag/app": "configbridge"}}
+    },
+    {
+      "Sid": "HostEnv",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter"],
+      "Resource": "arn:aws:ssm:ap-south-1:481912007303:parameter/configbridge/prod/*"
+    },
+    {
+      "Sid": "DeployBundle",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::configbridge-deploy-481912007303-aps1/*"
+    }
+  ]
+}

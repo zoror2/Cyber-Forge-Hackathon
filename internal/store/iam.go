@@ -58,6 +58,24 @@ func (s *Store) CreateAccount(ctx context.Context, tenant, kms, name, email, has
 	}
 	return id, e
 }
+
+// ErrSignupClosed: public sign-up reached its account cap.
+var ErrSignupClosed = errors.New("signup_closed")
+
+// CreateOpenAccount is public self sign-up: like CreateAccount, with no KMS
+// key (created on first credential) and refused once maxAccounts exist.
+func (s *Store) CreateOpenAccount(ctx context.Context, tenant, name, email, hash string, maxAccounts int) (string, error) {
+	var id string
+	e := s.Pool.QueryRow(ctx, "SELECT iam_create_open_account($1,$2,$3,$4,$5)", tenant, name, email, hash, maxAccounts).Scan(&id)
+	var pg *pgconn.PgError
+	if errors.As(e, &pg) && pg.Code == "53400" {
+		return "", ErrSignupClosed
+	}
+	if unique(e) {
+		return "", ErrExists
+	}
+	return id, e
+}
 func (s *Store) LoginLookup(ctx context.Context, tenant, email string) (Login, error) {
 	var l Login
 	e := s.Pool.QueryRow(ctx, "SELECT id,password_hash,active,role,token_version FROM iam_login_lookup($1,$2)", tenant, email).Scan(&l.ID, &l.Hash, &l.Active, &l.Role, &l.Version)

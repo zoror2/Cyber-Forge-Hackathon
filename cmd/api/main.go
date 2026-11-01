@@ -15,6 +15,7 @@ import (
 	"errors"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"log/slog"
 	"net/http"
@@ -77,7 +78,7 @@ func run() error {
 		if err != nil {
 			return errors.New("AWS configuration unavailable")
 		}
-		backend = &secrets.AWS{Client: secretsmanager.NewFromConfig(cfg), Store: db, Prefix: "configbridge/"}
+		backend = &secrets.AWS{Client: secretsmanager.NewFromConfig(cfg), KMS: kms.NewFromConfig(cfg), Store: db, Prefix: "configbridge/"}
 	default:
 		return errors.New("CB_SECRETS_BACKEND must be local or aws")
 	}
@@ -184,13 +185,29 @@ func run() error {
 	if len(sessionKey) < 32 {
 		return errors.New("CB_JWT_SECRET must be at least 32 bytes")
 	}
+	// Public sign-up: production requires a hard account cap (it also bounds
+	// KMS spend: one key per account). 0 = uncapped, development only.
 	signup := os.Getenv("CB_SIGNUP") == "open"
-	if signup && !dev {
-		return errors.New("CB_SIGNUP=open is development-only; use CB_OPERATOR_TOKEN")
+	signupMax := 0
+	if signup {
+		if raw := os.Getenv("CB_SIGNUP_MAX_ACCOUNTS"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 {
+				return errors.New("CB_SIGNUP_MAX_ACCOUNTS must be a positive integer")
+			}
+			signupMax = n
+		}
+		if signupMax == 0 && !dev {
+			return errors.New("CB_SIGNUP=open in production requires CB_SIGNUP_MAX_ACCOUNTS")
+		}
 	}
 	operator := os.Getenv("CB_OPERATOR_TOKEN")
 	if operator != "" && len(operator) < 32 {
 		return errors.New("CB_OPERATOR_TOKEN must be at least 32 characters")
+	}
+	proxySecret := os.Getenv("CB_PROXY_SECRET")
+	if proxySecret != "" && len(proxySecret) < 32 {
+		return errors.New("CB_PROXY_SECRET must be at least 32 characters")
 	}
 	siem, e := app.SIEM(os.Getenv, drafter)
 	if e != nil {
@@ -199,7 +216,7 @@ func run() error {
 	handler, e := api.New(&api.API{Store: db, Engine: runs, Secrets: svc, Limits: limits, AI: drafter, SIEM: siem, NotificationTenants: notificationTenants,
 		NotificationLocalCapture: dev && os.Getenv("CB_SMTP_TLS_MODE") == "plain",
 		NotificationReady:        notificationReady,
-		SessionKey:               sessionKey, InsecureCookies: dev, OpenSignup: signup, OperatorToken: operator})
+		SessionKey:               sessionKey, InsecureCookies: dev, OpenSignup: signup, SignupMax: signupMax, OperatorToken: operator, ProxySecret: proxySecret})
 	if e != nil {
 		return e
 	}

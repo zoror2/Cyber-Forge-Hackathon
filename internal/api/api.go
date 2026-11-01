@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"html/template"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -47,10 +49,42 @@ type API struct {
 	SessionKey []byte
 	// InsecureCookies drops the Secure flag: dev over plain http only.
 	InsecureCookies bool
-	// OpenSignup lets anyone create an account (dev demo: CB_SIGNUP=open).
+	// OpenSignup lets anyone create an account (CB_SIGNUP=open), refused once
+	// SignupMax accounts exist (CB_SIGNUP_MAX_ACCOUNTS, required with open).
 	OpenSignup bool
+	SignupMax  int
 	// OperatorToken lets the platform operator create accounts (CB_OPERATOR_TOKEN).
 	OperatorToken string
+	// ProxySecret (CB_PROXY_SECRET): when set, the API sits behind the
+	// frontend's proxy (Cloudflare Pages Function). Every request except
+	// /health must carry it; only then are the proxy's client-IP and
+	// original-host headers trusted. Direct requests are refused.
+	ProxySecret string
+}
+
+// fromProxy enforces ProxySecret and applies the proxy's forwarded client IP
+// (rate limits stay per user) and original host (same-origin check sees the
+// browser's site, not the tunnel hostname). Unset secret: headers ignored.
+func (a *API) fromProxy(w http.ResponseWriter, r *http.Request) bool {
+	got := r.Header.Get("X-CB-Proxy-Secret")
+	r.Header.Del("X-CB-Proxy-Secret")
+	if a.ProxySecret == "" {
+		return true
+	}
+	if subtle.ConstantTimeCompare([]byte(got), []byte(a.ProxySecret)) != 1 {
+		if r.URL.Path == "/health" {
+			return true
+		}
+		fail(w, 403, "direct_access_disabled")
+		return false
+	}
+	if ip := net.ParseIP(r.Header.Get("X-CB-Client-IP")); ip != nil {
+		r.RemoteAddr = net.JoinHostPort(ip.String(), "0")
+	}
+	if h := r.Header.Get("X-CB-Forwarded-Host"); h != "" && config.ValidHost(h) {
+		r.Host = h
+	}
+	return true
 }
 
 type tenantKey struct{}
@@ -116,6 +150,9 @@ func New(a *API) (http.Handler, error) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+		if !a.fromProxy(w, r) {
+			return
+		}
 		ip := clientIP(r)
 		if !sameOrigin(r) {
 			fail(w, 403, "browser_cross_origin_requests_disabled")

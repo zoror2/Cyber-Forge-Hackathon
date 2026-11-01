@@ -5,3 +5,6 @@ coverage.out
 data/
 *.exe
 PRD_*.pdf
+
+deploy/pages/dist/
+.wrangler/

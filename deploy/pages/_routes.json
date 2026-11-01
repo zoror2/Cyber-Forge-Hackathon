@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": ["/ui/", "/ui/index.html", "/ui/app.js", "/ui/app.css", "/ui/ai-usage.js"]
+}
